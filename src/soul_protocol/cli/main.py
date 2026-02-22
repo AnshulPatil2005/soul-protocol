@@ -1,4 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: v0.2.2 — Fixed version_option to read from package __version__.
 # Created: 2026-02-22 — Commands: birth, inspect, status, export, migrate
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ console = Console()
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="soul")
+@click.version_option(package_name="soul-protocol", prog_name="soul")
 def cli():
     """Soul Protocol — Portable identity and memory for AI agents."""
     pass

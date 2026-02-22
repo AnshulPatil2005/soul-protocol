@@ -18,7 +18,7 @@ def tokenize(text: str) -> set[str]:
         A set of cleaned, lowercased tokens with len >= 3.
     """
     words = text.lower().split()
-    return {w.strip(".,!?;:'\"()[]{}") for w in words if len(w) >= 3}
+    return {stripped for w in words if (stripped := w.strip(".,!?;:'\"()[]{}")) and len(stripped) >= 3}
 
 
 def relevance_score(query: str, content: str) -> float:

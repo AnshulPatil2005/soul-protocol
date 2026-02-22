@@ -1,7 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
-# Updated: 2026-02-22 — save() now persists full memory via save_soul_full().
-#   awaken() and export() handle full memory data via updated pack_soul/
-#   unpack_soul signatures (tuple return).
+# Updated: 2026-02-22 — Fixed awaken() to use normal __init__ path then
+#   replace memory manager. save() persists full memory via save_soul_full().
+#   export()/awaken() handle full memory in .soul files.
 #   observe() transforms extract_entities output into update_graph format.
 
 from __future__ import annotations
@@ -111,19 +111,12 @@ class Soul:
             else:
                 raise ValueError(f"Unknown soul format: {path.suffix}")
 
-        # If full memory data was included, restore from it
+        soul = cls(config)
+        soul._lifecycle = LifecycleState.ACTIVE
+
+        # If full memory data was included, replace the default memory manager
         if memory_data:
-            soul = cls.__new__(cls)
-            soul._config = config
-            soul._identity = config.identity
-            soul._dna = config.dna
-            soul._lifecycle = LifecycleState.ACTIVE
             soul._memory = MemoryManager.from_dict(memory_data, config.memory)
-            soul._state = StateManager(config.state)
-            soul._evolution = EvolutionManager(config.evolution)
-        else:
-            soul = cls(config)
-            soul._lifecycle = LifecycleState.ACTIVE
 
         return soul
 

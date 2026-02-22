@@ -1,6 +1,6 @@
 # test_soul.py — Tests for the main Soul class API surface.
-# Created: 2026-02-22 — Covers birth, awaken, observe, feel, remember/recall,
-# export/awaken roundtrip, system prompt, serialization, and from_markdown.
+# Updated: 2026-02-22 — Added save/load full round-trip test and
+# export/awaken memory fidelity test.
 
 from __future__ import annotations
 
@@ -162,3 +162,57 @@ archetype: The Helper
     assert soul.dna.personality.agreeableness == pytest.approx(0.9, abs=0.01)
     assert "kindness" in soul.identity.core_values
     assert "reliability" in soul.identity.core_values
+
+
+async def test_export_awaken_preserves_memories(tmp_path):
+    """Export/awaken round-trip preserves episodic and semantic memories."""
+    soul = await Soul.birth("Aria")
+
+    # Add memories across tiers
+    await soul.remember("User likes dark mode", type=MemoryType.SEMANTIC, importance=7)
+    await soul.observe(Interaction(
+        user_input="My name is Prakash",
+        agent_output="Nice to meet you, Prakash!",
+    ))
+
+    soul_path = tmp_path / "aria.soul"
+    await soul.export(str(soul_path))
+
+    restored = await Soul.awaken(str(soul_path))
+
+    # Semantic memory should survive
+    results = await restored.recall("dark mode")
+    assert any("dark mode" in r.content for r in results)
+
+    # Episodic memory from observe should survive
+    results = await restored.recall("Prakash")
+    assert len(results) >= 1
+
+
+async def test_save_load_full_roundtrip(tmp_path):
+    """Soul.save() + load_soul_full() preserves config and all memory tiers."""
+    from soul_protocol.storage.file import load_soul_full
+
+    soul = await Soul.birth("Aria")
+    await soul.remember("User prefers Python", type=MemoryType.SEMANTIC, importance=8)
+    await soul.observe(Interaction(
+        user_input="I use FastAPI for my projects",
+        agent_output="FastAPI is great for building APIs!",
+    ))
+
+    await soul.save(tmp_path)
+
+    # Find the saved directory
+    soul_id = soul.did
+    soul_dir = tmp_path / soul_id
+    assert soul_dir.exists()
+    assert (soul_dir / "soul.json").exists()
+    assert (soul_dir / "memory" / "semantic.json").exists()
+    assert (soul_dir / "memory" / "episodic.json").exists()
+
+    # Load and verify
+    config, memory_data = await load_soul_full(soul_dir)
+    assert config is not None
+    assert config.identity.name == "Aria"
+    assert len(memory_data.get("semantic", [])) >= 1
+    assert len(memory_data.get("episodic", [])) >= 1

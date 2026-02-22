@@ -39,3 +39,6 @@ uv.lock
 
 # Soul files (don't commit user souls)
 *.soul
+
+# Internal docs (not for public repo)
+idocs/

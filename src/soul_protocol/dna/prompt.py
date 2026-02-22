@@ -1,5 +1,6 @@
 # dna/prompt.py — Convert soul DNA into system prompts and markdown representations
-# Created: 2026-02-22 — Prompt generation from Identity, DNA, CoreMemory, SoulState
+# Updated: v0.2.0 — Self-model insights are now appended by Soul.to_system_prompt()
+#   rather than being generated here. This module remains unchanged in its core API.
 
 from __future__ import annotations
 

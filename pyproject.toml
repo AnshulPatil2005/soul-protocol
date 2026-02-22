@@ -1,5 +1,5 @@
 # soul-protocol — Portable AI identity and memory
-# Created: 2026-02-22 — Initial project setup
+# Updated: v0.2.0 — Psychology-informed memory system
 
 [build-system]
 requires = ["hatchling"]
@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soul-protocol"
-version = "0.1.0"
+version = "0.2.0"
 description = "The open standard for portable AI identity and memory"
 readme = "README.md"
 license = "MIT"

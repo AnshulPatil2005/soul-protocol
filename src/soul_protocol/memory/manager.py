@@ -1,21 +1,28 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
-# Updated: 2026-02-22 — Improved to_dict() to use entries() for procedural
-#   store; improved from_dict() to use MemoryEntry.model_validate() for safe
-#   deserialization. Full round-trip serialization for all memory tiers.
-#   Heuristic fact extraction (extract_facts) and entity extraction
-#   (extract_entities) using regex pattern matching.
+# Updated: v0.2.0 — Wired psychology-informed observe pipeline:
+#   sentiment → significance → conditional episodic → facts → entities →
+#   graph → self-model → state.
+#   Added SelfModelManager, attention gate, and somatic marker integration.
+#   Recall now uses ACT-R activation scoring via updated RecallEngine.
 
 from __future__ import annotations
 
 import re
 from datetime import datetime
 
+from soul_protocol.memory.attention import (
+    compute_significance,
+    is_significant,
+    overall_significance,
+)
 from soul_protocol.memory.core import CoreMemoryManager
 from soul_protocol.memory.episodic import EpisodicStore
 from soul_protocol.memory.graph import KnowledgeGraph
 from soul_protocol.memory.procedural import ProceduralStore
 from soul_protocol.memory.recall import RecallEngine
+from soul_protocol.memory.self_model import SelfModelManager
 from soul_protocol.memory.semantic import SemanticStore
+from soul_protocol.memory.sentiment import detect_sentiment
 from soul_protocol.types import (
     CoreMemory,
     Interaction,
@@ -147,10 +154,21 @@ class MemoryManager:
       - Procedural memory (how-to knowledge)
       - Knowledge graph (entity relationships)
       - Cross-store recall (unified search)
+      - Self-model (Klein's self-concept)
+
+    v0.2.0: observe() pipeline is psychology-informed:
+      sentiment → significance → conditional episodic → facts →
+      entities → graph → self-model
     """
 
-    def __init__(self, core: CoreMemory, settings: MemorySettings) -> None:
+    def __init__(
+        self,
+        core: CoreMemory,
+        settings: MemorySettings,
+        core_values: list[str] | None = None,
+    ) -> None:
         self._settings = settings
+        self._core_values = core_values or []
 
         # Initialize subsystems
         self._core_manager = CoreMemoryManager(core)
@@ -163,6 +181,9 @@ class MemoryManager:
             semantic=self._semantic,
             procedural=self._procedural,
         )
+
+        # v0.2.0 — Psychology modules
+        self._self_model = SelfModelManager()
 
     # ---- Core memory ----
 
@@ -214,6 +235,80 @@ class MemoryManager:
         This is the primary way to record interactions. Returns memory ID.
         """
         return await self._episodic.add(interaction)
+
+    async def observe(
+        self,
+        interaction: Interaction,
+        core_values: list[str] | None = None,
+    ) -> dict:
+        """Process an interaction through the psychology-informed pipeline.
+
+        v0.2.0 Pipeline:
+          1. Detect sentiment → SomaticMarker
+          2. Compute significance → SignificanceScore
+          3. If significant: store episodic with somatic marker
+          4. Extract semantic facts (always, even if not significant)
+          5. Extract entities and update graph
+          6. Update self-model from interaction + facts
+
+        Non-significant interactions still get fact extraction (semantic
+        memory) but skip episodic storage. This means mundane "hello/hi"
+        exchanges don't clutter episodic memory.
+
+        Args:
+            interaction: The interaction to process.
+            core_values: Override core values for significance scoring.
+
+        Returns:
+            Dict with pipeline results (for inspection/testing):
+              - somatic: SomaticMarker
+              - significance: float
+              - is_significant: bool
+              - episodic_id: str | None
+              - facts: list[MemoryEntry]
+              - entities: list[dict]
+        """
+        values = core_values or self._core_values
+
+        # --- 1. Detect sentiment ---
+        somatic = detect_sentiment(interaction.user_input)
+
+        # --- 2. Compute significance ---
+        recent = self._episodic.recent_contents(n=10)
+        sig_score = compute_significance(interaction, values, recent)
+        sig_value = overall_significance(sig_score)
+        significant = is_significant(sig_score)
+
+        # --- 3. Conditional episodic storage ---
+        episodic_id: str | None = None
+        if significant:
+            episodic_id = await self._episodic.add_with_psychology(
+                interaction,
+                somatic=somatic,
+                significance=sig_value,
+            )
+        # Note: if not significant, the interaction still gets fact extraction
+        # below but won't appear in episodic memory
+
+        # --- 4. Extract and store semantic facts ---
+        facts = self.extract_facts(interaction)
+        for fact in facts:
+            await self.add(fact)
+
+        # --- 5. Extract entities and update graph ---
+        entities = self.extract_entities(interaction)
+
+        # --- 6. Update self-model ---
+        self._self_model.update_from_interaction(interaction, facts)
+
+        return {
+            "somatic": somatic,
+            "significance": sig_value,
+            "is_significant": significant,
+            "episodic_id": episodic_id,
+            "facts": facts,
+            "entities": entities,
+        }
 
     async def recall(
         self,
@@ -405,12 +500,20 @@ class MemoryManager:
                 if target:
                     self._graph.add_relationship(name, target, relation)
 
+    # ---- Self-model access ----
+
+    @property
+    def self_model(self) -> SelfModelManager:
+        """Return the self-model manager."""
+        return self._self_model
+
     # ---- Lifecycle ----
 
     async def clear(self) -> None:
         """Clear all memory stores and reset the knowledge graph.
 
         Core memory is preserved — use set_core() to reset it.
+        Self-model is preserved across clears.
         """
         self._episodic = EpisodicStore(max_entries=self._settings.episodic_max_entries)
         self._semantic = SemanticStore(max_facts=self._settings.semantic_max_facts)
@@ -434,8 +537,8 @@ class MemoryManager:
     def to_dict(self) -> dict:
         """Serialize the entire memory state to a plain dict.
 
-        Includes core memory, all store entries, and the knowledge graph.
-        Suitable for JSON persistence.
+        Includes core memory, all store entries, the knowledge graph,
+        and the self-model.
         """
         return {
             "core": self._core_manager.get().model_dump(),
@@ -450,15 +553,22 @@ class MemoryManager:
                 for proc in self._procedural.entries()
             ],
             "graph": self._graph.to_dict(),
+            "self_model": self._self_model.to_dict(),
         }
 
     @classmethod
-    def from_dict(cls, data: dict, settings: MemorySettings) -> MemoryManager:
+    def from_dict(
+        cls,
+        data: dict,
+        settings: MemorySettings,
+        core_values: list[str] | None = None,
+    ) -> MemoryManager:
         """Deserialize memory state from a plain dict.
 
         Args:
             data: Dict as produced by to_dict().
             settings: MemorySettings to configure the new manager.
+            core_values: Core values for significance scoring.
 
         Returns:
             A fully reconstituted MemoryManager.
@@ -467,7 +577,7 @@ class MemoryManager:
         core_data = data.get("core", {})
         core = CoreMemory(**core_data)
 
-        manager = cls(core=core, settings=settings)
+        manager = cls(core=core, settings=settings, core_values=core_values)
 
         # Restore episodic memories
         for entry_data in data.get("episodic", []):
@@ -488,5 +598,10 @@ class MemoryManager:
         graph_data = data.get("graph", {})
         if graph_data:
             manager._graph = KnowledgeGraph.from_dict(graph_data)
+
+        # Restore self-model
+        self_model_data = data.get("self_model", {})
+        if self_model_data:
+            manager._self_model = SelfModelManager.from_dict(self_model_data)
 
         return manager

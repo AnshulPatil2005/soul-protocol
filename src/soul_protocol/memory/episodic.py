@@ -1,6 +1,7 @@
 # memory/episodic.py — EpisodicStore for timestamped interaction memories.
-# Updated: 2026-02-22 — Replaced substring search with token-overlap relevance
-# scoring via search.py. Results now sorted by relevance, importance, recency.
+# Updated: v0.2.0 — Store somatic markers and significance scores on entries.
+#   Eviction now considers activation (significance + access) not just age.
+#   Added store_with_psychology() for the enriched observe pipeline.
 
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from soul_protocol.memory.search import relevance_score
-from soul_protocol.types import Interaction, MemoryEntry, MemoryType
+from soul_protocol.types import Interaction, MemoryEntry, MemoryType, SomaticMarker
 
 
 class EpisodicStore:
@@ -16,6 +17,9 @@ class EpisodicStore:
 
     Episodic memories capture what happened — timestamped records of
     conversations and events. They form the soul's autobiographical memory.
+
+    v0.2.0: Entries can carry somatic markers (emotional context) and
+    significance scores. Eviction prefers low-significance entries.
     """
 
     def __init__(self, max_entries: int = 10000) -> None:
@@ -38,11 +42,59 @@ class EpisodicStore:
             importance=5,
             created_at=interaction.timestamp,
             entities=[],
+            access_timestamps=[interaction.timestamp],
         )
 
-        # Evict oldest entry if at capacity
+        # Evict if at capacity
         if len(self._memories) >= self._max_entries:
-            self._evict_oldest()
+            self._evict_least_significant()
+
+        self._memories[memory_id] = entry
+        return memory_id
+
+    async def add_with_psychology(
+        self,
+        interaction: Interaction,
+        somatic: SomaticMarker | None = None,
+        significance: float = 0.0,
+    ) -> str:
+        """Store an interaction with psychology-informed metadata.
+
+        This is the enriched path used by the v0.2.0 observe pipeline.
+
+        Args:
+            interaction: The interaction to store.
+            somatic: Emotional context from sentiment detection.
+            significance: Overall significance score from the attention gate.
+
+        Returns:
+            The generated memory ID.
+        """
+        memory_id = uuid.uuid4().hex[:12]
+
+        content = f"User: {interaction.user_input}\nAgent: {interaction.agent_output}"
+
+        # Map emotional intensity to importance (5-9 range)
+        importance = 5
+        if somatic and somatic.arousal > 0.3:
+            importance = min(9, 5 + int(somatic.arousal * 4))
+
+        entry = MemoryEntry(
+            id=memory_id,
+            type=MemoryType.EPISODIC,
+            content=content,
+            importance=importance,
+            emotion=somatic.label if somatic else None,
+            created_at=interaction.timestamp,
+            entities=[],
+            somatic=somatic,
+            significance=significance,
+            access_timestamps=[interaction.timestamp],
+        )
+
+        # Evict if at capacity
+        if len(self._memories) >= self._max_entries:
+            self._evict_least_significant()
 
         self._memories[memory_id] = entry
         return memory_id
@@ -51,8 +103,10 @@ class EpisodicStore:
         """Retrieve a single memory by ID, updating access metadata."""
         entry = self._memories.get(memory_id)
         if entry is not None:
-            entry.last_accessed = datetime.now()
+            now = datetime.now()
+            entry.last_accessed = now
             entry.access_count += 1
+            entry.access_timestamps.append(now)
         return entry
 
     async def search(self, query: str, limit: int = 10) -> list[MemoryEntry]:
@@ -86,12 +140,42 @@ class EpisodicStore:
             reverse=True,
         )
 
-    def _evict_oldest(self) -> None:
-        """Remove the oldest entry (by created_at) to make room."""
+    def recent_contents(self, n: int = 10) -> list[str]:
+        """Return content strings of the N most recent entries.
+
+        Used by the attention gate for novelty comparison.
+
+        Args:
+            n: Number of recent entries to return.
+
+        Returns:
+            List of content strings, most recent first.
+        """
+        recent = self.entries()[:n]
+        return [e.content for e in recent]
+
+    def _evict_least_significant(self) -> None:
+        """Remove the least significant entry to make room.
+
+        Prefers evicting entries with low significance, low importance,
+        and no recent access. Falls back to oldest if all are equal.
+        """
         if not self._memories:
             return
-        oldest_id = min(
+
+        # Score each entry: lower = more likely to evict
+        def eviction_score(entry: MemoryEntry) -> float:
+            return (
+                entry.significance * 2.0
+                + entry.importance * 0.1
+                + entry.access_count * 0.5
+            )
+
+        victim_id = min(
             self._memories,
-            key=lambda mid: self._memories[mid].created_at.timestamp(),
+            key=lambda mid: eviction_score(self._memories[mid]),
         )
-        del self._memories[oldest_id]
+        del self._memories[victim_id]
+
+    # Legacy alias
+    _evict_oldest = _evict_least_significant

@@ -1,23 +1,31 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
-# Updated: 2026-02-22 — Replaced simple importance-based merge with
-# token-overlap relevance scoring from search.py. Results are now sorted
-# by relevance score descending, then importance, then recency.
+# Updated: v0.2.0 — Replaced flat relevance scoring with ACT-R activation-based
+#   ranking. Memories are now scored by base-level activation (recency + frequency),
+#   spreading activation (query relevance), and emotional boost (somatic markers).
+#   Access timestamps are updated on retrieval (strengthens future recall).
+#   Timestamps capped at MAX_ACCESS_TIMESTAMPS to bound memory growth.
 
 from __future__ import annotations
 
+from datetime import datetime
+
+from soul_protocol.memory.activation import compute_activation
 from soul_protocol.memory.episodic import EpisodicStore
 from soul_protocol.memory.procedural import ProceduralStore
-from soul_protocol.memory.search import relevance_score
 from soul_protocol.memory.semantic import SemanticStore
 from soul_protocol.types import MemoryEntry, MemoryType
 
+# Cap access_timestamps to prevent unbounded memory growth in long-running sessions.
+# 100 timestamps is sufficient for ACT-R power-law decay calculations.
+MAX_ACCESS_TIMESTAMPS: int = 100
+
 
 class RecallEngine:
-    """Cross-store memory retrieval engine.
+    """Cross-store memory retrieval engine with ACT-R activation scoring.
 
-    Queries all configured memory stores in parallel and merges results
-    into a single ranked list. Supports type filtering and importance
-    thresholds.
+    Queries all configured memory stores and ranks results by cognitive
+    activation: recency + frequency (base-level), query relevance (spreading),
+    and emotional intensity (somatic boost).
     """
 
     def __init__(
@@ -37,18 +45,17 @@ class RecallEngine:
         types: list[MemoryType] | None = None,
         min_importance: int = 0,
     ) -> list[MemoryEntry]:
-        """Search across memory stores and return merged, ranked results.
+        """Search across memory stores and return activation-ranked results.
 
         Args:
-            query: Search string for token-overlap matching.
+            query: Search string for activation scoring.
             limit: Maximum number of results to return.
             types: If provided, only search these memory types.
                    If None, search all stores.
             min_importance: Minimum importance score (1-10) for results.
 
         Returns:
-            List of MemoryEntry sorted by relevance desc, importance desc,
-            then recency desc.
+            List of MemoryEntry sorted by activation score descending.
         """
         results: list[MemoryEntry] = []
         search_all = types is None
@@ -72,13 +79,20 @@ class RecallEngine:
         if min_importance > 0:
             results = [r for r in results if r.importance >= min_importance]
 
-        # Sort by relevance score, then importance, then recency
+        now = datetime.now()
+
+        # Score by ACT-R activation (deterministic — no noise in recall ranking)
         results.sort(
-            key=lambda e: (
-                -relevance_score(query, e.content),
-                -e.importance,
-                -e.created_at.timestamp(),
-            )
+            key=lambda e: -compute_activation(e, query, now=now, noise=False),
         )
+
+        # Update access metadata on retrieved entries (strengthens future recall).
+        # Cap timestamps to MAX_ACCESS_TIMESTAMPS to prevent unbounded growth.
+        for entry in results[:limit]:
+            entry.last_accessed = now
+            entry.access_count += 1
+            entry.access_timestamps.append(now)
+            if len(entry.access_timestamps) > MAX_ACCESS_TIMESTAMPS:
+                entry.access_timestamps = entry.access_timestamps[-MAX_ACCESS_TIMESTAMPS:]
 
         return results[:limit]

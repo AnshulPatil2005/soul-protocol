@@ -1,0 +1,157 @@
+# memory/activation.py — ACT-R activation-based memory scoring.
+# Created: v0.2.0 — Implements Anderson's ACT-R power-law decay,
+#   spreading activation via token overlap, emotional boost from
+#   somatic markers, and stochastic noise for natural variability.
+
+from __future__ import annotations
+
+import math
+import random
+from datetime import datetime
+
+from soul_protocol.memory.search import relevance_score
+from soul_protocol.types import MemoryEntry, SomaticMarker
+
+
+# ---------------------------------------------------------------------------
+# ACT-R Parameters (tuned for conversational AI, not cognitive modeling)
+# ---------------------------------------------------------------------------
+
+# Decay exponent — higher = faster forgetting. ACT-R default is 0.5.
+DECAY_RATE: float = 0.5
+
+# Weight for each component in the final activation score
+W_BASE: float = 1.0        # base-level activation (recency + frequency)
+W_SPREAD: float = 1.5      # spreading activation (query relevance)
+W_EMOTION: float = 0.5     # emotional boost
+NOISE_SCALE: float = 0.1   # stochastic noise magnitude
+
+
+def base_level_activation(
+    timestamps: list[datetime],
+    now: datetime | None = None,
+) -> float:
+    """Compute ACT-R base-level activation from access history.
+
+    Formula: B_i = ln(sum(t_j^(-d))) where t_j is seconds since each access
+    and d is the decay rate.
+
+    Memories accessed more often and more recently have higher activation.
+    This naturally implements both recency and frequency effects.
+
+    Args:
+        timestamps: List of datetime objects when this memory was accessed.
+        now: Current time (defaults to datetime.now()).
+
+    Returns:
+        Base-level activation value (can be negative for old/rare memories).
+    """
+    if not timestamps:
+        return 0.0
+
+    now = now or datetime.now()
+    total = 0.0
+
+    for ts in timestamps:
+        seconds_ago = max(1.0, (now - ts).total_seconds())
+        total += seconds_ago ** (-DECAY_RATE)
+
+    if total <= 0:
+        return 0.0
+
+    return math.log(total)
+
+
+def spreading_activation(query: str, content: str) -> float:
+    """Compute spreading activation from query context.
+
+    Reuses the existing token-overlap relevance scoring. In ACT-R terms,
+    this is the associative strength between the query (source) and the
+    memory (target).
+
+    Args:
+        query: The retrieval cue (search query).
+        content: The memory content to score against.
+
+    Returns:
+        Activation spread value (0.0 to 1.0).
+    """
+    return relevance_score(query, content)
+
+
+def emotional_boost(somatic: SomaticMarker | None) -> float:
+    """Compute activation boost from emotional intensity.
+
+    Emotional memories are more easily recalled (Damasio). Higher arousal
+    = stronger memory trace. Extreme valence (positive or negative) also
+    contributes.
+
+    Args:
+        somatic: The memory's somatic marker (or None).
+
+    Returns:
+        Emotional boost value (0.0 to ~1.0).
+    """
+    if somatic is None:
+        return 0.0
+
+    # Arousal is the primary driver — intense emotions stick
+    arousal_component = somatic.arousal
+
+    # Absolute valence also contributes (both very positive and very negative
+    # are memorable — the "flashbulb memory" effect)
+    valence_component = abs(somatic.valence) * 0.3
+
+    return min(1.0, arousal_component + valence_component)
+
+
+def compute_activation(
+    entry: MemoryEntry,
+    query: str,
+    now: datetime | None = None,
+    noise: bool = True,
+) -> float:
+    """Compute total activation for a memory entry.
+
+    Combines:
+    1. Base-level activation (ACT-R recency + frequency decay)
+    2. Spreading activation (query relevance)
+    3. Emotional boost (somatic markers)
+    4. Stochastic noise (natural variability)
+
+    Graceful degradation: entries with no access_timestamps fall back to
+    importance-weighted token-overlap scoring.
+
+    Args:
+        entry: The memory entry to score.
+        query: The retrieval cue.
+        now: Current time (defaults to datetime.now()).
+        noise: Whether to add stochastic noise (disable for deterministic tests).
+
+    Returns:
+        Total activation score (higher = more likely to be recalled).
+    """
+    now = now or datetime.now()
+
+    # Base-level: if we have access history, use ACT-R decay
+    if entry.access_timestamps:
+        base = base_level_activation(entry.access_timestamps, now)
+    else:
+        # Fallback: use importance as a proxy for base activation
+        # Scale importance (1-10) to roughly match ACT-R range
+        base = (entry.importance - 5) * 0.2  # maps 1-10 to -0.8 to 1.0
+
+    # Spreading activation from query
+    spread = spreading_activation(query, entry.content)
+
+    # Emotional boost
+    emo = emotional_boost(entry.somatic)
+
+    # Combine with weights
+    activation = (W_BASE * base) + (W_SPREAD * spread) + (W_EMOTION * emo)
+
+    # Add stochastic noise for natural variability
+    if noise:
+        activation += random.gauss(0, NOISE_SCALE)
+
+    return activation

@@ -1,7 +1,6 @@
 # export/unpack.py — Load a SoulConfig from a .soul zip archive.
-# Updated: 2026-02-22 — Changed return type to tuple[SoulConfig, dict] to
-# return full memory data alongside the config. Reads episodic.json,
-# semantic.json, procedural.json, graph.json from memory/ if present.
+# Updated: v0.2.0 — Added self_model.json to memory tier extraction.
+#   Returns full memory data including self_model alongside the config.
 
 from __future__ import annotations
 
@@ -40,7 +39,7 @@ async def unpack_soul(data: bytes) -> tuple[SoulConfig, dict]:
         payload = json.loads(raw)
 
         # Extract memory tier files if present
-        for tier_name in ["core", "episodic", "semantic", "procedural", "graph"]:
+        for tier_name in ["core", "episodic", "semantic", "procedural", "graph", "self_model"]:
             mem_path = f"memory/{tier_name}.json"
             if mem_path in zf.namelist():
                 memory_data[tier_name] = json.loads(zf.read(mem_path))

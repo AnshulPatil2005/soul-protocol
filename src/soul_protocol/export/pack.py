@@ -1,8 +1,6 @@
 # export/pack.py — Create .soul zip archives from a SoulConfig.
-# Updated: 2026-02-22 — Added optional memory_data parameter to pack_soul()
-# for full memory tier persistence. When provided, writes episodic.json,
-# semantic.json, procedural.json, graph.json into the memory/ directory
-# alongside the existing memory/core.json.
+# Updated: v0.2.0 — Added self_model.json to memory/ directory in archives.
+#   Includes episodic, semantic, procedural, graph, and self_model tiers.
 
 from __future__ import annotations
 
@@ -69,8 +67,9 @@ async def pack_soul(
 
         # Additional memory tiers (only if memory_data provided)
         if memory_data:
-            for tier_name in ["episodic", "semantic", "procedural", "graph"]:
-                tier_data = memory_data.get(tier_name, [] if tier_name != "graph" else {})
+            for tier_name in ["episodic", "semantic", "procedural", "graph", "self_model"]:
+                default = {} if tier_name in ("graph", "self_model") else []
+                tier_data = memory_data.get(tier_name, default)
                 zf.writestr(
                     f"memory/{tier_name}.json",
                     json.dumps(tier_data, indent=2, default=str),

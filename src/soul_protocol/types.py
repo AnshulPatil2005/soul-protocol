@@ -1,5 +1,6 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
-# Updated: v0.2.0 — Added SomaticMarker, SignificanceScore, GeneralEvent, SelfImage
+# Updated: v0.2.1 — Added ReflectionResult for CognitiveEngine reflection output.
+#   v0.2.0 — Added SomaticMarker, SignificanceScore, GeneralEvent, SelfImage
 #   for psychology-informed memory. Extended MemoryEntry with somatic markers,
 #   access_timestamps, significance, and general_event_id fields.
 
@@ -277,6 +278,25 @@ class Interaction(BaseModel):
     channel: str = "unknown"
     timestamp: datetime = Field(default_factory=datetime.now)
     metadata: dict = Field(default_factory=dict)
+
+
+# ============ Manifest (for .soul archives) ============
+
+
+# ============ Reflection (v0.2.1) ============
+
+
+class ReflectionResult(BaseModel):
+    """Output of a soul's reflection pass (LLM-only).
+
+    Contains themes, summaries, and insights from reviewing recent episodes.
+    Only produced when a CognitiveEngine (LLM) is available.
+    """
+
+    themes: list[str] = Field(default_factory=list)
+    summaries: list[dict] = Field(default_factory=list)
+    emotional_patterns: str = ""
+    self_insight: str = ""
 
 
 # ============ Manifest (for .soul archives) ============

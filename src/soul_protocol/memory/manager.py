@@ -1,5 +1,9 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
-# Updated: v0.2.0 — Wired psychology-informed observe pipeline:
+# Updated: v0.2.1 — Integrated CognitiveProcessor for LLM-enhanced observe().
+#   All psychology steps now go through CognitiveProcessor which delegates to
+#   either an LLM (CognitiveEngine) or v0.2.0 heuristics (HeuristicEngine).
+#   Added reflect() method for LLM-driven memory consolidation.
+#   v0.2.0 — Wired psychology-informed observe pipeline:
 #   sentiment → significance → conditional episodic → facts → entities →
 #   graph → self-model → state.
 #   Added SelfModelManager, attention gate, and somatic marker integration.
@@ -9,9 +13,9 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from soul_protocol.memory.attention import (
-    compute_significance,
     is_significant,
     overall_significance,
 )
@@ -22,14 +26,17 @@ from soul_protocol.memory.procedural import ProceduralStore
 from soul_protocol.memory.recall import RecallEngine
 from soul_protocol.memory.self_model import SelfModelManager
 from soul_protocol.memory.semantic import SemanticStore
-from soul_protocol.memory.sentiment import detect_sentiment
 from soul_protocol.types import (
     CoreMemory,
     Interaction,
     MemoryEntry,
     MemorySettings,
     MemoryType,
+    ReflectionResult,
 )
+
+if TYPE_CHECKING:
+    from soul_protocol.cognitive.engine import CognitiveEngine
 
 
 # ---------------------------------------------------------------------------
@@ -166,9 +173,11 @@ class MemoryManager:
         core: CoreMemory,
         settings: MemorySettings,
         core_values: list[str] | None = None,
+        engine: CognitiveEngine | None = None,
     ) -> None:
         self._settings = settings
         self._core_values = core_values or []
+        self._engine = engine
 
         # Initialize subsystems
         self._core_manager = CoreMemoryManager(core)
@@ -184,6 +193,26 @@ class MemoryManager:
 
         # v0.2.0 — Psychology modules
         self._self_model = SelfModelManager()
+
+        # v0.2.1 — Cognitive processor (LLM or heuristic)
+        # Lazy import to avoid circular dependency:
+        #   cognitive.engine → memory.attention → memory.__init__ → memory.manager
+        from soul_protocol.cognitive.engine import CognitiveProcessor, HeuristicEngine
+
+        heuristic = HeuristicEngine()
+        if engine is not None:
+            self._cognitive = CognitiveProcessor(
+                engine,
+                fallback=heuristic,
+                fact_extractor=self.extract_facts,
+                entity_extractor=self.extract_entities,
+            )
+        else:
+            self._cognitive = CognitiveProcessor(
+                heuristic,
+                fact_extractor=self.extract_facts,
+                entity_extractor=self.extract_entities,
+            )
 
     # ---- Core memory ----
 
@@ -270,12 +299,14 @@ class MemoryManager:
         """
         values = core_values or self._core_values
 
-        # --- 1. Detect sentiment ---
-        somatic = detect_sentiment(interaction.user_input)
+        # --- 1. Detect sentiment (via CognitiveProcessor) ---
+        somatic = await self._cognitive.detect_sentiment(interaction.user_input)
 
-        # --- 2. Compute significance ---
+        # --- 2. Compute significance (via CognitiveProcessor) ---
         recent = self._episodic.recent_contents(n=10)
-        sig_score = compute_significance(interaction, values, recent)
+        sig_score = await self._cognitive.assess_significance(
+            interaction, values, recent
+        )
         sig_value = overall_significance(sig_score)
         significant = is_significant(sig_score)
 
@@ -290,16 +321,20 @@ class MemoryManager:
         # Note: if not significant, the interaction still gets fact extraction
         # below but won't appear in episodic memory
 
-        # --- 4. Extract and store semantic facts ---
-        facts = self.extract_facts(interaction)
+        # --- 4. Extract and store semantic facts (via CognitiveProcessor) ---
+        facts = await self._cognitive.extract_facts(
+            interaction, self._semantic.facts()
+        )
         for fact in facts:
             await self.add(fact)
 
-        # --- 5. Extract entities and update graph ---
-        entities = self.extract_entities(interaction)
+        # --- 5. Extract entities (via CognitiveProcessor) ---
+        entities = await self._cognitive.extract_entities(interaction)
 
-        # --- 6. Update self-model ---
-        self._self_model.update_from_interaction(interaction, facts)
+        # --- 6. Update self-model (via CognitiveProcessor) ---
+        await self._cognitive.update_self_model(
+            interaction, facts, self._self_model
+        )
 
         return {
             "somatic": somatic,
@@ -507,6 +542,26 @@ class MemoryManager:
         """Return the self-model manager."""
         return self._self_model
 
+    # ---- Reflection (v0.2.1) ----
+
+    async def reflect(self, soul_name: str = "soul") -> ReflectionResult | None:
+        """Run a reflection/consolidation pass over recent episodes.
+
+        LLM-only — returns None in heuristic mode. The soul reviews
+        recent interactions, identifies themes, and updates self-understanding.
+
+        Args:
+            soul_name: The soul's name (included in reflection prompt).
+
+        Returns:
+            ReflectionResult with themes, summaries, and insights, or None.
+        """
+        return await self._cognitive.reflect(
+            recent_episodes=self._episodic.entries()[:20],
+            current_self_model=self._self_model.to_dict(),
+            soul_name=soul_name,
+        )
+
     # ---- Lifecycle ----
 
     async def clear(self) -> None:
@@ -562,6 +617,7 @@ class MemoryManager:
         data: dict,
         settings: MemorySettings,
         core_values: list[str] | None = None,
+        engine: CognitiveEngine | None = None,
     ) -> MemoryManager:
         """Deserialize memory state from a plain dict.
 
@@ -569,6 +625,7 @@ class MemoryManager:
             data: Dict as produced by to_dict().
             settings: MemorySettings to configure the new manager.
             core_values: Core values for significance scoring.
+            engine: Optional CognitiveEngine for LLM-enhanced processing.
 
         Returns:
             A fully reconstituted MemoryManager.
@@ -577,7 +634,7 @@ class MemoryManager:
         core_data = data.get("core", {})
         core = CoreMemory(**core_data)
 
-        manager = cls(core=core, settings=settings, core_values=core_values)
+        manager = cls(core=core, settings=settings, core_values=core_values, engine=engine)
 
         # Restore episodic memories
         for entry_data in data.get("episodic", []):

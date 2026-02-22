@@ -1,5 +1,8 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
-# Updated: v0.2.0 — Psychology-informed observe() pipeline. Added self_model
+# Updated: v0.2.1 — Accept optional CognitiveEngine for LLM-enhanced cognition.
+#   Added reflect() method for LLM-driven memory consolidation.
+#   birth() and awaken() pass engine to MemoryManager.
+#   v0.2.0 — Psychology-informed observe() pipeline. Added self_model
 #   property for API access. to_system_prompt() includes self-model insights.
 #   MemoryManager.observe() now handles sentiment, significance gating,
 #   and self-model updates internally. Soul.observe() delegates to it and
@@ -9,6 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .cognitive.engine import CognitiveEngine
 from .types import (
     CoreMemory,
     DNA,
@@ -21,6 +25,7 @@ from .types import (
     MemoryType,
     Mood,
     Mutation,
+    ReflectionResult,
     SoulConfig,
     SoulState,
 )
@@ -36,16 +41,22 @@ from .export.unpack import unpack_soul
 class Soul:
     """A Digital Soul — persistent identity, memory, and state for an AI agent."""
 
-    def __init__(self, config: SoulConfig) -> None:
+    def __init__(
+        self,
+        config: SoulConfig,
+        engine: CognitiveEngine | None = None,
+    ) -> None:
         self._config = config
         self._identity = config.identity
         self._dna = config.dna
         self._lifecycle = config.lifecycle
+        self._engine = engine
 
         self._memory = MemoryManager(
             core=config.core_memory,
             settings=config.memory,
             core_values=config.identity.core_values,
+            engine=engine,
         )
         self._state = StateManager(config.state)
         self._evolution = EvolutionManager(config.evolution)
@@ -61,9 +72,21 @@ class Soul:
         values: list[str] | None = None,
         communication_style: str | None = None,
         bonded_to: str | None = None,
+        engine: CognitiveEngine | None = None,
         **kwargs,
     ) -> Soul:
-        """Birth a new Soul."""
+        """Birth a new Soul.
+
+        Args:
+            name: The soul's name.
+            archetype: Personality archetype description.
+            personality: Origin story / persona text.
+            values: Core values for significance scoring.
+            communication_style: Communication style description.
+            bonded_to: Entity this soul is bonded to.
+            engine: Optional CognitiveEngine for LLM-enhanced cognition.
+            **kwargs: Additional arguments (reserved for future use).
+        """
         identity = Identity(
             did=generate_did(name),
             name=name,
@@ -78,7 +101,7 @@ class Soul:
             lifecycle=LifecycleState.ACTIVE,
         )
 
-        soul = cls(config)
+        soul = cls(config, engine=engine)
 
         # Initialize core memory
         soul._memory.set_core(
@@ -89,8 +112,17 @@ class Soul:
         return soul
 
     @classmethod
-    async def awaken(cls, source: str | Path | bytes) -> Soul:
-        """Awaken a Soul from a .soul file, soul.json, soul.yaml, or soul.md."""
+    async def awaken(
+        cls,
+        source: str | Path | bytes,
+        engine: CognitiveEngine | None = None,
+    ) -> Soul:
+        """Awaken a Soul from a .soul file, soul.json, soul.yaml, or soul.md.
+
+        Args:
+            source: Path to soul file, or raw bytes of a .soul archive.
+            engine: Optional CognitiveEngine for LLM-enhanced cognition.
+        """
         memory_data: dict = {}
 
         if isinstance(source, bytes):
@@ -109,11 +141,11 @@ class Soul:
             elif path.suffix == ".md":
                 from .parsers.markdown import soul_from_md
 
-                return cls(await soul_from_md(path.read_text()))
+                return cls(await soul_from_md(path.read_text()), engine=engine)
             else:
                 raise ValueError(f"Unknown soul format: {path.suffix}")
 
-        soul = cls(config)
+        soul = cls(config, engine=engine)
         soul._lifecycle = LifecycleState.ACTIVE
 
         # If full memory data was included, replace the default memory manager
@@ -122,6 +154,7 @@ class Soul:
                 memory_data,
                 config.memory,
                 core_values=config.identity.core_values,
+                engine=engine,
             )
 
         return soul
@@ -292,6 +325,19 @@ class Soul:
     ):
         """Edit core memory."""
         await self._memory.edit_core(persona=persona, human=human)
+
+    async def reflect(self) -> ReflectionResult | None:
+        """Trigger a reflection pass (LLM-only, no-op with heuristics).
+
+        The soul reviews recent interactions, consolidates memories,
+        and updates its self-understanding. Call periodically (e.g.,
+        every 10-20 interactions, or at session end).
+
+        Returns:
+            ReflectionResult with themes, summaries, and insights,
+            or None if no CognitiveEngine is available.
+        """
+        return await self._memory.reflect(soul_name=self.name)
 
     # ============ State / Feelings ============
 

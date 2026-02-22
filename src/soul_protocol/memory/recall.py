@@ -3,6 +3,7 @@
 #   ranking. Memories are now scored by base-level activation (recency + frequency),
 #   spreading activation (query relevance), and emotional boost (somatic markers).
 #   Access timestamps are updated on retrieval (strengthens future recall).
+#   Timestamps capped at MAX_ACCESS_TIMESTAMPS to bound memory growth.
 
 from __future__ import annotations
 
@@ -13,6 +14,10 @@ from soul_protocol.memory.episodic import EpisodicStore
 from soul_protocol.memory.procedural import ProceduralStore
 from soul_protocol.memory.semantic import SemanticStore
 from soul_protocol.types import MemoryEntry, MemoryType
+
+# Cap access_timestamps to prevent unbounded memory growth in long-running sessions.
+# 100 timestamps is sufficient for ACT-R power-law decay calculations.
+MAX_ACCESS_TIMESTAMPS: int = 100
 
 
 class RecallEngine:
@@ -81,10 +86,13 @@ class RecallEngine:
             key=lambda e: -compute_activation(e, query, now=now, noise=False),
         )
 
-        # Update access metadata on retrieved entries (strengthens future recall)
+        # Update access metadata on retrieved entries (strengthens future recall).
+        # Cap timestamps to MAX_ACCESS_TIMESTAMPS to prevent unbounded growth.
         for entry in results[:limit]:
             entry.last_accessed = now
             entry.access_count += 1
             entry.access_timestamps.append(now)
+            if len(entry.access_timestamps) > MAX_ACCESS_TIMESTAMPS:
+                entry.access_timestamps = entry.access_timestamps[-MAX_ACCESS_TIMESTAMPS:]
 
         return results[:limit]

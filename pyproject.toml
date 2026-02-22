@@ -1,0 +1,71 @@
+# soul-protocol — Portable AI identity and memory
+# Created: 2026-02-22 — Initial project setup
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "soul-protocol"
+version = "0.1.0"
+description = "The open standard for portable AI identity and memory"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "OCEAN Foundation" }
+]
+keywords = [
+    "ai", "soul", "memory", "identity", "agent",
+    "llm", "langchain", "openai", "anthropic",
+    "portable", "protocol", "digital-soul"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "click>=8.0",
+    "rich>=13.0",
+    "cryptography>=41.0",
+]
+
+[project.optional-dependencies]
+graph = ["networkx>=3.0"]
+vector = ["numpy>=1.24"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.8",
+]
+
+[project.scripts]
+soul = "soul_protocol.cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/OCEAN/soul-protocol"
+Repository = "https://github.com/OCEAN/soul-protocol"
+Issues = "https://github.com/OCEAN/soul-protocol/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/soul_protocol"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

@@ -1,9 +1,11 @@
 # __init__.py — Public API for the soul-protocol package
-# Updated: v0.2.0 — Added psychology types (SomaticMarker, SignificanceScore,
+# Updated: v0.2.1 — Added CognitiveEngine, HeuristicEngine, ReflectionResult exports.
+#   v0.2.0 — Added psychology types (SomaticMarker, SignificanceScore,
 #   GeneralEvent, SelfImage) to public exports.
 
 from __future__ import annotations
 
+from .cognitive.engine import CognitiveEngine, HeuristicEngine
 from .soul import Soul
 from .types import (
     Biorhythms,
@@ -22,6 +24,7 @@ from .types import (
     Mood,
     Mutation,
     Personality,
+    ReflectionResult,
     SelfImage,
     SignificanceScore,
     SomaticMarker,
@@ -32,6 +35,8 @@ from .types import (
 
 __all__ = [
     "Soul",
+    "CognitiveEngine",
+    "HeuristicEngine",
     "Biorhythms",
     "CommunicationStyle",
     "CoreMemory",
@@ -48,6 +53,7 @@ __all__ = [
     "Mood",
     "Mutation",
     "Personality",
+    "ReflectionResult",
     "SelfImage",
     "SignificanceScore",
     "SomaticMarker",
@@ -56,4 +62,4 @@ __all__ = [
     "SoulState",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"

@@ -1,8 +1,9 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
-# Updated: 2026-02-22 — Fixed awaken() to use normal __init__ path then
-#   replace memory manager. save() persists full memory via save_soul_full().
-#   export()/awaken() handle full memory in .soul files.
-#   observe() transforms extract_entities output into update_graph format.
+# Updated: v0.2.0 — Psychology-informed observe() pipeline. Added self_model
+#   property for API access. to_system_prompt() includes self-model insights.
+#   MemoryManager.observe() now handles sentiment, significance gating,
+#   and self-model updates internally. Soul.observe() delegates to it and
+#   handles entity graph + state updates.
 
 from __future__ import annotations
 
@@ -44,6 +45,7 @@ class Soul:
         self._memory = MemoryManager(
             core=config.core_memory,
             settings=config.memory,
+            core_values=config.identity.core_values,
         )
         self._state = StateManager(config.state)
         self._evolution = EvolutionManager(config.evolution)
@@ -116,7 +118,11 @@ class Soul:
 
         # If full memory data was included, replace the default memory manager
         if memory_data:
-            soul._memory = MemoryManager.from_dict(memory_data, config.memory)
+            soul._memory = MemoryManager.from_dict(
+                memory_data,
+                config.memory,
+                core_values=config.identity.core_values,
+            )
 
         return soul
 
@@ -162,16 +168,32 @@ class Soul:
     def identity(self) -> Identity:
         return self._identity
 
+    @property
+    def self_model(self):
+        """Access the soul's self-model (Klein's self-concept).
+
+        Returns the SelfModelManager which tracks self-images and
+        relationship notes accumulated from experience.
+        """
+        return self._memory.self_model
+
     # ============ DNA & System Prompt ============
 
     def to_system_prompt(self) -> str:
-        """Generate a system prompt from DNA + core memory + state."""
-        return dna_to_system_prompt(
+        """Generate a system prompt from DNA + core memory + state + self-model."""
+        base_prompt = dna_to_system_prompt(
             identity=self._identity,
             dna=self._dna,
             core_memory=self._memory.get_core(),
             state=self._state.current,
         )
+
+        # Append self-model insights if available
+        self_model_fragment = self._memory.self_model.to_prompt_fragment()
+        if self_model_fragment:
+            base_prompt += "\n\n" + self_model_fragment
+
+        return base_prompt
 
     # ============ Memory ============
 
@@ -216,28 +238,25 @@ class Soul:
 
         This is the main learning hook — call after every user-agent exchange.
 
-        Pipeline:
-          1. Store the raw interaction as episodic memory.
-          2. Extract semantic facts via heuristic patterns and store them
-             (duplicates are skipped by extract_facts).
-          3. Extract entities and transform them into the format expected
-             by update_graph (entity_type + relationships list).
-          4. Update soul state and check for evolution triggers.
+        v0.2.0 Pipeline (handled by MemoryManager.observe()):
+          1. Detect sentiment → SomaticMarker
+          2. Compute significance → gate for episodic storage
+          3. If significant: store episodic with somatic marker
+          4. Extract semantic facts (always)
+          5. Extract entities (always)
+          6. Update self-model
+
+        After the memory pipeline, Soul handles:
+          7. Update knowledge graph from extracted entities
+          8. Update soul state (energy/social_battery drain)
+          9. Check evolution triggers
         """
-        # Store as episodic memory
-        await self._memory.add_episodic(interaction)
+        # Delegate to psychology-informed memory pipeline
+        result = await self._memory.observe(interaction)
 
-        # Extract and store semantic facts (dedup handled inside extract_facts)
-        facts = self._memory.extract_facts(interaction)
-        for fact in facts:
-            await self._memory.add(fact)
-
-        # Extract entities and update knowledge graph
-        raw_entities = self._memory.extract_entities(interaction)
+        # Update knowledge graph from extracted entities
+        raw_entities = result["entities"]
         if raw_entities:
-            # Transform extract_entities output -> update_graph format
-            # extract_entities returns: {"name", "type", "relation"}
-            # update_graph expects:     {"name", "entity_type", "relationships": [{target, relation}]}
             graph_entities: list[dict] = []
             for ent in raw_entities:
                 graph_ent: dict = {
@@ -247,7 +266,6 @@ class Soul:
                 }
                 relation = ent.get("relation")
                 if relation:
-                    # Relationship flows: user --relation--> entity
                     graph_ent["relationships"].append(
                         {"target": "user", "relation": relation}
                     )

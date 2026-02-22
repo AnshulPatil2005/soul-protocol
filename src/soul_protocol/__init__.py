@@ -1,5 +1,6 @@
 # __init__.py — Public API for the soul-protocol package
-# Created: 2026-02-22 — Exports Soul class and core types
+# Updated: v0.2.0 — Added psychology types (SomaticMarker, SignificanceScore,
+#   GeneralEvent, SelfImage) to public exports.
 
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from .types import (
     DNA,
     EvolutionConfig,
     EvolutionMode,
+    GeneralEvent,
     Identity,
     Interaction,
     LifecycleState,
@@ -20,6 +22,9 @@ from .types import (
     Mood,
     Mutation,
     Personality,
+    SelfImage,
+    SignificanceScore,
+    SomaticMarker,
     SoulConfig,
     SoulManifest,
     SoulState,
@@ -33,6 +38,7 @@ __all__ = [
     "DNA",
     "EvolutionConfig",
     "EvolutionMode",
+    "GeneralEvent",
     "Identity",
     "Interaction",
     "LifecycleState",
@@ -42,9 +48,12 @@ __all__ = [
     "Mood",
     "Mutation",
     "Personality",
+    "SelfImage",
+    "SignificanceScore",
+    "SomaticMarker",
     "SoulConfig",
     "SoulManifest",
     "SoulState",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

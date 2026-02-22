@@ -1,5 +1,7 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
-# Created: 2026-02-22 — Complete type system from DSP-IMPLEMENTATION-SPEC
+# Updated: v0.2.0 — Added SomaticMarker, SignificanceScore, GeneralEvent, SelfImage
+#   for psychology-informed memory. Extended MemoryEntry with somatic markers,
+#   access_timestamps, significance, and general_event_id fields.
 
 from __future__ import annotations
 
@@ -63,6 +65,66 @@ class DNA(BaseModel):
     biorhythms: Biorhythms = Field(default_factory=Biorhythms)
 
 
+# ============ Psychology — Somatic Markers (Damasio) ============
+
+
+class SomaticMarker(BaseModel):
+    """Emotional context tagged onto a memory (Damasio's Somatic Marker Hypothesis).
+
+    Emotions are not separate from cognition — they guide recall and decision-making.
+    """
+
+    valence: float = Field(default=0.0, ge=-1.0, le=1.0)  # negative to positive
+    arousal: float = Field(default=0.0, ge=0.0, le=1.0)    # calm to intense
+    label: str = "neutral"  # joy, frustration, curiosity, etc.
+
+
+# ============ Psychology — Significance (LIDA) ============
+
+
+class SignificanceScore(BaseModel):
+    """Significance gate for episodic storage (LIDA architecture).
+
+    Only experiences that pass a significance threshold become episodic memories.
+    """
+
+    novelty: float = Field(default=0.0, ge=0.0, le=1.0)
+    emotional_intensity: float = Field(default=0.0, ge=0.0, le=1.0)
+    goal_relevance: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+# ============ Psychology — General Events (Conway) ============
+
+
+class GeneralEvent(BaseModel):
+    """Hierarchical autobiography grouping (Conway's Self-Memory System).
+
+    Episodes cluster into general events (themes), which cluster into
+    lifetime periods. This is the general event level.
+    """
+
+    id: str = ""
+    theme: str = ""
+    episode_ids: list[str] = Field(default_factory=list)
+    started_at: datetime = Field(default_factory=datetime.now)
+    last_updated: datetime = Field(default_factory=datetime.now)
+
+
+# ============ Psychology — Self-Image (Klein) ============
+
+
+class SelfImage(BaseModel):
+    """A facet of the soul's self-concept (Klein's self-model).
+
+    Built from accumulated experience — the soul learns who it is
+    by observing what it does.
+    """
+
+    domain: str = ""          # e.g. "technical_helper", "creative_writer"
+    confidence: float = Field(default=0.1, ge=0.0, le=1.0)
+    evidence_count: int = 0   # interactions supporting this self-image
+
+
 # ============ Memory ============
 
 
@@ -74,7 +136,13 @@ class MemoryType(str, Enum):
 
 
 class MemoryEntry(BaseModel):
-    """A single memory with metadata."""
+    """A single memory with metadata.
+
+    v0.2.0 additions: somatic markers (emotional context), access_timestamps
+    (full history for ACT-R decay), significance score, and general_event_id
+    (Conway hierarchy link). All new fields default to None/empty for
+    backwards compatibility with v0.1.0 data.
+    """
 
     id: str = ""
     type: MemoryType
@@ -86,6 +154,11 @@ class MemoryEntry(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     last_accessed: datetime | None = None
     access_count: int = 0
+    # v0.2.0 — Psychology-informed fields
+    somatic: SomaticMarker | None = None
+    access_timestamps: list[datetime] = Field(default_factory=list)
+    significance: float = 0.0
+    general_event_id: str | None = None
 
 
 class CoreMemory(BaseModel):

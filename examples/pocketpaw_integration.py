@@ -1,7 +1,11 @@
-# integrations/pocketpaw.py — SoulProvider: PocketPaw integration that replaces
-# DefaultBootstrapProvider with soul-driven system prompts, memory recall,
-# interaction tracking, and auto-save.
-# Created: 2026-02-22
+# examples/pocketpaw_integration.py — Reference implementation showing how to
+# integrate soul-protocol with PocketPaw.
+#
+# SoulProvider replaces DefaultBootstrapProvider with soul-driven system prompts,
+# memory recall, interaction tracking, and auto-save.
+#
+# Moved from src/soul_protocol/integrations/pocketpaw.py — this is NOT part of the
+# core SDK. Consumers should `pip install soul-protocol` and write their own bridge.
 
 from __future__ import annotations
 
@@ -20,9 +24,9 @@ class SoulProvider:
 
     This module has zero PocketPaw dependencies — it works standalone.
 
-    Usage in PocketPaw::
+    Usage::
 
-        from soul_protocol.integrations.pocketpaw import SoulProvider
+        from examples.pocketpaw_integration import SoulProvider
 
         soul = await Soul.awaken("~/.pocketpaw/souls/aria.soul")
         provider = SoulProvider(soul)

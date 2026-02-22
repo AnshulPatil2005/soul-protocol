@@ -1,14 +1,25 @@
-# test_integrations/test_pocketpaw.py — Tests for the SoulProvider PocketPaw integration.
-# Created: 2026-02-22 — Covers system prompt generation, memory recall injection,
-# interaction tracking, status reporting, factory constructors, and auto-save.
+# examples/test_pocketpaw_integration.py — Tests for the SoulProvider PocketPaw
+# integration reference implementation.
+#
+# Moved from tests/test_integrations/test_pocketpaw.py.
+# Covers system prompt generation, memory recall injection, interaction tracking,
+# status reporting, factory constructors, and auto-save.
+#
+# Run with: uv run pytest examples/test_pocketpaw_integration.py -v
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from soul_protocol.integrations.pocketpaw import SoulProvider
+# Ensure the examples directory is importable
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from pocketpaw_integration import SoulProvider
+
 from soul_protocol.soul import Soul
 from soul_protocol.types import LifecycleState, MemoryType, Mood
 

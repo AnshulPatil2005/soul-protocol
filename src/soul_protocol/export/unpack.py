@@ -1,6 +1,7 @@
 # export/unpack.py — Load a SoulConfig from a .soul zip archive.
-# Created: 2026-02-22 — Reads soul.json from a zip archive and validates it
-# back into a SoulConfig model.
+# Updated: 2026-02-22 — Changed return type to tuple[SoulConfig, dict] to
+# return full memory data alongside the config. Reads episodic.json,
+# semantic.json, procedural.json, graph.json from memory/ if present.
 
 from __future__ import annotations
 
@@ -11,16 +12,20 @@ import zipfile
 from soul_protocol.types import SoulConfig
 
 
-async def unpack_soul(data: bytes) -> SoulConfig:
-    """Load a ``SoulConfig`` from a ``.soul`` zip archive.
+async def unpack_soul(data: bytes) -> tuple[SoulConfig, dict]:
+    """Load a ``SoulConfig`` and memory data from a ``.soul`` zip archive.
 
     Reads the ``soul.json`` entry from the archive and validates it.
+    If the archive contains memory tier files (``memory/episodic.json``,
+    etc.), those are loaded into a dict keyed by tier name.
 
     Args:
         data: Raw bytes of the zip archive (as produced by ``pack_soul``).
 
     Returns:
-        A validated ``SoulConfig`` instance.
+        A tuple of (SoulConfig, memory_data). memory_data is a dict that
+        may contain keys: "core", "episodic", "semantic", "procedural",
+        "graph". If no memory files are present, returns an empty dict.
 
     Raises:
         KeyError: If the archive does not contain ``soul.json``.
@@ -28,8 +33,17 @@ async def unpack_soul(data: bytes) -> SoulConfig:
     """
     buf = io.BytesIO(data)
 
+    memory_data: dict = {}
+
     with zipfile.ZipFile(buf, "r") as zf:
         raw = zf.read("soul.json")
         payload = json.loads(raw)
 
-    return SoulConfig.model_validate(payload)
+        # Extract memory tier files if present
+        for tier_name in ["core", "episodic", "semantic", "procedural", "graph"]:
+            mem_path = f"memory/{tier_name}.json"
+            if mem_path in zf.namelist():
+                memory_data[tier_name] = json.loads(zf.read(mem_path))
+
+    config = SoulConfig.model_validate(payload)
+    return config, memory_data

@@ -1,14 +1,13 @@
 # memory/procedural.py — ProceduralStore for how-to memories.
-# Created: 2026-02-22
-# Stores procedural knowledge — instructions, workflows, and learned
-# procedures the soul can reference when performing tasks. Supports
-# keyword-based search with case-insensitive substring matching.
+# Updated: 2026-02-22 — Added entries() method for listing all procedures;
+# replaced substring search with token-overlap relevance scoring via search.py.
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 
+from soul_protocol.memory.search import relevance_score
 from soul_protocol.types import MemoryEntry, MemoryType
 
 
@@ -38,20 +37,20 @@ class ProceduralStore:
         return entry.id
 
     async def search(self, query: str, limit: int = 10) -> list[MemoryEntry]:
-        """Search procedures by keyword (case-insensitive substring match).
+        """Search procedures by token-overlap relevance scoring.
 
-        Results sorted by importance (descending), then created_at
-        (most recent first).
+        Only entries with a relevance score > 0.0 are returned.
+        Results are sorted by relevance (descending), then importance
+        (descending), then created_at (most recent first).
         """
-        query_lower = query.lower()
-        matches = [
-            proc
-            for proc in self._procedures.values()
-            if query_lower in proc.content.lower()
-        ]
+        scored: list[tuple[float, MemoryEntry]] = []
+        for proc in self._procedures.values():
+            score = relevance_score(query, proc.content)
+            if score > 0.0:
+                scored.append((score, proc))
 
-        matches.sort(key=lambda e: (-e.importance, -e.created_at.timestamp()))
-        return matches[:limit]
+        scored.sort(key=lambda t: (-t[0], -t[1].importance, -t[1].created_at.timestamp()))
+        return [entry for _, entry in scored[:limit]]
 
     async def remove(self, memory_id: str) -> bool:
         """Remove a procedure by ID. Returns True if found and removed."""
@@ -59,3 +58,10 @@ class ProceduralStore:
             del self._procedures[memory_id]
             return True
         return False
+
+    def entries(self) -> list[MemoryEntry]:
+        """Return all procedural memories, sorted by importance desc then recency desc."""
+        return sorted(
+            self._procedures.values(),
+            key=lambda e: (-e.importance, -e.created_at.timestamp()),
+        )

@@ -1,14 +1,13 @@
 # memory/semantic.py — SemanticStore for fact-based memories with confidence.
-# Created: 2026-02-22
-# Stores extracted facts (semantic knowledge) about the world, the user,
-# or the soul itself. Each fact has importance and confidence scores.
-# Supports keyword search with optional minimum importance filtering.
+# Updated: 2026-02-22 — Replaced substring search with token-overlap relevance
+# scoring via search.py. Results now sorted by relevance, importance, recency.
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 
+from soul_protocol.memory.search import relevance_score
 from soul_protocol.types import MemoryEntry, MemoryType
 
 
@@ -50,21 +49,22 @@ class SemanticStore:
         limit: int = 10,
         min_importance: int = 0,
     ) -> list[MemoryEntry]:
-        """Search facts by keyword with optional importance filter.
+        """Search facts by token-overlap relevance with optional importance filter.
 
-        Case-insensitive substring match on content. Results sorted by
-        importance (descending), then created_at (most recent first).
+        Only entries with a relevance score > 0.0 are returned.
+        Results are sorted by relevance (descending), then importance
+        (descending), then created_at (most recent first).
         """
-        query_lower = query.lower()
-        matches = [
-            fact
-            for fact in self._facts.values()
-            if query_lower in fact.content.lower()
-            and fact.importance >= min_importance
-        ]
+        scored: list[tuple[float, MemoryEntry]] = []
+        for fact in self._facts.values():
+            if fact.importance < min_importance:
+                continue
+            score = relevance_score(query, fact.content)
+            if score > 0.0:
+                scored.append((score, fact))
 
-        matches.sort(key=lambda e: (-e.importance, -e.created_at.timestamp()))
-        return matches[:limit]
+        scored.sort(key=lambda t: (-t[0], -t[1].importance, -t[1].created_at.timestamp()))
+        return [entry for _, entry in scored[:limit]]
 
     async def remove(self, memory_id: str) -> bool:
         """Remove a fact by ID. Returns True if found and removed."""

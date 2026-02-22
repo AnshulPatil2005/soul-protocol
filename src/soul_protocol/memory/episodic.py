@@ -1,14 +1,13 @@
 # memory/episodic.py — EpisodicStore for timestamped interaction memories.
-# Created: 2026-02-22
-# Stores chronological memories of user-agent interactions. Each interaction
-# becomes a MemoryEntry with a unique ID. Supports keyword-based search
-# with case-insensitive substring matching, sorted by importance then recency.
+# Updated: 2026-02-22 — Replaced substring search with token-overlap relevance
+# scoring via search.py. Results now sorted by relevance, importance, recency.
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 
+from soul_protocol.memory.search import relevance_score
 from soul_protocol.types import Interaction, MemoryEntry, MemoryType
 
 
@@ -57,20 +56,20 @@ class EpisodicStore:
         return entry
 
     async def search(self, query: str, limit: int = 10) -> list[MemoryEntry]:
-        """Search memories by keyword (case-insensitive substring match).
+        """Search memories by token-overlap relevance scoring.
 
-        Results are sorted by importance (descending), then by created_at
-        (most recent first).
+        Only entries with a relevance score > 0.0 are returned.
+        Results are sorted by relevance (descending), then importance
+        (descending), then created_at (most recent first).
         """
-        query_lower = query.lower()
-        matches = [
-            entry
-            for entry in self._memories.values()
-            if query_lower in entry.content.lower()
-        ]
+        scored: list[tuple[float, MemoryEntry]] = []
+        for entry in self._memories.values():
+            score = relevance_score(query, entry.content)
+            if score > 0.0:
+                scored.append((score, entry))
 
-        matches.sort(key=lambda e: (-e.importance, -e.created_at.timestamp()))
-        return matches[:limit]
+        scored.sort(key=lambda t: (-t[0], -t[1].importance, -t[1].created_at.timestamp()))
+        return [entry for _, entry in scored[:limit]]
 
     async def remove(self, memory_id: str) -> bool:
         """Remove a memory by ID. Returns True if found and removed."""

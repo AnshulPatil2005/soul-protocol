@@ -1,17 +1,29 @@
 # storage/file.py — FileStorage backend persisting souls to the local filesystem.
-# Created: 2026-02-22 — Writes soul.json, dna.md, and state.json under ~/.soul/<soul_id>/
-# Also provides convenience functions save_soul() and load_soul().
+# Updated: 2026-02-22 — save_soul_full/load_soul_full for full memory persistence.
+#   Fixed: path parameter is always a base directory (soul_id appended consistently).
+#   Atomic writes via temp directory + shutil.move.
+#   Path traversal guard on soul_id. Deprecated save_soul().
 
 from __future__ import annotations
 
 import json
 import shutil
+import tempfile
+import warnings
 from pathlib import Path
 
 from soul_protocol.dna.prompt import dna_to_markdown
 from soul_protocol.types import SoulConfig
 
 DEFAULT_SOUL_DIR: Path = Path.home() / ".soul"
+
+
+def _safe_soul_id(config: SoulConfig) -> str:
+    """Extract soul_id from config and guard against path traversal."""
+    soul_id = config.identity.did or config.identity.name
+    if ".." in soul_id or "/" in soul_id or "\\" in soul_id:
+        raise ValueError(f"Soul ID contains unsafe path characters: {soul_id}")
+    return soul_id
 
 
 class FileStorage:
@@ -95,9 +107,14 @@ class FileStorage:
 async def save_soul(config: SoulConfig, path: Path | None = None) -> None:
     """Save a soul using the default FileStorage backend.
 
-    The soul is identified by ``config.identity.did``.  If ``path`` is
-    provided it is used as the base directory instead of ``~/.soul/``.
+    .. deprecated::
+        Does NOT persist memory tiers. Use ``save_soul_full()`` instead.
     """
+    warnings.warn(
+        "save_soul() does not persist memory tiers. Use save_soul_full() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     storage = FileStorage(base_dir=path)
     soul_id = config.identity.did or config.identity.name
     await storage.save(soul_id, config, path=None)
@@ -116,3 +133,90 @@ async def load_soul(path: Path) -> SoulConfig | None:
     raw = soul_json.read_text(encoding="utf-8")
     data = json.loads(raw)
     return SoulConfig.model_validate(data)
+
+
+# ------------------------------------------------------------------
+# Full memory persistence functions
+# ------------------------------------------------------------------
+
+
+def _write_soul_files(soul_dir: Path, config: SoulConfig, memory_data: dict) -> None:
+    """Write all soul files to a directory (used by save_soul_full)."""
+    (soul_dir / "soul.json").write_text(
+        config.model_dump_json(indent=2), encoding="utf-8"
+    )
+    (soul_dir / "state.json").write_text(
+        config.state.model_dump_json(indent=2), encoding="utf-8"
+    )
+    (soul_dir / "dna.md").write_text(
+        dna_to_markdown(config.identity, config.dna), encoding="utf-8"
+    )
+
+    mem_dir = soul_dir / "memory"
+    mem_dir.mkdir(exist_ok=True)
+
+    for key, default in [("core", {}), ("episodic", []), ("semantic", []),
+                         ("procedural", []), ("graph", {})]:
+        (mem_dir / f"{key}.json").write_text(
+            json.dumps(memory_data.get(key, default), indent=2, default=str),
+            encoding="utf-8",
+        )
+
+
+async def save_soul_full(
+    config: SoulConfig,
+    memory_data: dict,
+    path: Path | None = None,
+) -> None:
+    """Save soul config + full memory data to disk atomically.
+
+    Writes to a temp directory first, then moves into place to avoid
+    partial writes on crash.
+
+    Args:
+        config: The SoulConfig to persist.
+        memory_data: Dict as produced by MemoryManager.to_dict().
+        path: Base directory. Defaults to ``~/.soul/``.
+              Soul ID is always appended: ``<path>/<soul_id>/``.
+    """
+    soul_id = _safe_soul_id(config)
+    base = path or DEFAULT_SOUL_DIR
+    base.mkdir(parents=True, exist_ok=True)
+    soul_dir = base / soul_id
+
+    # Atomic write: build in temp dir, then move into place
+    with tempfile.TemporaryDirectory(dir=base) as tmp:
+        tmp_dir = Path(tmp) / soul_id
+        tmp_dir.mkdir()
+        _write_soul_files(tmp_dir, config, memory_data)
+
+        if soul_dir.exists():
+            shutil.rmtree(soul_dir)
+        shutil.move(str(tmp_dir), str(soul_dir))
+
+
+async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
+    """Load soul config + full memory data from disk.
+
+    Args:
+        path: Directory containing ``soul.json`` and optionally ``memory/``.
+
+    Returns:
+        A tuple of (SoulConfig or None, memory_data dict).
+        If ``soul.json`` does not exist, returns (None, {}).
+    """
+    soul_json = path / "soul.json"
+    if not soul_json.exists():
+        return None, {}
+
+    config = SoulConfig.model_validate_json(soul_json.read_text(encoding="utf-8"))
+
+    memory_data: dict = {}
+    mem_dir = path / "memory"
+    if mem_dir.exists():
+        for name in ["core", "episodic", "semantic", "procedural", "graph"]:
+            f = mem_dir / f"{name}.json"
+            if f.exists():
+                memory_data[name] = json.loads(f.read_text(encoding="utf-8"))
+
+    return config, memory_data

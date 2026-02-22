@@ -1,5 +1,8 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
-# Created: 2026-02-22 — Core API surface for the Digital Soul Protocol
+# Updated: 2026-02-22 — Fixed awaken() to use normal __init__ path then
+#   replace memory manager. save() persists full memory via save_soul_full().
+#   export()/awaken() handle full memory in .soul files.
+#   observe() transforms extract_entities output into update_graph format.
 
 from __future__ import annotations
 
@@ -86,12 +89,14 @@ class Soul:
     @classmethod
     async def awaken(cls, source: str | Path | bytes) -> Soul:
         """Awaken a Soul from a .soul file, soul.json, soul.yaml, or soul.md."""
+        memory_data: dict = {}
+
         if isinstance(source, bytes):
-            config = await unpack_soul(source)
+            config, memory_data = await unpack_soul(source)
         else:
             path = Path(source)
             if path.suffix == ".soul":
-                config = await unpack_soul(path.read_bytes())
+                config, memory_data = await unpack_soul(path.read_bytes())
             elif path.suffix == ".json":
                 config = SoulConfig.model_validate_json(path.read_text())
             elif path.suffix in (".yaml", ".yml"):
@@ -108,6 +113,11 @@ class Soul:
 
         soul = cls(config)
         soul._lifecycle = LifecycleState.ACTIVE
+
+        # If full memory data was included, replace the default memory manager
+        if memory_data:
+            soul._memory = MemoryManager.from_dict(memory_data, config.memory)
+
         return soul
 
     @classmethod
@@ -205,19 +215,45 @@ class Soul:
         """Soul observes an interaction and learns from it.
 
         This is the main learning hook — call after every user-agent exchange.
+
+        Pipeline:
+          1. Store the raw interaction as episodic memory.
+          2. Extract semantic facts via heuristic patterns and store them
+             (duplicates are skipped by extract_facts).
+          3. Extract entities and transform them into the format expected
+             by update_graph (entity_type + relationships list).
+          4. Update soul state and check for evolution triggers.
         """
         # Store as episodic memory
         await self._memory.add_episodic(interaction)
 
-        # Extract and store semantic facts
+        # Extract and store semantic facts (dedup handled inside extract_facts)
         facts = self._memory.extract_facts(interaction)
         for fact in facts:
             await self._memory.add(fact)
 
         # Extract entities and update knowledge graph
-        entities = self._memory.extract_entities(interaction)
-        if entities:
-            await self._memory.update_graph(entities)
+        raw_entities = self._memory.extract_entities(interaction)
+        if raw_entities:
+            # Transform extract_entities output -> update_graph format
+            # extract_entities returns: {"name", "type", "relation"}
+            # update_graph expects:     {"name", "entity_type", "relationships": [{target, relation}]}
+            graph_entities: list[dict] = []
+            for ent in raw_entities:
+                graph_ent: dict = {
+                    "name": ent["name"],
+                    "entity_type": ent.get("type", "unknown"),
+                    "relationships": [],
+                }
+                relation = ent.get("relation")
+                if relation:
+                    # Relationship flows: user --relation--> entity
+                    graph_ent["relationships"].append(
+                        {"target": "user", "relation": relation}
+                    )
+                graph_entities.append(graph_ent)
+
+            await self._memory.update_graph(graph_entities)
 
         # Update state based on interaction
         self._state.on_interaction(interaction)
@@ -283,15 +319,17 @@ class Soul:
     # ============ Persistence ============
 
     async def save(self, path: str | Path | None = None) -> None:
-        """Save soul to file storage."""
-        from .storage.file import save_soul
+        """Save soul to file storage (config + full memory)."""
+        from .storage.file import save_soul_full
 
         save_path = Path(path) if path else None
-        await save_soul(self.serialize(), save_path)
+        memory_data = self._memory.to_dict()
+        await save_soul_full(self.serialize(), memory_data, path=save_path)
 
     async def export(self, path: str | Path) -> None:
-        """Export soul as a portable .soul file."""
-        data = await pack_soul(self.serialize())
+        """Export soul as a portable .soul file with full memory data."""
+        memory_data = self._memory.to_dict()
+        data = await pack_soul(self.serialize(), memory_data=memory_data)
         Path(path).write_bytes(data)
 
     async def retire(

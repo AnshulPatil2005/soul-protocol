@@ -33,7 +33,7 @@ file and migrate between any platform.
 | **Portability** | `.soul` file format -- zip archive with identity, memory, and state |
 | **Integration** | Single `CognitiveEngine.think()` method -- plug in any LLM |
 | **Retrieval** | Pluggable `SearchStrategy` -- swap in embeddings with one class |
-| **CLI** | 9 commands: `init`, `birth`, `inspect`, `status`, `export`, `migrate`, `retire`, `list`, `dashboard` |
+| **CLI** | 10 commands: `init`, `birth`, `open`, `inspect`, `status`, `export`, `migrate`, `retire`, `list`, `dashboard` |
 | **Dashboard** | Local web UI to visualize identity, memory, state, OCEAN, knowledge graph |
 
 ---
@@ -330,13 +330,14 @@ soul <command> [options]
 |---|---|---|
 | `init` | Initialize a .soul/ folder in the current directory | `soul init Aria --archetype "The Creator"` |
 | `birth` | Birth a new soul (supports OCEAN flags and config files) | `soul birth Aria --openness 0.8 -o aria.soul` |
+| `open` | Open soul in the visual dashboard | `soul open` |
 | `inspect` | Inspect a soul file or folder (identity, OCEAN, state) | `soul inspect .soul/` |
 | `status` | Show current mood, energy, social battery | `soul status .soul/` |
 | `export` | Export to .soul, .json, .yaml, or .md | `soul export .soul/ -o aria.json -f json` |
 | `migrate` | Convert SOUL.md to .soul format | `soul migrate SOUL.md -o aria.soul` |
 | `retire` | Retire a soul (preserves memories by default) | `soul retire aria.soul` |
 | `list` | List all saved souls in ~/.soul/ | `soul list` |
-| `dashboard` | Open visual web dashboard | `soul dashboard .soul/` |
+| `dashboard` | Open visual web dashboard (with options) | `soul dashboard --port 8080` |
 
 ---
 

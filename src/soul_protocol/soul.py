@@ -19,10 +19,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from .cognitive.engine import CognitiveEngine
 from .memory.strategy import SearchStrategy
-from typing import Any
 from .types import (
     Biorhythms,
     CommunicationStyle,
@@ -118,9 +118,9 @@ class Soul:
                         Unspecified fields keep model defaults.
             persona: Core memory persona text. If provided, overrides the
                      personality parameter for core memory initialization.
-            seed_domains: Domains to seed the self-model with, e.g.
-                          {"technical_helper": ["python", "debugging"]}.
-                          Reserved for future use.
+            seed_domains: Not yet wired through to the self-model.
+                          Accepted for forward compatibility but currently
+                          ignored. Will configure seed domains in a future release.
             **kwargs: Additional arguments (reserved for future use).
         """
         identity = Identity(
@@ -218,6 +218,11 @@ class Soul:
             raise ValueError(
                 f"Unsupported config format: {path.suffix}. "
                 "Use .yaml, .yml, or .json."
+            )
+
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Config file is empty or not a valid mapping: {path}"
             )
 
         return await cls.birth(

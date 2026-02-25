@@ -1,5 +1,6 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
-# Updated: v0.2.3 — Added count() method for total memory count across all stores.
+# Updated: v0.3.1 — Accept seed_domains param, forward to SelfModelManager.
+#   v0.2.3 — Added count() method for total memory count across all stores.
 #   Expanded FACT_PATTERNS with Q&A knowledge extraction:
 #   user questions, recommendations, advice, comparisons, user goals/learning.
 #   v0.2.2 — Added SearchStrategy support, consolidate() for reflect auto-apply,
@@ -265,6 +266,7 @@ class MemoryManager:
         core_values: list[str] | None = None,
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
+        seed_domains: dict[str, list[str]] | None = None,
     ) -> None:
         self._settings = settings
         self._core_values = core_values or []
@@ -285,7 +287,7 @@ class MemoryManager:
         )
 
         # v0.2.0 — Psychology modules
-        self._self_model = SelfModelManager()
+        self._self_model = SelfModelManager(seed_domains=seed_domains)
 
         # v0.2.2 — GeneralEvent storage (Conway hierarchy)
         self._general_events: dict[str, GeneralEvent] = {}

@@ -1,5 +1,6 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
-# Updated: v0.2.2 — Added SearchStrategy support, consolidate() for reflect auto-apply,
+# Updated: v0.2.3 — Added count() method for total memory count across all stores.
+#   v0.2.2 — Added SearchStrategy support, consolidate() for reflect auto-apply,
 #   GeneralEvent storage (Conway hierarchy), fact conflict resolution via supersede.
 #   v0.2.1 — Integrated CognitiveProcessor for LLM-enhanced observe().
 #   All psychology steps now go through CognitiveProcessor which delegates to
@@ -768,6 +769,18 @@ class MemoryManager:
     def settings(self) -> MemorySettings:
         """Return the current memory settings."""
         return self._settings
+
+    def count(self) -> int:
+        """Total number of stored memories across all stores.
+
+        Counts episodic, semantic, and procedural memories.
+        Does not include core memory (which is always exactly one record).
+        """
+        return (
+            len(self._episodic._memories)
+            + len(self._semantic._facts)
+            + len(self._procedural._procedures)
+        )
 
     # ---- Serialization ----
 

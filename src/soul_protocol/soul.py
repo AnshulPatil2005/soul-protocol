@@ -1,5 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
-# Updated: v0.2.2 — Accept optional SearchStrategy for pluggable retrieval.
+# Updated: v0.2.3 — Added system_prompt property alias and memory_count property
+#   for paw integration convenience.
+#   v0.2.2 — Accept optional SearchStrategy for pluggable retrieval.
 #   reflect(apply=True) auto-applies consolidation. Added general_events property.
 #   v0.2.1 — Accept optional CognitiveEngine for LLM-enhanced cognition.
 #   Added reflect() method for LLM-driven memory consolidation.
@@ -243,6 +245,16 @@ class Soul:
             base_prompt += "\n\n" + self_model_fragment
 
         return base_prompt
+
+    @property
+    def system_prompt(self) -> str:
+        """Convenience alias for to_system_prompt()."""
+        return self.to_system_prompt()
+
+    @property
+    def memory_count(self) -> int:
+        """Total number of stored memories."""
+        return self._memory.count()
 
     # ============ Memory ============
 

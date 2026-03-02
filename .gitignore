@@ -41,5 +41,8 @@ uv.lock
 *.soul
 .soul/
 
+# Simulation results
+.results/
+
 # Internal docs (not for public repo)
 idocs/

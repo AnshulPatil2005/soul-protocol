@@ -21,6 +21,7 @@ from typing import Any
 
 from fastmcp import FastMCP  # optional dep: pip install soul-protocol[mcp]
 
+from ..exceptions import SoulProtocolError
 from ..soul import Soul
 from ..types import Interaction, MemoryType, Mood
 
@@ -37,7 +38,7 @@ async def _lifespan(server: FastMCP):
         _soul_path = path
         try:
             _soul = await Soul.awaken(path)
-        except (FileNotFoundError, ValueError) as e:
+        except (FileNotFoundError, ValueError, SoulProtocolError) as e:
             import sys
             print(
                 f"soul-mcp: failed to load SOUL_PATH={path!r}: {e}",

@@ -26,6 +26,19 @@ prompt = soul.to_system_prompt()
 await soul.export("aria.soul")
 ```
 
+## Use with paw
+
+[paw](https://github.com/pocketpaw/pocketpaw) is PocketPaw's lightweight agent that lives in your project.
+
+```bash
+pip install paw
+cd my-project/
+paw init
+paw ask "what does this project do?"
+```
+
+paw uses soul-protocol internally for persistent identity — every project gets its own soul that learns and evolves.
+
 ## License
 
 MIT

@@ -1,13 +1,14 @@
 <!-- README.md — Comprehensive README for soul-protocol open standard. -->
+<!-- Updated: 2026-03-02 — Fixed all inaccurate claims: GitHub URLs, .soul file table,
+     installation instructions, paw section, badges, development section. -->
 
 # Soul Protocol
 
 **The open standard for portable AI identity and memory.**
 
-[![PyPI version](https://img.shields.io/pypi/v/soul-protocol)](https://pypi.org/project/soul-protocol/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](https://github.com/OCEAN/soul-protocol/actions)
+[![Tests: 455 passing](https://img.shields.io/badge/tests-455%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
@@ -41,16 +42,22 @@ file and migrate between any platform.
 ## Installation
 
 ```bash
-pip install soul-protocol
+pip install git+https://github.com/qbtrix/soul-protocol.git
 ```
 
 Optional extras:
 
 ```bash
-pip install soul-protocol[graph]    # Knowledge graph support (networkx)
-pip install soul-protocol[vector]   # NumPy for vector operations
-pip install soul-protocol[mcp]      # MCP server (fastmcp)
-pip install soul-protocol[dev]      # pytest, ruff, mypy
+pip install "soul-protocol[graph] @ git+https://github.com/qbtrix/soul-protocol.git"    # Knowledge graph (networkx)
+pip install "soul-protocol[mcp] @ git+https://github.com/qbtrix/soul-protocol.git"      # MCP server (fastmcp)
+```
+
+Or clone and install locally:
+
+```bash
+git clone https://github.com/qbtrix/soul-protocol.git
+cd soul-protocol
+pip install -e ".[dev]"
 ```
 
 ---
@@ -131,18 +138,26 @@ persona: I am Aria, precise and efficient.
 
 ---
 
-## Use with paw
+## Use with PocketPaw
 
-[paw](https://github.com/pocketpaw/pocketpaw) is PocketPaw's lightweight agent that lives in your project.
+[PocketPaw](https://github.com/pocketpaw/pocketpaw) is a self-hosted AI agent with
+Telegram, Discord, Slack, WhatsApp, and web dashboard support.
 
-```bash
-pip install paw
-cd my-project/
-paw init
-paw ask "what does this project do?"
+PocketPaw uses soul-protocol for persistent identity — your agent remembers across
+conversations and maintains a consistent personality. The integration uses
+`SoulChannelObserver` to feed interactions into the soul's psychology pipeline
+non-invasively via the message bus.
+
+```python
+from soul_protocol import Soul, Interaction
+
+# Inside your agent's message handler
+soul = await Soul.awaken(".soul/")
+await soul.observe(Interaction(
+    user_input=user_message,
+    agent_output=agent_response,
+))
 ```
-
-paw uses soul-protocol internally for persistent identity — every project gets its own soul that learns and evolves.
 
 ---
 
@@ -154,14 +169,21 @@ A `.soul` file is a zip archive containing:
 
 | File | Purpose |
 |---|---|
-| `manifest.json` | Format version, checksums, stats |
-| `config.json` | Identity, DNA, evolution config |
-| `memory.json` | Full memory state (episodic, semantic, procedural) |
-| `self_model.json` | Klein self-concept, relationship notes |
-| `graph.json` | Entity relationships (if knowledge graph is used) |
+| `manifest.json` | Format version, soul ID, export timestamp, stats |
+| `soul.json` | Complete SoulConfig (identity, DNA, memory settings, evolution) |
+| `dna.md` | Human-readable personality blueprint |
+| `state.json` | Current mood, energy, focus, social battery |
+| `memory/core.json` | Always-loaded persona + human profile |
+| `memory/episodic.json` | Interaction history with somatic markers |
+| `memory/semantic.json` | Extracted facts with confidence scores |
+| `memory/procedural.json` | Learned patterns and preferences |
+| `memory/self_model.json` | Klein self-concept, relationship notes |
+| `memory/graph.json` | Entity relationships (if knowledge graph is used) |
+| `memory/general_events.json` | Conway hierarchy autobiographical events |
 
-Fully portable. Move between platforms, back up to cloud storage, inspect with
-any zip tool. Versioned so older readers can still parse newer files.
+Fully portable. Rename to `.zip` and open with any archive tool. Move between
+platforms, back up to cloud storage, version in git. See the full
+[format specification](spec/SOUL-FORMAT-SPEC.md) for details.
 
 ### 5-Tier Memory
 
@@ -406,7 +428,7 @@ as the agent learns about itself.
 ## Development
 
 ```bash
-git clone https://github.com/OCEAN/soul-protocol.git
+git clone https://github.com/qbtrix/soul-protocol.git
 cd soul-protocol
 pip install -e ".[dev]"
 pytest tests/

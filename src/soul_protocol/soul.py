@@ -1,5 +1,11 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
-# Updated: v0.2.3 — Added system_prompt property alias and memory_count property
+# Updated: v0.3.1 — Wired seed_domains through Soul.__init__() → MemoryManager
+#   → SelfModelManager. Custom seed domains now replace default bootstrapping.
+# Updated: v0.3.0 — Expanded birth() with ocean, communication, biorhythms,
+#   persona, and seed_domains parameters for flexible soul configuration at
+#   creation time. Added birth_from_config() classmethod to birth a soul from
+#   a YAML/JSON config file.
+#   v0.2.3 — Added system_prompt property alias and memory_count property
 #   for paw integration convenience.
 #   v0.2.2 — Accept optional SearchStrategy for pluggable retrieval.
 #   reflect(apply=True) auto-applies consolidation. Added general_events property.
@@ -15,10 +21,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from .cognitive.engine import CognitiveEngine
 from .memory.strategy import SearchStrategy
 from .types import (
+    Biorhythms,
+    CommunicationStyle,
     CoreMemory,
     DNA,
     EvolutionConfig,
@@ -31,6 +40,7 @@ from .types import (
     MemoryType,
     Mood,
     Mutation,
+    Personality,
     ReflectionResult,
     SoulConfig,
     SoulState,
@@ -52,6 +62,7 @@ class Soul:
         config: SoulConfig,
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
+        seed_domains: dict[str, list[str]] | None = None,
     ) -> None:
         self._config = config
         self._identity = config.identity
@@ -66,6 +77,7 @@ class Soul:
             core_values=config.identity.core_values,
             engine=engine,
             search_strategy=search_strategy,
+            seed_domains=seed_domains,
         )
         self._state = StateManager(config.state)
         self._evolution = EvolutionManager(config.evolution)
@@ -83,6 +95,12 @@ class Soul:
         bonded_to: str | None = None,
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
+        # v0.3.0 — Flexible configuration parameters
+        ocean: dict[str, float] | None = None,
+        communication: dict[str, str] | None = None,
+        biorhythms: dict[str, Any] | None = None,
+        persona: str | None = None,
+        seed_domains: dict[str, list[str]] | None = None,
         **kwargs,
     ) -> Soul:
         """Birth a new Soul.
@@ -92,10 +110,21 @@ class Soul:
             archetype: Personality archetype description.
             personality: Origin story / persona text.
             values: Core values for significance scoring.
-            communication_style: Communication style description.
+            communication_style: Communication style description (legacy).
             bonded_to: Entity this soul is bonded to.
             engine: Optional CognitiveEngine for LLM-enhanced cognition.
             search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
+            ocean: OCEAN personality traits, e.g. {"openness": 0.8, ...}.
+                   Unspecified traits default to 0.5.
+            communication: Communication style dict, e.g. {"warmth": "high", ...}.
+                           Unspecified fields keep model defaults.
+            biorhythms: Biorhythm settings, e.g. {"chronotype": "night_owl", ...}.
+                        Unspecified fields keep model defaults.
+            persona: Core memory persona text. If provided, overrides the
+                     personality parameter for core memory initialization.
+            seed_domains: Custom seed domains for the self-model, e.g.
+                          {"cooking": ["recipe", "bake", ...]}. Replaces
+                          the default 6 bootstrapping domains.
             **kwargs: Additional arguments (reserved for future use).
         """
         identity = Identity(
@@ -107,20 +136,104 @@ class Soul:
             bonded_to=bonded_to,
         )
 
+        # Build DNA from optional configuration parameters
+        dna_personality = Personality()
+        if ocean:
+            dna_personality = Personality(
+                openness=ocean.get("openness", 0.5),
+                conscientiousness=ocean.get("conscientiousness", 0.5),
+                extraversion=ocean.get("extraversion", 0.5),
+                agreeableness=ocean.get("agreeableness", 0.5),
+                neuroticism=ocean.get("neuroticism", 0.5),
+            )
+
+        dna_comm = CommunicationStyle()
+        if communication:
+            dna_comm = CommunicationStyle(**communication)
+
+        dna_bio = Biorhythms()
+        if biorhythms:
+            dna_bio = Biorhythms(**biorhythms)
+
+        dna = DNA(
+            personality=dna_personality,
+            communication=dna_comm,
+            biorhythms=dna_bio,
+        )
+
         config = SoulConfig(
             identity=identity,
+            dna=dna,
             lifecycle=LifecycleState.ACTIVE,
         )
 
-        soul = cls(config, engine=engine, search_strategy=search_strategy)
+        # Use explicit persona text, fall back to personality, fall back to default
+        persona_text = persona or personality or f"I am {name}."
+
+        soul = cls(
+            config,
+            engine=engine,
+            search_strategy=search_strategy,
+            seed_domains=seed_domains,
+        )
 
         # Initialize core memory
         soul._memory.set_core(
-            persona=personality or f"I am {name}.",
+            persona=persona_text,
             human="",
         )
 
         return soul
+
+    @classmethod
+    async def birth_from_config(
+        cls,
+        config_path: str | Path,
+        engine: CognitiveEngine | None = None,
+    ) -> Soul:
+        """Birth a soul from a YAML/JSON config file.
+
+        The config file can specify all soul parameters:
+        name, archetype, values, ocean, communication, biorhythms, persona, etc.
+
+        Args:
+            config_path: Path to a .yaml/.yml/.json file with soul parameters.
+            engine: Optional CognitiveEngine for LLM-enhanced cognition.
+
+        Returns:
+            A newly birthed Soul configured from the file.
+
+        Raises:
+            ValueError: If the file format is not supported.
+            FileNotFoundError: If the config file does not exist.
+        """
+        path = Path(config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+
+        if path.suffix in (".yaml", ".yml"):
+            import yaml
+
+            data = yaml.safe_load(path.read_text())
+        elif path.suffix == ".json":
+            import json
+
+            data = json.loads(path.read_text())
+        else:
+            raise ValueError(
+                f"Unsupported config format: {path.suffix}. "
+                "Use .yaml, .yml, or .json."
+            )
+
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Config file is empty or not a valid mapping: {path}"
+            )
+
+        return await cls.birth(
+            engine=engine,
+            **data,
+        )
 
     @classmethod
     async def awaken(

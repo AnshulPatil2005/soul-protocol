@@ -1,0 +1,58 @@
+{
+  "description": "A soul's unique identity with cryptographic DID.",
+  "properties": {
+    "did": {
+      "default": "",
+      "title": "Did",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "archetype": {
+      "default": "",
+      "title": "Archetype",
+      "type": "string"
+    },
+    "born": {
+      "format": "date-time",
+      "title": "Born",
+      "type": "string"
+    },
+    "bonded_to": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bonded To"
+    },
+    "origin_story": {
+      "default": "",
+      "title": "Origin Story",
+      "type": "string"
+    },
+    "prime_directive": {
+      "default": "",
+      "title": "Prime Directive",
+      "type": "string"
+    },
+    "core_values": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Core Values",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "Identity",
+  "type": "object"
+}

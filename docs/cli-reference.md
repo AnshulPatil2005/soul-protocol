@@ -1,6 +1,6 @@
-<!-- Covers: CLI installation, all 10 commands (init, birth, open, inspect, status, export, migrate, retire, list, dashboard)
+<!-- Covers: CLI installation, all 8 commands (init, birth, inspect, status, export, migrate, retire, list)
      with usage examples, options tables, and output descriptions.
-     Updated: Added soul open command. -->
+     Updated: 2026-03-02 — Removed dashboard/open commands, enhanced inspect with TUI panels. -->
 
 # CLI Reference
 
@@ -77,7 +77,6 @@ After initialization, all other `soul` commands work with the `.soul/` directory
 ```bash
 soul inspect .soul/
 soul status .soul/
-soul dashboard .soul/
 soul export .soul/ -o aria.soul
 ```
 
@@ -260,88 +259,6 @@ soul list
 **Arguments:** None.
 
 **Output:** A table of soul IDs found under `~/.soul/`. Each entry corresponds to a subdirectory containing a `soul.json` file. If no souls are found, prints a notice.
-
----
-
-### `soul dashboard`
-
-Open a visual web dashboard for a soul. Starts a local HTTP server that displays identity, OCEAN personality, state gauges, memory browser, knowledge graph, and self-model.
-
-```bash
-# Open dashboard for .soul/ folder (default)
-soul dashboard
-
-# Open dashboard for a specific path
-soul dashboard aria.soul
-soul dashboard .soul/
-
-# Use a different port
-soul dashboard --port 8080
-
-# Don't auto-open browser
-soul dashboard --no-open
-```
-
-**Arguments:**
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `PATH` | No | Path to `.soul` file or `.soul/` directory. Defaults to `.soul`. |
-
-**Options:**
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--port INT` | `-p` | HTTP server port. Defaults to 5678. |
-| `--no-open` | | Don't automatically open the browser. |
-
-**Behavior:** The dashboard loads the soul's data (identity, DNA, state, all memory tiers, knowledge graph, self-model) and serves a single-page web application at `http://localhost:<port>`. The page features:
-
-- **Identity card** with name, archetype, DID, values, lifecycle
-- **OCEAN personality bars** with animated fills
-- **State gauges** for mood, energy, focus, and social battery
-- **Core memory viewer** (persona + human knowledge)
-- **Memory browser** with search, type filtering, and sort
-- **Knowledge graph** entity and relationship display
-- **Self-model** with confidence bars and relationship notes
-
-The dashboard uses mood-reactive accent colors -- the entire color scheme shifts based on the soul's current mood. Zero external dependencies (pure HTML/CSS/JS served via Python stdlib).
-
-Press `Ctrl+C` to stop the server.
-
----
-
-### `soul open`
-
-Quick shortcut to open a soul in the visual dashboard. Accepts any soul path — `.soul` file, `.soul/` directory, or any directory containing `soul.json`. If no path is given, opens `.soul/` in the current directory.
-
-```bash
-# Open .soul/ in current directory (default)
-soul open
-
-# Open a specific .soul file
-soul open aria.soul
-
-# Open a .soul/ directory
-soul open .soul/
-
-# Use a different port
-soul open --port 8080
-```
-
-**Arguments:**
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `PATH` | No | Path to `.soul` file or directory. Defaults to `.soul`. |
-
-**Options:**
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--port INT` | `-p` | HTTP server port. Defaults to 5678. |
-
-**Behavior:** Same as `soul dashboard`, but simpler to type and always auto-opens the browser. Designed for the common case: you're in a project with a `.soul/` folder and just want to see it.
 
 ---
 

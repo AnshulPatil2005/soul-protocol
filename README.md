@@ -1,6 +1,7 @@
 <!-- README.md — Comprehensive README for soul-protocol open standard. -->
-<!-- Updated: 2026-03-02 — Fixed all inaccurate claims: GitHub URLs, .soul file table,
-     installation instructions, paw section, badges, development section. -->
+<!-- Updated: 2026-03-02 — Removed dashboard, replaced with Rich TUI in inspect/status.
+     Fixed all inaccurate claims: GitHub URLs, .soul file table, install instructions,
+     paw section, badges, development section. -->
 
 # Soul Protocol
 
@@ -34,8 +35,7 @@ file and migrate between any platform.
 | **Portability** | `.soul` file format -- zip archive with identity, memory, and state |
 | **Integration** | Single `CognitiveEngine.think()` method -- plug in any LLM |
 | **Retrieval** | Pluggable `SearchStrategy` -- swap in embeddings with one class |
-| **CLI** | 10 commands: `init`, `birth`, `open`, `inspect`, `status`, `export`, `migrate`, `retire`, `list`, `dashboard` |
-| **Dashboard** | Local web UI to visualize identity, memory, state, OCEAN, knowledge graph |
+| **CLI** | 8 commands: `init`, `birth`, `inspect`, `status`, `export`, `migrate`, `retire`, `list` — Rich TUI output |
 
 ---
 
@@ -70,11 +70,11 @@ pip install -e ".[dev]"
 # Initialize a .soul/ folder in your project (like .git/)
 soul init "Aria" --archetype "The Compassionate Creator"
 
-# Inspect your soul
+# Inspect your soul (rich TUI with OCEAN bars, memory, self-model)
 soul inspect .soul/
 
-# Open the visual dashboard
-soul dashboard
+# Quick status check
+soul status .soul/
 ```
 
 ### From Python
@@ -312,19 +312,6 @@ Load from a directory just like a file: `soul = await Soul.awaken(".soul/")`
 
 ---
 
-## Dashboard
-
-Visualize your soul's identity, memory, and state in a local web UI:
-
-```bash
-soul dashboard .soul/
-```
-
-Opens at `localhost:5678` with dark theme, mood-reactive accent colors, OCEAN
-personality bars, memory browser with search/filter, and knowledge graph.
-
----
-
 ## MCP Server
 
 Soul Protocol ships with an MCP (Model Context Protocol) server for agent
@@ -352,14 +339,12 @@ soul <command> [options]
 |---|---|---|
 | `init` | Initialize a .soul/ folder in the current directory | `soul init Aria --archetype "The Creator"` |
 | `birth` | Birth a new soul (supports OCEAN flags and config files) | `soul birth Aria --openness 0.8 -o aria.soul` |
-| `open` | Open soul in the visual dashboard | `soul open` |
-| `inspect` | Inspect a soul file or folder (identity, OCEAN, state) | `soul inspect .soul/` |
-| `status` | Show current mood, energy, social battery | `soul status .soul/` |
+| `inspect` | Full TUI view — identity, OCEAN bars, state, memory, self-model | `soul inspect .soul/` |
+| `status` | Quick status — mood, energy, social battery, memory count | `soul status .soul/` |
 | `export` | Export to .soul, .json, .yaml, or .md | `soul export .soul/ -o aria.json -f json` |
 | `migrate` | Convert SOUL.md to .soul format | `soul migrate SOUL.md -o aria.soul` |
 | `retire` | Retire a soul (preserves memories by default) | `soul retire aria.soul` |
 | `list` | List all saved souls in ~/.soul/ | `soul list` |
-| `dashboard` | Open visual web dashboard (with options) | `soul dashboard --port 8080` |
 
 ---
 

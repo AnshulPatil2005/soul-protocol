@@ -1,8 +1,8 @@
 # cli/main.py — Click CLI for the Soul Protocol
-# Updated: v0.3.1 — Added `soul open` command (auto-opens dashboard for any .soul path).
-#   Fixed `soul init` to resolve paths relative to cwd, not uv run dir.
-#   v0.3.0 — Added --config/-c option, OCEAN trait flags to birth command,
-#   `soul init` (creates .soul/ project folder), `soul dashboard` (local web UI).
+# Updated: 2026-03-02 — Removed dashboard/open commands (replaced by rich TUI in inspect/status).
+#   Enhanced `soul inspect` with OCEAN bars, memory stats, core memory, self-model panels.
+#   Enhanced `soul status` with progress bars for energy/social battery.
+#   v0.3.0 — Added --config/-c option, OCEAN trait flags, `soul init`.
 #   v0.2.2 — Fixed version_option to read from package __version__.
 # Created: 2026-02-22 — Commands: birth, inspect, status, export, migrate
 
@@ -13,11 +13,30 @@ from datetime import datetime
 from pathlib import Path
 
 import click
-from rich.console import Console
+from rich.columns import Columns
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 console = Console()
+
+
+def _ocean_bar(label: str, value: float) -> Text:
+    """Render a single OCEAN trait as a labeled bar."""
+    pct = int(value * 100)
+    filled = int(value * 20)
+    bar = "█" * filled + "░" * (20 - filled)
+    return Text.from_markup(f"  {label:<20s} [cyan]{bar}[/] {pct:>3d}%")
+
+
+def _pct_color(value: float) -> str:
+    """Pick color based on percentage value."""
+    if value > 70:
+        return "green"
+    if value > 30:
+        return "yellow"
+    return "red"
 
 
 @click.group()
@@ -57,7 +76,6 @@ def birth(
         from soul_protocol.soul import Soul
 
         if config_file:
-            # Birth from a full config YAML/JSON file
             soul = await Soul.birth_from_config(config_file)
             console.print(
                 f"[green]Birthed[/green] [bold]{soul.name}[/bold] "
@@ -74,7 +92,6 @@ def birth(
 
             archetype_input = archetype or "The Companion"
 
-            # Build ocean dict from CLI flags if any are provided
             ocean_flags = {
                 "openness": openness,
                 "conscientiousness": conscientiousness,
@@ -91,7 +108,6 @@ def birth(
             )
             console.print(f"[green]Birthed[/green] [bold]{soul.name}[/bold] ({soul.did})")
 
-            # Show OCEAN values if any were customized
             if ocean:
                 p = soul.dna.personality
                 console.print(
@@ -128,7 +144,6 @@ def init(name, archetype, values, from_file, soul_dir):
     async def _init():
         from soul_protocol.soul import Soul
 
-        # Resolve relative to actual cwd (not uv run directory)
         soul_path = Path(soul_dir) if Path(soul_dir).is_absolute() else Path.cwd() / soul_dir
 
         if soul_path.exists() and (soul_path / "soul.json").exists():
@@ -162,7 +177,6 @@ def init(name, archetype, values, from_file, soul_dir):
         console.print()
         console.print("[dim]Next steps:[/dim]")
         console.print(f"  [cyan]soul inspect {soul_dir}/[/cyan]     -- view soul details")
-        console.print(f"  [cyan]soul dashboard {soul_dir}/[/cyan]   -- open visual dashboard")
         console.print(
             f"  [cyan]soul export {soul_dir}/ -o name.soul[/cyan] -- create portable .soul file"
         )
@@ -171,71 +185,135 @@ def init(name, archetype, values, from_file, soul_dir):
 
 
 @cli.command()
-@click.argument("path", type=click.Path(), default=".soul", required=False)
-@click.option("--port", "-p", type=int, default=5678, help="Server port")
-@click.option("--no-open", is_flag=True, help="Don't auto-open browser")
-def dashboard(path, port, no_open):
-    """Open the visual Soul dashboard in your browser."""
-    from soul_protocol.dashboard.app import start_dashboard
-
-    start_dashboard(path, port=port, open_browser=not no_open)
-
-
-@cli.command("open")
-@click.argument("path", type=click.Path(exists=True), default=".soul")
-@click.option("--port", "-p", type=int, default=5678, help="Server port")
-def open_cmd(path, port):
-    """Open a soul in the visual dashboard.
-
-    Accepts a .soul file, .soul/ directory, or any directory containing soul.json.
-    If no path is given, opens .soul/ in the current directory.
-    """
-    from soul_protocol.dashboard.app import start_dashboard
-
-    p = Path(path)
-    if not p.exists():
-        console.print(f"[red]Not found:[/red] {path}")
-        console.print("[dim]Run 'soul init' to create a .soul/ folder.[/dim]")
-        raise SystemExit(1)
-
-    start_dashboard(str(p), port=port, open_browser=True)
-
-
-@cli.command()
 @click.argument("path", type=click.Path(exists=True))
 def inspect(path):
-    """Inspect a Soul file."""
+    """Inspect a Soul — identity, OCEAN, memory, state, self-model."""
 
     async def _inspect():
         from soul_protocol.soul import Soul
 
         soul = await Soul.awaken(path)
         age = (datetime.now() - soul.born).days
-
-        table = Table(title=f"{soul.name}", show_header=False, border_style="blue")
-        table.add_column("Field", style="cyan")
-        table.add_column("Value")
-
-        table.add_row("DID", soul.did)
-        table.add_row("Archetype", soul.archetype or "(none)")
-        table.add_row("Born", soul.born.strftime("%Y-%m-%d %H:%M"))
-        table.add_row("Age", f"{age} days")
-        table.add_row("Lifecycle", soul.lifecycle.value)
-        table.add_row("", "")
-        table.add_row("Mood", soul.state.mood.value)
-        table.add_row("Energy", f"{soul.state.energy:.0f}%")
-        table.add_row("Focus", soul.state.focus)
-        table.add_row("Social Battery", f"{soul.state.social_battery:.0f}%")
-        table.add_row("", "")
-
         p = soul.dna.personality
-        table.add_row("Openness", f"{p.openness:.2f}")
-        table.add_row("Conscientiousness", f"{p.conscientiousness:.2f}")
-        table.add_row("Extraversion", f"{p.extraversion:.2f}")
-        table.add_row("Agreeableness", f"{p.agreeableness:.2f}")
-        table.add_row("Neuroticism", f"{p.neuroticism:.2f}")
+        mem = soul._memory
 
-        console.print(table)
+        # ── Identity panel ──
+        identity_lines = [
+            f"[bold]{soul.name}[/bold]",
+            f"[dim]{soul.archetype or '(no archetype)'}[/dim]",
+            "",
+            f"DID        [dim]{soul.did}[/dim]",
+            f"Born       {soul.born.strftime('%Y-%m-%d %H:%M')}",
+            f"Age        {age} day{'s' if age != 1 else ''}",
+            f"Lifecycle  [{'green' if soul.lifecycle.value == 'active' else 'yellow'}]"
+            f"{soul.lifecycle.value}[/]",
+        ]
+        if soul.identity.core_values:
+            identity_lines.append(f"Values     {', '.join(soul.identity.core_values)}")
+
+        identity_panel = Panel(
+            "\n".join(identity_lines),
+            title="Identity",
+            border_style="blue",
+        )
+
+        # ── OCEAN panel ──
+        ocean_lines = [
+            _ocean_bar("Openness", p.openness),
+            _ocean_bar("Conscientiousness", p.conscientiousness),
+            _ocean_bar("Extraversion", p.extraversion),
+            _ocean_bar("Agreeableness", p.agreeableness),
+            _ocean_bar("Neuroticism", p.neuroticism),
+        ]
+        ocean_panel = Panel(
+            Group(*ocean_lines),
+            title="OCEAN Personality",
+            border_style="blue",
+        )
+
+        # ── State panel ──
+        mood = soul.state.mood.value
+        energy = soul.state.energy
+        social = soul.state.social_battery
+        e_color = _pct_color(energy)
+        s_color = _pct_color(social)
+
+        state_lines = [
+            f"  Mood            [cyan]{mood}[/]",
+            f"  Energy          [{e_color}]{energy:.0f}%[/]  "
+            f"[{e_color}]{'█' * int(energy / 5)}{'░' * (20 - int(energy / 5))}[/]",
+            f"  Social Battery  [{s_color}]{social:.0f}%[/]  "
+            f"[{s_color}]{'█' * int(social / 5)}{'░' * (20 - int(social / 5))}[/]",
+            f"  Focus           {soul.state.focus}",
+        ]
+        state_panel = Panel(
+            "\n".join(state_lines),
+            title="Current State",
+            border_style="blue",
+        )
+
+        # ── Memory stats panel ──
+        episodic_ct = len(mem._episodic.entries())
+        semantic_ct = len(mem._semantic.facts())
+        procedural_ct = len(mem._procedural.entries())
+        total = soul.memory_count
+
+        mem_table = Table(show_header=False, box=None, padding=(0, 2))
+        mem_table.add_column("Tier", style="cyan")
+        mem_table.add_column("Count", justify="right")
+        mem_table.add_row("Episodic", str(episodic_ct))
+        mem_table.add_row("Semantic", str(semantic_ct))
+        mem_table.add_row("Procedural", str(procedural_ct))
+        mem_table.add_row("", "")
+        mem_table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]")
+
+        mem_panel = Panel(mem_table, title="Memory", border_style="blue")
+
+        # ── Core memory panel ──
+        core = mem.get_core()
+        persona_text = core.persona if core.persona else "[dim]empty[/dim]"
+        human_text = core.human if core.human else "[dim]empty[/dim]"
+        core_panel = Panel(
+            f"[cyan]Persona[/]\n  {persona_text}\n\n[cyan]Human[/]\n  {human_text}",
+            title="Core Memory",
+            border_style="blue",
+        )
+
+        # ── Self-model panel ──
+        sm = soul.self_model
+        images = sm.get_active_self_images()
+        if images:
+            si_lines = []
+            for img in images:
+                conf = int(img.confidence * 100)
+                bar = "█" * int(img.confidence * 15) + "░" * (15 - int(img.confidence * 15))
+                label = img.domain.replace("_", " ")
+                si_lines.append(f"  {label:<18s} [cyan]{bar}[/] {conf}%  ({img.evidence_count} ev)")
+            sm_text = "\n".join(si_lines)
+        else:
+            sm_text = "[dim]No self-images yet (interact more)[/dim]"
+
+        sm_panel = Panel(sm_text, title="Self-Model", border_style="blue")
+
+        # ── Communication style ──
+        comm = soul.dna.communication
+        comm_lines = [
+            f"  Warmth     {comm.warmth}",
+            f"  Verbosity  {comm.verbosity}",
+            f"  Humor      {comm.humor_style}",
+            f"  Emoji      {comm.emoji_usage}",
+        ]
+        comm_panel = Panel("\n".join(comm_lines), title="Communication", border_style="blue")
+
+        # ── Render everything ──
+        console.print()
+        console.print(identity_panel)
+        console.print(ocean_panel)
+        console.print(state_panel)
+        console.print(Columns([mem_panel, comm_panel], equal=True))
+        console.print(core_panel)
+        console.print(sm_panel)
+        console.print()
 
     asyncio.run(_inspect())
 
@@ -243,35 +321,34 @@ def inspect(path):
 @cli.command()
 @click.argument("path", type=click.Path(exists=True))
 def status(path):
-    """Show a Soul's current status."""
+    """Show a Soul's current status (quick view)."""
 
     async def _status():
         from soul_protocol.soul import Soul
 
         soul = await Soul.awaken(path)
-        mood_emoji = {
-            "neutral": "",
-            "curious": "",
-            "focused": "",
-            "tired": "",
-            "excited": "",
-            "contemplative": "",
-            "satisfied": "",
-            "concerned": "",
-        }.get(soul.state.mood.value, "")
+        mood = soul.state.mood.value
+        energy = soul.state.energy
+        social = soul.state.social_battery
+        e_color = _pct_color(energy)
+        s_color = _pct_color(social)
 
-        console.print(
-            Panel(
-                f"[bold]{soul.name}[/bold] is feeling "
-                f"[cyan]{soul.state.mood.value}[/cyan] {mood_emoji}\n"
-                f"Energy: [{'green' if soul.state.energy > 50 else 'red'}]"
-                f"{soul.state.energy:.0f}%[/] | "
-                f"Focus: {soul.state.focus} | "
-                f"Social: {soul.state.social_battery:.0f}%",
-                title="Soul Status",
-                border_style="blue",
-            )
-        )
+        lines = [
+            f"[bold]{soul.name}[/bold] is feeling [cyan]{mood}[/]",
+            "",
+            f"  Energy          [{e_color}]{energy:.0f}%[/]  "
+            f"[{e_color}]{'█' * int(energy / 5)}{'░' * (20 - int(energy / 5))}[/]",
+            f"  Social Battery  [{s_color}]{social:.0f}%[/]  "
+            f"[{s_color}]{'█' * int(social / 5)}{'░' * (20 - int(social / 5))}[/]",
+            f"  Focus           {soul.state.focus}",
+            f"  Memories        {soul.memory_count}",
+        ]
+
+        console.print(Panel(
+            "\n".join(lines),
+            title="Soul Status",
+            border_style="blue",
+        ))
 
     asyncio.run(_status())
 

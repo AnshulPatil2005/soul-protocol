@@ -1,4 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: v0.3.2 — Added proper error handling for awaken(), export(), retire().
+#   Custom exceptions: SoulFileNotFoundError, SoulCorruptError, SoulExportError,
+#   SoulRetireError. retire() now fails before lifecycle change if save fails.
 # Updated: v0.3.1 — Wired seed_domains through Soul.__init__() → MemoryManager
 #   → SelfModelManager. Custom seed domains now replace default bootstrapping.
 # Updated: v0.3.0 — Expanded birth() with ocean, communication, biorhythms,
@@ -249,31 +252,46 @@ class Soul:
             engine: Optional CognitiveEngine for LLM-enhanced cognition.
             search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
         """
+        from .exceptions import SoulCorruptError, SoulFileNotFoundError
+
         memory_data: dict = {}
 
         if isinstance(source, bytes):
-            config, memory_data = await unpack_soul(source)
+            try:
+                config, memory_data = await unpack_soul(source)
+            except Exception as e:
+                raise SoulCorruptError("<bytes>", str(e)) from e
         else:
             path = Path(source)
-            if path.suffix == ".soul":
-                config, memory_data = await unpack_soul(path.read_bytes())
-            elif path.suffix == ".json":
-                config = SoulConfig.model_validate_json(path.read_text())
-            elif path.suffix in (".yaml", ".yml"):
-                import yaml
+            if not path.exists():
+                raise SoulFileNotFoundError(str(path))
+            try:
+                if path.suffix == ".soul":
+                    try:
+                        config, memory_data = await unpack_soul(path.read_bytes())
+                    except (KeyError, Exception) as e:
+                        raise SoulCorruptError(str(path), str(e)) from e
+                elif path.suffix == ".json":
+                    config = SoulConfig.model_validate_json(path.read_text())
+                elif path.suffix in (".yaml", ".yml"):
+                    import yaml
 
-                data = yaml.safe_load(path.read_text())
-                config = SoulConfig.model_validate(data)
-            elif path.suffix == ".md":
-                from .parsers.markdown import soul_from_md
+                    data = yaml.safe_load(path.read_text())
+                    config = SoulConfig.model_validate(data)
+                elif path.suffix == ".md":
+                    from .parsers.markdown import soul_from_md
 
-                return cls(
-                    await soul_from_md(path.read_text()),
-                    engine=engine,
-                    search_strategy=search_strategy,
-                )
-            else:
-                raise ValueError(f"Unknown soul format: {path.suffix}")
+                    return cls(
+                        await soul_from_md(path.read_text()),
+                        engine=engine,
+                        search_strategy=search_strategy,
+                    )
+                else:
+                    raise ValueError(f"Unknown soul format: {path.suffix}")
+            except (SoulFileNotFoundError, SoulCorruptError):
+                raise
+            except PermissionError as e:
+                raise SoulFileNotFoundError(str(path)) from e
 
         soul = cls(config, engine=engine, search_strategy=search_strategy)
         soul._lifecycle = LifecycleState.ACTIVE
@@ -546,16 +564,33 @@ class Soul:
 
     async def export(self, path: str | Path) -> None:
         """Export soul as a portable .soul file with full memory data."""
-        memory_data = self._memory.to_dict()
-        data = await pack_soul(self.serialize(), memory_data=memory_data)
-        Path(path).write_bytes(data)
+        from .exceptions import SoulExportError
+
+        try:
+            memory_data = self._memory.to_dict()
+            data = await pack_soul(self.serialize(), memory_data=memory_data)
+            Path(path).write_bytes(data)
+        except PermissionError as e:
+            raise SoulExportError(str(path), f"permission denied") from e
+        except OSError as e:
+            raise SoulExportError(str(path), str(e)) from e
 
     async def retire(
         self, *, farewell: bool = False, preserve_memories: bool = True
     ) -> None:
-        """Retire this soul with dignity."""
+        """Retire this soul with dignity.
+
+        If preserve_memories is True (default), saves all memories before
+        retiring. If the save fails, the soul remains in its current
+        lifecycle state and a SoulRetireError is raised.
+        """
         if preserve_memories:
-            await self.save()
+            from .exceptions import SoulRetireError
+
+            try:
+                await self.save()
+            except Exception as e:
+                raise SoulRetireError(str(e)) from e
 
         self._lifecycle = LifecycleState.RETIRED
         await self._memory.clear()

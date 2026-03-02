@@ -1,5 +1,6 @@
 # soul-protocol — Portable AI identity and memory
-# Updated: v0.2.2 — Added MCP server (fastmcp), soul-mcp entry point, mcp optional dep
+# Updated: 2026-03-02 — Fixed project URLs from OCEAN to qbtrix.
+#   v0.2.2 — Added MCP server (fastmcp), soul-mcp entry point, mcp optional dep
 #   v0.2.2 — Pluggable retrieval, memory consolidation, fact conflict resolution
 
 [build-system]
@@ -57,9 +58,9 @@ soul = "soul_protocol.cli.main:cli"
 soul-mcp = "soul_protocol.mcp:run_server"
 
 [project.urls]
-Homepage = "https://github.com/OCEAN/soul-protocol"
-Repository = "https://github.com/OCEAN/soul-protocol"
-Issues = "https://github.com/OCEAN/soul-protocol/issues"
+Homepage = "https://github.com/qbtrix/soul-protocol"
+Repository = "https://github.com/qbtrix/soul-protocol"
+Issues = "https://github.com/qbtrix/soul-protocol/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/soul_protocol"]

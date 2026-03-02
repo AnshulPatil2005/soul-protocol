@@ -1,7 +1,7 @@
 <!-- Covers: Platform integration guide for Soul Protocol. Claude Code (MCP + CLAUDE.md template),
      Claude Desktop, Cursor, Windsurf, custom Python agents, LangChain/LangGraph, CrewAI,
      integration tiers, portability patterns, and MCP tools reference table.
-     Updated: Use soul init as primary setup path, .soul/ folder format, dashboard link. -->
+     Updated: 2026-03-02 — Replaced dashboard references with inspect TUI. -->
 
 # Integrations
 
@@ -52,8 +52,8 @@ soul init "MyAssistant" --archetype "The Coding Expert" --values "precision,clar
 This creates a `.soul/` directory with identity, personality, state, and empty memory tiers. You can verify it works:
 
 ```bash
-soul inspect .soul/
-soul dashboard .soul/   # Opens a visual web dashboard
+soul inspect .soul/     # Full TUI view with OCEAN bars, memory, self-model
+soul status .soul/      # Quick status check
 ```
 
 Alternatively, create a portable `.soul` file:
@@ -121,15 +121,15 @@ continuity across sessions.
   High energy means more enthusiastic, exploratory responses.
 ```
 
-### Step 4: Visualize (Optional)
+### Step 4: Inspect (Optional)
 
-Open the dashboard to see your soul's identity, memory, and state:
+View your soul's full state in the terminal:
 
 ```bash
-soul dashboard .soul/
+soul inspect .soul/
 ```
 
-This starts a local web server at `localhost:5678` with dark theme, OCEAN personality bars, memory browser, and knowledge graph. See [CLI Reference](cli-reference.md) for options.
+Shows identity, OCEAN personality bars, state (mood/energy/social battery), memory stats, core memory, self-model, and communication style. See [CLI Reference](cli-reference.md) for details.
 
 ### What This Gives You
 

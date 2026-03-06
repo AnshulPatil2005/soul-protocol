@@ -1,5 +1,6 @@
 # export/unpack.py — Load a SoulConfig from a .soul zip archive.
-# Updated: v0.2.2 — Added general_events.json to memory tier extraction.
+# Updated: Added dna.md reading from archive into memory_data["dna_md"].
+#   v0.2.2 — Added general_events.json to memory tier extraction.
 #   v0.2.0 — Added self_model.json to memory tier extraction.
 #   Returns full memory data including self_model alongside the config.
 
@@ -52,6 +53,10 @@ async def unpack_soul(data: bytes) -> tuple[SoulConfig, dict]:
             mem_path = f"memory/{tier_name}.json"
             if mem_path in zf.namelist():
                 memory_data[tier_name] = json.loads(zf.read(mem_path))
+
+        # Read dna.md if present (human-readable personality snapshot)
+        if "dna.md" in zf.namelist():
+            memory_data["dna_md"] = zf.read("dna.md").decode("utf-8")
 
     config = SoulConfig.model_validate(payload)
     return config, memory_data

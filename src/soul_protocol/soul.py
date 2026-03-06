@@ -1,4 +1,6 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: Added reincarnate() classmethod for lifecycle rebirth.
+#   Preserves memories, personality, and tracks incarnation lineage.
 # Updated: v0.3.2 — Added proper error handling for awaken(), export(), retire().
 #   Custom exceptions: SoulFileNotFoundError, SoulCorruptError, SoulExportError,
 #   SoulRetireError. retire() now fails before lifecycle change if save fails.
@@ -231,6 +233,67 @@ class Soul:
             engine=engine,
             **data,
         )
+
+    @classmethod
+    async def reincarnate(
+        cls,
+        old_soul: Soul,
+        *,
+        name: str | None = None,
+    ) -> Soul:
+        """Create a new Soul from an existing soul's essence.
+
+        Preserves memories, personality (DNA), and core values from the
+        previous life. Generates a new DID and increments the incarnation
+        counter. The old soul's DID is recorded in ``previous_lives``.
+
+        Args:
+            old_soul: The soul to reincarnate from.
+            name: Optional new name. Defaults to the old soul's name.
+
+        Returns:
+            A fresh Soul carrying forward the old soul's essence.
+        """
+        new_name = name or old_soul.name
+        old_identity = old_soul.identity
+
+        # Build lineage
+        previous_lives = list(old_identity.previous_lives)
+        previous_lives.append(old_soul.did)
+
+        # born intentionally reset — new incarnation begins fresh
+        identity = Identity(
+            did=generate_did(new_name),
+            name=new_name,
+            archetype=old_identity.archetype,
+            origin_story=old_identity.origin_story,
+            core_values=list(old_identity.core_values),
+            bonded_to=old_identity.bonded_to,
+            bond=old_identity.bond.model_copy(),
+            incarnation=old_identity.incarnation + 1,
+            previous_lives=previous_lives,
+        )
+
+        config = SoulConfig(
+            identity=identity,
+            dna=old_soul.dna.model_copy(deep=True),
+            core_memory=old_soul.get_core_memory().model_copy(),
+            evolution=old_soul._evolution.config.model_copy(deep=True),
+            lifecycle=LifecycleState.ACTIVE,
+        )
+
+        soul = cls(config)
+
+        # Carry forward memories from the old soul
+        memory_data = old_soul._memory.to_dict()
+        if memory_data:
+            soul._memory = MemoryManager.from_dict(
+                memory_data,
+                config.memory,
+                core_values=config.identity.core_values,
+            )
+
+        return soul
 
     @classmethod
     async def awaken(

@@ -1,5 +1,6 @@
 # __init__.py — Public API for the soul-protocol package
-# Updated: v0.3.2 — Added exception classes to public exports.
+# Updated: Added Bond, Skill, SkillRegistry exports for soul primitives.
+#   v0.3.2 — Added exception classes to public exports.
 #   v0.2.2 — Added SearchStrategy, TokenOverlapStrategy exports. Bumped version.
 #   v0.2.1 — Added CognitiveEngine, HeuristicEngine, ReflectionResult exports.
 #   v0.2.0 — Added psychology types (SomaticMarker, SignificanceScore,
@@ -7,6 +8,7 @@
 
 from __future__ import annotations
 
+from .bond import Bond
 from .cognitive.engine import CognitiveEngine, HeuristicEngine
 from .exceptions import (
     SoulCorruptError,
@@ -16,6 +18,7 @@ from .exceptions import (
     SoulRetireError,
 )
 from .memory.strategy import SearchStrategy, TokenOverlapStrategy
+from .skills import Skill, SkillRegistry
 from .soul import Soul
 from .types import (
     DNA,
@@ -44,6 +47,9 @@ from .types import (
 )
 
 __all__ = [
+    "Bond",
+    "Skill",
+    "SkillRegistry",
     "Soul",
     "CognitiveEngine",
     "HeuristicEngine",

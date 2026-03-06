@@ -1,6 +1,6 @@
 # eternal/providers/local.py — File-based local eternal storage provider.
 # Created: 2026-03-06 — Stores soul archives as files on the local filesystem.
-#   Implements EternalStorageProvider with tier_name "local".
+# Updated: 2026-03-06 — Lazy directory creation: mkdir moved from __init__ to archive().
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ class LocalStorageProvider:
             self._base_dir = Path.home() / ".soul" / "eternal" / "local"
         else:
             self._base_dir = Path(base_dir)
-        self._base_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def tier_name(self) -> str:
@@ -44,6 +43,7 @@ class LocalStorageProvider:
         self, soul_data: bytes, soul_id: str, **kwargs: Any
     ) -> ArchiveResult:
         """Archive soul data to local filesystem."""
+        self._base_dir.mkdir(parents=True, exist_ok=True)
         ref = self._ref_for(soul_data, soul_id)
         path = self._path_for(ref)
         path.write_bytes(soul_data)

@@ -1,10 +1,13 @@
 # cli/main.py — Click CLI for the Soul Protocol
 # Created: 2026-02-22 — Commands: birth, inspect, status, export, migrate
-# Updated: 2026-03-06 — Added eternal storage commands: archive, recover, eternal-status
+# Updated: 2026-03-06 — eternal-status reads manifest; archive persists results to manifest
 
 from __future__ import annotations
 
 import asyncio
+import io
+import json
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -234,6 +237,40 @@ def list():
     asyncio.run(_list())
 
 
+def _update_soul_manifest(soul_path, archive_results):
+    """Update the manifest.json inside a .soul archive with archive results."""
+    # Read existing zip contents
+    with zipfile.ZipFile(soul_path, "r") as zf:
+        existing_files = {}
+        for name in zf.namelist():
+            existing_files[name] = zf.read(name)
+
+    # Update manifest
+    manifest = json.loads(existing_files.get("manifest.json", b"{}"))
+    if "eternal" not in manifest:
+        manifest["eternal"] = {}
+
+    for result in archive_results:
+        tier = result.tier
+        manifest["eternal"][tier] = {
+            "reference": result.reference,
+            "url": result.url,
+            "cost": result.cost,
+            "permanent": result.permanent,
+            "archived_at": result.archived_at.isoformat(),
+        }
+
+    existing_files["manifest.json"] = json.dumps(manifest, indent=2)
+
+    # Rewrite the zip
+    with zipfile.ZipFile(soul_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in existing_files.items():
+            if isinstance(data, str):
+                zf.writestr(name, data)
+            else:
+                zf.writestr(name, data)
+
+
 @cli.command()
 @click.argument("path", type=click.Path(exists=True))
 @click.option(
@@ -266,6 +303,9 @@ def archive(path, tiers):
         manager.register(MockArweaveProvider())
         manager.register(MockBlockchainProvider())
         results = await manager.archive(soul_data, soul.did, tiers=tier_list)
+
+        # Persist archive results into the .soul manifest
+        _update_soul_manifest(path, results)
 
         table = Table(title=f"Archived {soul.name}", border_style="green")
         table.add_column("Tier", style="cyan")
@@ -338,6 +378,16 @@ def eternal_status(path):
 
         soul = await Soul.awaken(path)
 
+        # Read manifest from .soul archive
+        eternal_data = {}
+        try:
+            with zipfile.ZipFile(path, "r") as zf:
+                if "manifest.json" in zf.namelist():
+                    manifest_raw = json.loads(zf.read("manifest.json"))
+                    eternal_data = manifest_raw.get("eternal", {})
+        except Exception:
+            pass
+
         table = Table(
             title=f"Eternal Storage — {soul.name}",
             border_style="blue",
@@ -346,7 +396,6 @@ def eternal_status(path):
         table.add_column("Status", style="dim")
         table.add_column("Details")
 
-        # Check manifest for eternal links if available
         tiers_info = {
             "ipfs": {"label": "IPFS", "desc": "Content-addressed, requires pinning"},
             "arweave": {"label": "Arweave", "desc": "Permanent, pay-once storage"},
@@ -354,16 +403,26 @@ def eternal_status(path):
         }
 
         for tier_key, info in tiers_info.items():
-            table.add_row(
-                info["label"],
-                "[dim]Not archived[/dim]",
-                info["desc"],
-            )
+            tier_data = eternal_data.get(tier_key)
+            if tier_data:
+                ref = tier_data.get("reference", "unknown")
+                table.add_row(
+                    info["label"],
+                    "[green]Archived[/green]",
+                    ref,
+                )
+            else:
+                table.add_row(
+                    info["label"],
+                    "[dim]Not archived[/dim]",
+                    info["desc"],
+                )
 
         console.print(table)
-        console.print(
-            "\n[dim]Use 'soul archive' to archive this soul to eternal storage.[/dim]"
-        )
+        if not eternal_data:
+            console.print(
+                "\n[dim]Use 'soul archive' to archive this soul to eternal storage.[/dim]"
+            )
 
     asyncio.run(_eternal_status())
 

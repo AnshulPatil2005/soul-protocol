@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from soul_protocol.types import MemoryEntry
+from ..types import MemoryEntry
 
 
 def _token_overlap(a: str, b: str) -> float:

@@ -1,5 +1,6 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
-# Updated: v0.3.1 — Accept seed_domains param, forward to SelfModelManager.
+# Updated: 2026-03-06 — Fixed edit_core docstring: edit() replaces values, not appends.
+#   v0.3.1 — Accept seed_domains param, forward to SelfModelManager.
 #   v0.2.3 — Added count() method for total memory count across all stores.
 #   Expanded FACT_PATTERNS with Q&A knowledge extraction:
 #   user questions, recommendations, advice, comparisons, user goals/learning.
@@ -413,7 +414,7 @@ class MemoryManager:
         self._core_manager.set(persona=persona, human=human)
 
     async def edit_core(self, persona: str | None = None, human: str | None = None) -> None:
-        """Append to core memory fields (incremental update)."""
+        """Replace core memory fields (provided values overwrite existing)."""
         self._core_manager.edit(persona=persona, human=human)
 
     # ---- Memory operations ----

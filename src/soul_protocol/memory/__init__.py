@@ -1,16 +1,17 @@
 # memory/__init__.py — Memory subsystem package for the Digital Soul Protocol.
 # Updated: v0.2.2 — Added SearchStrategy protocol and TokenOverlapStrategy exports.
 #   v0.2.0 — Added psychology modules: sentiment, activation, attention, self_model.
-# Re-exports MemoryManager as the primary public interface, along with all
-# memory store classes and new psychology modules for direct access.
+#   2026-03-06 — Added ArchivalMemoryStore, MemoryCompressor exports.
 
 from __future__ import annotations
 
 from soul_protocol.memory.activation import compute_activation
+from soul_protocol.memory.archival import ArchivalMemoryStore, ConversationArchive
 from soul_protocol.memory.attention import compute_significance, is_significant
+from soul_protocol.memory.compression import MemoryCompressor
 from soul_protocol.memory.core import CoreMemoryManager
 from soul_protocol.memory.episodic import EpisodicStore
-from soul_protocol.memory.graph import KnowledgeGraph
+from soul_protocol.memory.graph import KnowledgeGraph, TemporalEdge
 from soul_protocol.memory.manager import MemoryManager
 from soul_protocol.memory.procedural import ProceduralStore
 from soul_protocol.memory.recall import RecallEngine
@@ -26,7 +27,11 @@ __all__ = [
     "SemanticStore",
     "ProceduralStore",
     "KnowledgeGraph",
+    "TemporalEdge",
     "RecallEngine",
+    "ArchivalMemoryStore",
+    "ConversationArchive",
+    "MemoryCompressor",
     # v0.2.0 psychology modules
     "detect_sentiment",
     "compute_activation",

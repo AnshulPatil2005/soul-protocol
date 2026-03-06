@@ -1,5 +1,6 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
-# Updated: v0.2.2 — Added superseded_by field to MemoryEntry for fact conflict resolution.
+# Updated: Added Bond, incarnation, previous_lives to Identity for soul primitives.
+#   v0.2.2 — Added superseded_by field to MemoryEntry for fact conflict resolution.
 #   v0.2.1 — Added ReflectionResult for CognitiveEngine reflection output.
 #   v0.2.0 — Added SomaticMarker, SignificanceScore, GeneralEvent, SelfImage
 #   for psychology-informed memory. Extended MemoryEntry with somatic markers,
@@ -11,6 +12,8 @@ from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
+
+from .bond import Bond
 
 # ============ Identity ============
 
@@ -26,6 +29,9 @@ class Identity(BaseModel):
     origin_story: str = ""
     prime_directive: str = ""
     core_values: list[str] = Field(default_factory=list)
+    bond: Bond = Field(default_factory=Bond)
+    incarnation: int = 1
+    previous_lives: list[str] = Field(default_factory=list)
 
 
 # ============ DNA / Personality ============

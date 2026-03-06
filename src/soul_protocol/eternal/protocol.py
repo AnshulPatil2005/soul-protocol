@@ -1,60 +1,11 @@
-# eternal/protocol.py — Protocol definition for eternal storage backends.
-# Created: 2026-03-06 — Defines EternalStorageProvider protocol,
-#   ArchiveResult model, and RecoverySource model.
+# eternal/protocol.py — Re-exports from core for convenience.
+# Updated: v0.4.0 — Canonical definitions moved to core/eternal/protocol.py.
+# This module re-exports them so existing imports continue to work.
 
-from __future__ import annotations
+from soul_protocol.core.eternal.protocol import (
+    ArchiveResult,
+    EternalStorageProvider,
+    RecoverySource,
+)
 
-from datetime import datetime
-from typing import Any, Protocol, runtime_checkable
-
-from pydantic import BaseModel, Field
-
-
-class ArchiveResult(BaseModel):
-    """Result of archiving a soul to eternal storage."""
-
-    tier: str  # "ipfs", "arweave", "blockchain"
-    reference: str  # CID, txId, etc.
-    url: str = ""  # Human-readable URL
-    cost: str = "$0.00"
-    permanent: bool = False
-    archived_at: datetime = Field(default_factory=datetime.now)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class RecoverySource(BaseModel):
-    """A source from which a soul can be recovered."""
-
-    tier: str
-    reference: str
-    available: bool = True
-    last_verified: datetime = Field(default_factory=datetime.now)
-
-
-@runtime_checkable
-class EternalStorageProvider(Protocol):
-    """Interface for any eternal storage backend.
-
-    All backends must implement archive, retrieve, and verify.
-    The tier_name property identifies which storage tier this
-    provider represents (e.g., 'ipfs', 'arweave', 'blockchain', 'local').
-    """
-
-    @property
-    def tier_name(self) -> str:
-        """Name of this storage tier (e.g., 'ipfs', 'arweave')."""
-        ...
-
-    async def archive(
-        self, soul_data: bytes, soul_id: str, **kwargs: Any
-    ) -> ArchiveResult:
-        """Archive soul data. Returns an ArchiveResult."""
-        ...
-
-    async def retrieve(self, reference: str, **kwargs: Any) -> bytes:
-        """Retrieve soul data by reference. Returns raw bytes."""
-        ...
-
-    async def verify(self, reference: str) -> bool:
-        """Verify that archived data still exists and is accessible."""
-        ...
+__all__ = ["EternalStorageProvider", "ArchiveResult", "RecoverySource"]

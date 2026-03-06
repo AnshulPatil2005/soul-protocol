@@ -1,5 +1,7 @@
 # __init__.py — Public API for the soul-protocol package
 # Created: 2026-02-22 — Exports Soul class and core types
+# Updated: 2026-03-06 — Added EternalLinks, EternalStorageManager,
+#   EternalStorageProvider, ArchiveResult, RecoverySource exports.
 
 from __future__ import annotations
 
@@ -9,6 +11,7 @@ from .types import (
     CommunicationStyle,
     CoreMemory,
     DNA,
+    EternalLinks,
     EvolutionConfig,
     EvolutionMode,
     Identity,
@@ -24,13 +27,18 @@ from .types import (
     SoulManifest,
     SoulState,
 )
+from .eternal import ArchiveResult, EternalStorageManager, EternalStorageProvider, RecoverySource
 
 __all__ = [
     "Soul",
+    "ArchiveResult",
     "Biorhythms",
     "CommunicationStyle",
     "CoreMemory",
     "DNA",
+    "EternalLinks",
+    "EternalStorageManager",
+    "EternalStorageProvider",
     "EvolutionConfig",
     "EvolutionMode",
     "Identity",
@@ -42,6 +50,7 @@ __all__ = [
     "Mood",
     "Mutation",
     "Personality",
+    "RecoverySource",
     "SoulConfig",
     "SoulManifest",
     "SoulState",

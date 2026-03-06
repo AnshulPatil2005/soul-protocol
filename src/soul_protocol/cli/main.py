@@ -1,5 +1,6 @@
 # cli/main.py — Click CLI for the Soul Protocol
 # Created: 2026-02-22 — Commands: birth, inspect, status, export, migrate
+# Updated: 2026-03-06 — Added eternal storage commands: archive, recover, eternal-status
 
 from __future__ import annotations
 
@@ -231,6 +232,140 @@ def list():
         console.print(table)
 
     asyncio.run(_list())
+
+
+@cli.command()
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--tiers",
+    "-t",
+    multiple=True,
+    help="Storage tiers to archive to (default: all mock providers)",
+)
+def archive(path, tiers):
+    """Archive a .soul file to eternal storage."""
+    # Capture Click's multiple-value tuple before entering async context
+    # NOTE: Cannot use `list()` builtin here because the `list` CLI command
+    # shadows the builtin in this module's scope.
+    tier_list = [t for t in tiers] if tiers else None
+
+    async def _archive():
+        from soul_protocol.soul import Soul
+        from soul_protocol.eternal.manager import EternalStorageManager
+        from soul_protocol.eternal.providers import (
+            MockIPFSProvider,
+            MockArweaveProvider,
+            MockBlockchainProvider,
+        )
+
+        soul = await Soul.awaken(path)
+        soul_data = Path(path).read_bytes()
+
+        manager = EternalStorageManager()
+        manager.register(MockIPFSProvider())
+        manager.register(MockArweaveProvider())
+        manager.register(MockBlockchainProvider())
+        results = await manager.archive(soul_data, soul.did, tiers=tier_list)
+
+        table = Table(title=f"Archived {soul.name}", border_style="green")
+        table.add_column("Tier", style="cyan")
+        table.add_column("Reference", style="dim")
+        table.add_column("Cost", style="yellow")
+        table.add_column("Permanent", style="green")
+
+        for r in results:
+            table.add_row(
+                r.tier,
+                r.reference[:40] + ("..." if len(r.reference) > 40 else ""),
+                r.cost,
+                "Yes" if r.permanent else "No",
+            )
+
+        console.print(table)
+
+    asyncio.run(_archive())
+
+
+@cli.command()
+@click.argument("reference")
+@click.option(
+    "--tier",
+    "-t",
+    default="ipfs",
+    type=click.Choice(["ipfs", "arweave", "blockchain"]),
+    help="Which tier to recover from (default: ipfs)",
+)
+@click.option("--output", "-o", type=click.Path(), required=True, help="Output file path")
+def recover(reference, tier, output):
+    """Recover a soul from eternal storage by reference."""
+
+    async def _recover():
+        from soul_protocol.eternal.manager import EternalStorageManager
+        from soul_protocol.eternal.protocol import RecoverySource
+        from soul_protocol.eternal.providers import (
+            MockIPFSProvider,
+            MockArweaveProvider,
+            MockBlockchainProvider,
+        )
+
+        manager = EternalStorageManager()
+        manager.register(MockIPFSProvider())
+        manager.register(MockArweaveProvider())
+        manager.register(MockBlockchainProvider())
+
+        source = RecoverySource(tier=tier, reference=reference)
+
+        try:
+            data = await manager.recover([source])
+            Path(output).write_bytes(data)
+            console.print(
+                f"[green]Recovered[/green] soul from {tier} to {output} "
+                f"({len(data)} bytes)"
+            )
+        except RuntimeError as exc:
+            console.print(f"[red]Recovery failed:[/red] {exc}")
+
+    asyncio.run(_recover())
+
+
+@cli.command("eternal-status")
+@click.argument("path", type=click.Path(exists=True))
+def eternal_status(path):
+    """Show eternal storage status for a .soul file."""
+
+    async def _eternal_status():
+        from soul_protocol.soul import Soul
+
+        soul = await Soul.awaken(path)
+
+        table = Table(
+            title=f"Eternal Storage — {soul.name}",
+            border_style="blue",
+        )
+        table.add_column("Tier", style="cyan")
+        table.add_column("Status", style="dim")
+        table.add_column("Details")
+
+        # Check manifest for eternal links if available
+        tiers_info = {
+            "ipfs": {"label": "IPFS", "desc": "Content-addressed, requires pinning"},
+            "arweave": {"label": "Arweave", "desc": "Permanent, pay-once storage"},
+            "blockchain": {"label": "Blockchain", "desc": "On-chain soul registry"},
+        }
+
+        for tier_key, info in tiers_info.items():
+            table.add_row(
+                info["label"],
+                "[dim]Not archived[/dim]",
+                info["desc"],
+            )
+
+        console.print(table)
+        console.print(
+            "\n[dim]Use 'soul archive' to archive this soul to eternal storage.[/dim]"
+        )
+
+    asyncio.run(_eternal_status())
 
 
 if __name__ == "__main__":

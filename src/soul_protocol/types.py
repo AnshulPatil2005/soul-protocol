@@ -1,10 +1,13 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
 # Created: 2026-02-22 — Complete type system from DSP-IMPLEMENTATION-SPEC
+# Updated: 2026-03-06 — Added EternalLinks model to SoulManifest for
+#   eternal storage tier references (IPFS, Arweave, Blockchain).
 
 from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -209,6 +212,14 @@ class Interaction(BaseModel):
 # ============ Manifest (for .soul archives) ============
 
 
+class EternalLinks(BaseModel):
+    """References to eternal storage tiers for a soul archive."""
+
+    ipfs: dict[str, Any] = Field(default_factory=dict)  # cid, pinned_by, etc.
+    arweave: dict[str, Any] = Field(default_factory=dict)  # tx_id, cost, etc.
+    blockchain: dict[str, Any] = Field(default_factory=dict)  # chain, contract, token_id
+
+
 class SoulManifest(BaseModel):
     """Metadata for a .soul archive file."""
 
@@ -219,3 +230,4 @@ class SoulManifest(BaseModel):
     soul_name: str = ""
     checksum: str = ""
     stats: dict = Field(default_factory=dict)
+    eternal: EternalLinks = Field(default_factory=EternalLinks)

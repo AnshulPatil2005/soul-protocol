@@ -2,6 +2,8 @@
 # Created: 2026-03-06 — Provides a search strategy that uses embedding vectors and
 # cosine similarity to find relevant memory entries. Compatible with the existing
 # memory search interface (works with MemoryEntry objects).
+# Updated: 2026-03-06 — search() now uses pre-built index as vector cache instead of
+# re-embedding every candidate on each call.
 
 from __future__ import annotations
 
@@ -93,12 +95,17 @@ class VectorSearchStrategy:
             return []
 
         query_vec = self._embedder.embed(query)
+
+        # Build lookup from pre-computed index
+        index_map = {content: vec for content, vec in self._index}
+
         scored: list[tuple[float, Any]] = []
 
         for candidate in candidates:
             content = candidate.content if hasattr(candidate, "content") else str(candidate)
-            candidate_vec = self._embedder.embed(content)
-            sim = cosine_similarity(query_vec, candidate_vec)
+            # Use cached vector if available, otherwise embed on-the-fly
+            vec = index_map.get(content) or self._embedder.embed(content)
+            sim = cosine_similarity(query_vec, vec)
             if sim >= self._threshold:
                 scored.append((sim, candidate))
 

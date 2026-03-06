@@ -1,6 +1,7 @@
 # test_embeddings/test_similarity.py — Tests for similarity functions.
 # Created: 2026-03-06 — Covers cosine_similarity, euclidean_distance, dot_product
 # with edge cases like zero vectors, identical vectors, and orthogonal vectors.
+# Updated: 2026-03-06 — Added tests for vector length mismatch ValueError.
 
 from __future__ import annotations
 
@@ -120,3 +121,19 @@ class TestDotProduct:
 
     def test_empty_vectors(self) -> None:
         assert dot_product([], []) == 0.0
+
+
+class TestVectorLengthMismatch:
+    """Test that mismatched-length vectors raise ValueError."""
+
+    def test_cosine_similarity_mismatch(self) -> None:
+        with pytest.raises(ValueError, match="Vector length mismatch: 2 vs 3"):
+            cosine_similarity([1.0, 2.0], [1.0, 2.0, 3.0])
+
+    def test_euclidean_distance_mismatch(self) -> None:
+        with pytest.raises(ValueError, match="Vector length mismatch: 3 vs 1"):
+            euclidean_distance([1.0, 2.0, 3.0], [1.0])
+
+    def test_dot_product_mismatch(self) -> None:
+        with pytest.raises(ValueError, match="Vector length mismatch: 1 vs 4"):
+            dot_product([1.0], [1.0, 2.0, 3.0, 4.0])

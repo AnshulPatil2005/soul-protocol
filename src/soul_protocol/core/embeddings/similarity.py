@@ -1,6 +1,7 @@
 # core/embeddings/similarity.py — Vector similarity functions using only stdlib.
 # Created: v0.4.0 — Moved from embeddings/similarity.py to core/ as protocol-level pure math.
 # This is the canonical definition. The engine-level embeddings/similarity.py re-exports from here.
+# Updated: 2026-03-06 — Added vector length mismatch guards to all three functions.
 
 from __future__ import annotations
 
@@ -22,6 +23,8 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     Returns:
         Cosine similarity score. Returns 0.0 if either vector has zero norm.
     """
+    if len(a) != len(b):
+        raise ValueError(f"Vector length mismatch: {len(a)} vs {len(b)}")
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(x * x for x in b))
@@ -42,6 +45,8 @@ def euclidean_distance(a: list[float], b: list[float]) -> float:
     Returns:
         Euclidean distance between the two vectors.
     """
+    if len(a) != len(b):
+        raise ValueError(f"Vector length mismatch: {len(a)} vs {len(b)}")
     return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
 
@@ -57,4 +62,6 @@ def dot_product(a: list[float], b: list[float]) -> float:
     Returns:
         Dot product of the two vectors.
     """
+    if len(a) != len(b):
+        raise ValueError(f"Vector length mismatch: {len(a)} vs {len(b)}")
     return sum(x * y for x, y in zip(a, b))

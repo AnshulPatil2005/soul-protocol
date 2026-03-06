@@ -2,11 +2,13 @@
 # Created: 2026-03-06 — Builds vocabulary from a corpus and creates sparse-ish
 # vectors based on term frequency-inverse document frequency. Better than hash
 # for actual similarity but requires fitting on a corpus first.
+# Updated: 2026-03-06 — Added warnings.warn() when embed() called before fit().
 
 from __future__ import annotations
 
 import math
 import re
+import warnings
 
 
 def _tokenize_text(text: str) -> list[str]:
@@ -96,6 +98,10 @@ class TFIDFEmbedder:
         vector = [0.0] * self._dimensions
 
         if not self._fitted or not self._vocabulary:
+            warnings.warn(
+                "TFIDFEmbedder.embed() called before fit() — returning zero vector",
+                stacklevel=2,
+            )
             return vector
 
         tokens = _tokenize_text(text)

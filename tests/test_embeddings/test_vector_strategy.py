@@ -1,6 +1,8 @@
 # test_embeddings/test_vector_strategy.py — Tests for VectorSearchStrategy.
 # Created: 2026-03-06 — Integration tests with MemoryEntry objects, threshold
 # filtering, indexing, and search behavior.
+# Updated: 2026-03-06 — Fixed vacuous assertion in test_threshold_filters_results,
+# added test for vector length mismatch error.
 
 from __future__ import annotations
 
@@ -113,8 +115,8 @@ class TestVectorSearchStrategyWithTFIDF:
         # High threshold should filter out most results
         strategy.threshold = 0.99
         results = strategy.search("random unrelated query xyz", entries)
-        # With a very high threshold and unrelated query, should get fewer results
-        assert len(results) <= len(entries)
+        # With a very high threshold and unrelated query, should filter out results
+        assert len(results) < len(entries)
 
 
 class TestVectorSearchStrategyIndexing:

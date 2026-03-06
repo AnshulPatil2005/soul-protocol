@@ -2,11 +2,17 @@
 # Created: v0.4.0 — The "HTTP layer" of soul-protocol: minimal, unopinionated
 # primitives that any runtime can implement. Zero imports from opinionated
 # modules (memory/, cognitive/, evolution/, state/, dna/).
-# Updated: Added EternalStorageProvider, ArchiveResult, RecoverySource protocols.
+# Updated: Added EternalStorageProvider, EmbeddingProvider, similarity functions.
 
 from __future__ import annotations
 
 from .container import SoulContainer
+from .embeddings import (
+    EmbeddingProvider,
+    cosine_similarity,
+    dot_product,
+    euclidean_distance,
+)
 from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
 from .identity import Identity
 from .manifest import Manifest
@@ -32,4 +38,9 @@ __all__ = [
     "ArchiveResult",
     "EternalStorageProvider",
     "RecoverySource",
+    # Embedding protocol
+    "EmbeddingProvider",
+    "cosine_similarity",
+    "euclidean_distance",
+    "dot_product",
 ]

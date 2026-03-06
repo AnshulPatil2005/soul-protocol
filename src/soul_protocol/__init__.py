@@ -1,5 +1,5 @@
 # __init__.py — Public API for the soul-protocol package
-# Updated: v0.4.0 — Two-layer architecture + Bond, Skill, SkillRegistry exports.
+# Updated: v0.4.0 — Two-layer architecture + Bond, Skill, SkillRegistry, Eternal storage exports.
 #   Core primitive imports (CoreIdentity, CoreMemoryEntry, CoreManifest, DictMemoryStore, MemoryStore).
 #   v0.3.2 — Added exception classes to public exports.
 #   v0.2.2 — Added SearchStrategy, TokenOverlapStrategy exports. Bumped version.
@@ -26,6 +26,7 @@ from .types import (
     Biorhythms,
     CommunicationStyle,
     CoreMemory,
+    EternalLinks,
     EvolutionConfig,
     EvolutionMode,
     GeneralEvent,
@@ -46,6 +47,7 @@ from .types import (
     SoulManifest,
     SoulState,
 )
+from .eternal import ArchiveResult, EternalStorageManager, EternalStorageProvider, RecoverySource
 
 # Core primitives (always available — only requires pydantic)
 from .core.identity import Identity as CoreIdentity
@@ -69,6 +71,13 @@ __all__ = [
     # v0.2.2 pluggable retrieval
     "SearchStrategy",
     "TokenOverlapStrategy",
+    # Eternal storage
+    "ArchiveResult",
+    "EternalLinks",
+    "EternalStorageManager",
+    "EternalStorageProvider",
+    "RecoverySource",
+    # Types
     "Biorhythms",
     "CommunicationStyle",
     "CoreMemory",

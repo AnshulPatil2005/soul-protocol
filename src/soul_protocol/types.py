@@ -1,5 +1,5 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
-# Updated: Added Bond, incarnation, previous_lives to Identity for soul primitives.
+# Updated: Added Bond, incarnation, previous_lives, EternalLinks to Identity/SoulManifest.
 #   v0.2.2 — Added superseded_by field to MemoryEntry for fact conflict resolution.
 #   v0.2.1 — Added ReflectionResult for CognitiveEngine reflection output.
 #   v0.2.0 — Added SomaticMarker, SignificanceScore, GeneralEvent, SelfImage
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -303,6 +304,17 @@ class ReflectionResult(BaseModel):
     self_insight: str = ""
 
 
+# ============ Eternal Storage ============
+
+
+class EternalLinks(BaseModel):
+    """References to eternal storage tiers for a soul archive."""
+
+    ipfs: dict[str, Any] = Field(default_factory=dict)  # cid, pinned_by, etc.
+    arweave: dict[str, Any] = Field(default_factory=dict)  # tx_id, cost, etc.
+    blockchain: dict[str, Any] = Field(default_factory=dict)  # chain, contract, token_id
+
+
 # ============ Manifest (for .soul archives) ============
 
 
@@ -316,3 +328,4 @@ class SoulManifest(BaseModel):
     soul_name: str = ""
     checksum: str = ""
     stats: dict = Field(default_factory=dict)
+    eternal: EternalLinks = Field(default_factory=EternalLinks)

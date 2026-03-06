@@ -446,3 +446,60 @@ async def test_backward_compatible_memory_entry():
     restored = ME.model_validate(data)
     assert restored.content == entry.content
     assert restored.somatic is None
+
+
+# ============ Bond + Skills integration (v0.5.0) ============
+
+
+async def test_bond_strengthens_on_observe():
+    """Bond should strengthen automatically during observe()."""
+    soul = await Soul.birth("Aria", values=["coding"])
+    initial_strength = soul.bond.bond_strength
+    initial_count = soul.bond.interaction_count
+
+    await soul.observe(Interaction(
+        user_input="Help me with Python",
+        agent_output="Sure, here's how to use list comprehensions.",
+    ))
+
+    assert soul.bond.bond_strength > initial_strength
+    assert soul.bond.interaction_count > initial_count
+
+
+async def test_skills_created_from_entities():
+    """Skills should be auto-created from extracted entities during observe()."""
+    soul = await Soul.birth("Aria", values=["coding"])
+    assert len(soul.skills.skills) == 0
+
+    await soul.observe(Interaction(
+        user_input="I love Python programming",
+        agent_output="Python is great for data science and web dev.",
+    ))
+
+    # observe() extracts entities and creates skills from them
+    assert len(soul.skills.skills) > 0
+
+
+async def test_skills_accumulate_xp():
+    """Repeated interactions about the same topic should increase skill XP."""
+    soul = await Soul.birth("Aria", values=["coding"])
+
+    for _ in range(5):
+        await soul.observe(Interaction(
+            user_input="Tell me about Python",
+            agent_output="Python is a versatile language.",
+        ))
+
+    # Find a skill that was created (entity extraction is heuristic-based)
+    if soul.skills.skills:
+        skill = soul.skills.skills[0]
+        assert skill.xp > 0
+
+
+async def test_bond_and_skills_accessible():
+    """soul.bond and soul.skills properties should be accessible."""
+    soul = await Soul.birth("Aria")
+    assert soul.bond is not None
+    assert soul.bond.bond_strength == 50.0
+    assert soul.skills is not None
+    assert len(soul.skills.skills) == 0

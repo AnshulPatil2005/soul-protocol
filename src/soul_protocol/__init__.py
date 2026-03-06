@@ -1,5 +1,8 @@
 # __init__.py — Public API for the soul-protocol package
-# Updated: v0.3.2 — Added exception classes to public exports.
+# Updated: v0.4.0 — Two-layer architecture. Added core primitive imports
+#   (CoreIdentity, CoreMemoryEntry, CoreManifest, DictMemoryStore, MemoryStore).
+#   All existing exports preserved for backward compatibility.
+#   v0.3.2 — Added exception classes to public exports.
 #   v0.2.2 — Added SearchStrategy, TokenOverlapStrategy exports. Bumped version.
 #   v0.2.1 — Added CognitiveEngine, HeuristicEngine, ReflectionResult exports.
 #   v0.2.0 — Added psychology types (SomaticMarker, SignificanceScore,
@@ -43,6 +46,12 @@ from .types import (
     SoulState,
 )
 
+# Core primitives (always available — only requires pydantic)
+from .core.identity import Identity as CoreIdentity
+from .core.manifest import Manifest as CoreManifest
+from .core.memory import DictMemoryStore, MemoryStore
+from .core.memory import MemoryEntry as CoreMemoryEntry
+
 __all__ = [
     "Soul",
     "CognitiveEngine",
@@ -79,6 +88,12 @@ __all__ = [
     "SoulConfig",
     "SoulManifest",
     "SoulState",
+    # Core primitives (v0.4.0)
+    "CoreIdentity",
+    "CoreManifest",
+    "CoreMemoryEntry",
+    "DictMemoryStore",
+    "MemoryStore",
 ]
 
 __version__ = "0.2.2"

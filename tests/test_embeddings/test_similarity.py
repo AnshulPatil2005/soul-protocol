@@ -9,7 +9,7 @@ import math
 
 import pytest
 
-from soul_protocol.embeddings.similarity import (
+from soul_protocol.runtime.embeddings.similarity import (
     cosine_similarity,
     dot_product,
     euclidean_distance,

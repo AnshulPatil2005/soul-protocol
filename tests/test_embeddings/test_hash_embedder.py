@@ -8,7 +8,7 @@ import math
 
 import pytest
 
-from soul_protocol.embeddings.hash_embedder import HashEmbedder
+from soul_protocol.runtime.embeddings.hash_embedder import HashEmbedder
 
 
 class TestHashEmbedderDimensions:

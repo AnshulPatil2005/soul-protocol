@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from soul_protocol.types import (
+from soul_protocol.runtime.types import (
     DNA,
     Biorhythms,
     CommunicationStyle,

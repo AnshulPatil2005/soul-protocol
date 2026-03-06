@@ -11,7 +11,7 @@ import json
 import pytest
 
 from soul_protocol import Soul
-from soul_protocol.cognitive.engine import (
+from soul_protocol.runtime.cognitive.engine import (
     CognitiveEngine,
     CognitiveProcessor,
     HeuristicEngine,
@@ -20,7 +20,7 @@ from soul_protocol.cognitive.engine import (
     _extract_task_marker,
     _parse_json,
 )
-from soul_protocol.types import (
+from soul_protocol.runtime.types import (
     Interaction,
     MemoryEntry,
     MemoryType,
@@ -415,7 +415,7 @@ class TestHeuristicOnlyMode:
     @pytest.mark.asyncio
     async def test_sentiment_matches_v020(self) -> None:
         """Heuristic-only processor should call v0.2.0 detect_sentiment directly."""
-        from soul_protocol.memory.sentiment import detect_sentiment
+        from soul_protocol.runtime.memory.sentiment import detect_sentiment
 
         processor = CognitiveProcessor(HeuristicEngine())
         text = "I am really excited about this project"
@@ -428,7 +428,7 @@ class TestHeuristicOnlyMode:
     @pytest.mark.asyncio
     async def test_significance_matches_v020(self) -> None:
         """Heuristic-only processor should call v0.2.0 compute_significance."""
-        from soul_protocol.memory.attention import compute_significance
+        from soul_protocol.runtime.memory.attention import compute_significance
 
         processor = CognitiveProcessor(HeuristicEngine())
         interaction = Interaction(

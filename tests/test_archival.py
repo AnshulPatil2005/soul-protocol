@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from soul_protocol.memory.archival import ArchivalMemoryStore, ConversationArchive
+from soul_protocol.runtime.memory.archival import ArchivalMemoryStore, ConversationArchive
 
 
 @pytest.fixture

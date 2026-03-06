@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from soul_protocol.types import (
+from soul_protocol.runtime.types import (
     EvolutionMode,
     Identity,
     MemoryEntry,

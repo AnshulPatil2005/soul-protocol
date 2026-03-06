@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.soul import Soul
-from soul_protocol.types import LifecycleState, MemoryType
+from soul_protocol.runtime.soul import Soul
+from soul_protocol.runtime.types import LifecycleState, MemoryType
 
 
 async def test_basic_reincarnation():

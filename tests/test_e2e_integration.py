@@ -13,8 +13,8 @@ import json
 
 import pytest
 
-from soul_protocol.soul import Soul
-from soul_protocol.types import (
+from soul_protocol.runtime.soul import Soul
+from soul_protocol.runtime.types import (
     Interaction,
     LifecycleState,
     MemoryType,
@@ -319,7 +319,7 @@ class TestMemoryPersistence:
 
     async def test_multi_tier_memory_save_load(self, tmp_path):
         """Save via save() and load via awaken() with directory format."""
-        from soul_protocol.storage.file import load_soul_full
+        from soul_protocol.runtime.storage.file import load_soul_full
 
         soul = await Soul.birth("MultiTier", values=["completeness"])
 
@@ -528,7 +528,7 @@ class TestDirectoryFormat:
 
     async def test_save_load_full_directory(self, tmp_path):
         """save() + load_soul_full() preserves everything."""
-        from soul_protocol.storage.file import load_soul_full
+        from soul_protocol.runtime.storage.file import load_soul_full
 
         soul = await Soul.birth("DirFull", values=["completeness"])
         await soul.remember("Test semantic fact", type=MemoryType.SEMANTIC, importance=7)
@@ -589,7 +589,7 @@ class TestStatePersistence:
 
 class TestErrorHandling:
     async def test_corrupt_soul_file(self, tmp_path):
-        from soul_protocol.exceptions import SoulCorruptError
+        from soul_protocol.runtime.exceptions import SoulCorruptError
 
         corrupt_path = tmp_path / "corrupt.soul"
         corrupt_path.write_bytes(b"not a zip")
@@ -598,7 +598,7 @@ class TestErrorHandling:
             await Soul.awaken(str(corrupt_path))
 
     async def test_nonexistent_soul_file(self, tmp_path):
-        from soul_protocol.exceptions import SoulFileNotFoundError
+        from soul_protocol.runtime.exceptions import SoulFileNotFoundError
 
         with pytest.raises(SoulFileNotFoundError):
             await Soul.awaken(str(tmp_path / "does_not_exist.soul"))

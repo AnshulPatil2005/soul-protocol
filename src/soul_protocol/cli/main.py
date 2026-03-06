@@ -88,7 +88,7 @@ def birth(
     """
 
     async def _birth():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         if config_file:
             soul = await Soul.birth_from_config(config_file)
@@ -165,7 +165,7 @@ def init(name, archetype, values, from_file, soul_dir):
     """Initialize a .soul/ folder in the current directory."""
 
     async def _init():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul_path = Path(soul_dir) if Path(soul_dir).is_absolute() else Path.cwd() / soul_dir
 
@@ -213,7 +213,7 @@ def inspect(path):
     """Inspect a Soul — identity, OCEAN, memory, state, self-model."""
 
     async def _inspect():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
         age = (datetime.now() - soul.born).days
@@ -347,7 +347,7 @@ def status(path):
     """Show a Soul's current status (quick view)."""
 
     async def _status():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
         mood = soul.state.mood.value
@@ -393,7 +393,7 @@ def export_cmd(source, output, fmt):
     """Export a Soul to a different format."""
 
     async def _export():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(source)
 
@@ -408,7 +408,7 @@ def export_cmd(source, output, fmt):
                 yaml.dump(soul.serialize().model_dump(), default_flow_style=False)
             )
         elif fmt == "md":
-            from soul_protocol.dna.prompt import dna_to_markdown
+            from soul_protocol.runtime.dna.prompt import dna_to_markdown
 
             Path(output).write_text(dna_to_markdown(soul.identity, soul.dna))
 
@@ -424,7 +424,7 @@ def migrate(source, output):
     """Migrate from SOUL.md to .soul format."""
 
     async def _migrate():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         content = Path(source).read_text()
         soul = await Soul.from_markdown(content)
@@ -443,7 +443,7 @@ def retire(path, preserve_memories):
     """Retire a Soul with dignity."""
 
     async def _retire():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
         name = soul.name
@@ -463,7 +463,7 @@ def list():
     """List all saved souls."""
 
     async def _list():
-        from soul_protocol.storage.file import FileStorage
+        from soul_protocol.runtime.storage.file import FileStorage
 
         storage = FileStorage()
         souls = await storage.list_souls()
@@ -533,9 +533,9 @@ def archive(path, tiers):
     tier_list = [t for t in tiers] if tiers else None
 
     async def _archive():
-        from soul_protocol.soul import Soul
-        from soul_protocol.eternal.manager import EternalStorageManager
-        from soul_protocol.eternal.providers import (
+        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.runtime.eternal.manager import EternalStorageManager
+        from soul_protocol.runtime.eternal.providers import (
             MockIPFSProvider,
             MockArweaveProvider,
             MockBlockchainProvider,
@@ -586,9 +586,9 @@ def recover(reference, tier, output):
     """Recover a soul from eternal storage by reference."""
 
     async def _recover():
-        from soul_protocol.eternal.manager import EternalStorageManager
-        from soul_protocol.eternal.protocol import RecoverySource
-        from soul_protocol.eternal.providers import (
+        from soul_protocol.runtime.eternal.manager import EternalStorageManager
+        from soul_protocol.runtime.eternal.protocol import RecoverySource
+        from soul_protocol.runtime.eternal.providers import (
             MockIPFSProvider,
             MockArweaveProvider,
             MockBlockchainProvider,
@@ -620,7 +620,7 @@ def eternal_status(path):
     """Show eternal storage status for a .soul file."""
 
     async def _eternal_status():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
 

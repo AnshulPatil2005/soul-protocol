@@ -6,13 +6,13 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.memory.attention import (
+from soul_protocol.runtime.memory.attention import (
     DEFAULT_SIGNIFICANCE_THRESHOLD,
     compute_significance,
     is_significant,
     overall_significance,
 )
-from soul_protocol.types import Interaction, SignificanceScore
+from soul_protocol.runtime.types import Interaction, SignificanceScore
 
 # ---------------------------------------------------------------------------
 # Helpers

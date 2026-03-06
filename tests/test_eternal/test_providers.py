@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.eternal.providers import (
+from soul_protocol.runtime.eternal.providers import (
     LocalStorageProvider,
     MockArweaveProvider,
     MockBlockchainProvider,

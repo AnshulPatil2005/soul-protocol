@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from soul_protocol.memory.compression import MemoryCompressor
-from soul_protocol.types import MemoryEntry, MemoryType
+from soul_protocol.runtime.memory.compression import MemoryCompressor
+from soul_protocol.runtime.types import MemoryEntry, MemoryType
 
 
 @pytest.fixture

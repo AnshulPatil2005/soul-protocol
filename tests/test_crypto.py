@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 from cryptography.fernet import InvalidToken
 
-from soul_protocol.crypto.encrypt import decrypt_data, derive_key, encrypt_data
+from soul_protocol.runtime.crypto.encrypt import decrypt_data, derive_key, encrypt_data
 
 
 def test_encrypt_decrypt_roundtrip():

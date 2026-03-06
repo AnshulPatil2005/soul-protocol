@@ -9,10 +9,10 @@ from datetime import datetime
 
 import pytest
 
-from soul_protocol.embeddings.similarity import cosine_similarity
-from soul_protocol.embeddings.tfidf_embedder import TFIDFEmbedder
-from soul_protocol.embeddings.vector_strategy import VectorSearchStrategy
-from soul_protocol.types import MemoryEntry, MemoryType
+from soul_protocol.runtime.embeddings.similarity import cosine_similarity
+from soul_protocol.runtime.embeddings.tfidf_embedder import TFIDFEmbedder
+from soul_protocol.runtime.embeddings.vector_strategy import VectorSearchStrategy
+from soul_protocol.runtime.types import MemoryEntry, MemoryType
 
 
 def _make_memory(content: str, mem_type: MemoryType = MemoryType.SEMANTIC) -> MemoryEntry:

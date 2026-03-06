@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from soul_protocol.memory.graph import KnowledgeGraph, TemporalEdge
+from soul_protocol.runtime.memory.graph import KnowledgeGraph, TemporalEdge
 
 
 @pytest.fixture

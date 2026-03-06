@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from soul_protocol.skills import Skill, SkillRegistry
+from soul_protocol.runtime.skills import Skill, SkillRegistry
 
 
 class TestSkillCreation:

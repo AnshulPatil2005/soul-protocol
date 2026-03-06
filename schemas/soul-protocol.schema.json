@@ -29,6 +29,35 @@
       "title": "Biorhythms",
       "type": "object"
     },
+    "Bond": {
+      "description": "The relationship between a human and their soul.",
+      "properties": {
+        "bonded_to": {
+          "default": "",
+          "title": "Bonded To",
+          "type": "string"
+        },
+        "bonded_at": {
+          "format": "date-time",
+          "title": "Bonded At",
+          "type": "string"
+        },
+        "bond_strength": {
+          "default": 50.0,
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Bond Strength",
+          "type": "number"
+        },
+        "interaction_count": {
+          "default": 0,
+          "title": "Interaction Count",
+          "type": "integer"
+        }
+      },
+      "title": "Bond",
+      "type": "object"
+    },
     "CommunicationStyle": {
       "description": "How the soul communicates.",
       "properties": {
@@ -189,6 +218,21 @@
             "type": "string"
           },
           "title": "Core Values",
+          "type": "array"
+        },
+        "bond": {
+          "$ref": "#/$defs/Bond"
+        },
+        "incarnation": {
+          "default": 1,
+          "title": "Incarnation",
+          "type": "integer"
+        },
+        "previous_lives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Previous Lives",
           "type": "array"
         }
       },
@@ -729,6 +773,28 @@
       "title": "Interaction",
       "type": "object"
     },
+    "EternalLinks": {
+      "description": "References to eternal storage tiers for a soul archive.",
+      "properties": {
+        "ipfs": {
+          "additionalProperties": true,
+          "title": "Ipfs",
+          "type": "object"
+        },
+        "arweave": {
+          "additionalProperties": true,
+          "title": "Arweave",
+          "type": "object"
+        },
+        "blockchain": {
+          "additionalProperties": true,
+          "title": "Blockchain",
+          "type": "object"
+        }
+      },
+      "title": "EternalLinks",
+      "type": "object"
+    },
     "SoulManifest": {
       "description": "Metadata for a .soul archive file.",
       "properties": {
@@ -766,6 +832,9 @@
           "additionalProperties": true,
           "title": "Stats",
           "type": "object"
+        },
+        "eternal": {
+          "$ref": "#/$defs/EternalLinks"
         }
       },
       "title": "SoulManifest",

@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.soul import Soul
-from soul_protocol.types import (
+from soul_protocol.runtime.soul import Soul
+from soul_protocol.runtime.types import (
     Interaction,
     LifecycleState,
     MemoryType,
@@ -194,7 +194,7 @@ async def test_export_awaken_preserves_memories(tmp_path):
 
 async def test_save_load_full_roundtrip(tmp_path):
     """Soul.save() + load_soul_full() preserves config and all memory tiers."""
-    from soul_protocol.storage.file import load_soul_full
+    from soul_protocol.runtime.storage.file import load_soul_full
 
     soul = await Soul.birth("Aria")
     await soul.remember("User prefers Python", type=MemoryType.SEMANTIC, importance=8)
@@ -381,7 +381,7 @@ async def test_self_model_persists_through_export(tmp_path):
 
 async def test_save_load_preserves_self_model(tmp_path):
     """Soul.save() + load preserves self_model.json."""
-    from soul_protocol.storage.file import load_soul_full
+    from soul_protocol.runtime.storage.file import load_soul_full
 
     soul = await Soul.birth("Aria")
     await soul.observe(
@@ -424,8 +424,8 @@ async def test_episodic_entries_have_access_timestamps():
 
 async def test_backward_compatible_memory_entry():
     """v0.1.0 MemoryEntry (without psychology fields) still works."""
-    from soul_protocol.types import MemoryEntry as ME
-    from soul_protocol.types import MemoryType as MT
+    from soul_protocol.runtime.types import MemoryEntry as ME
+    from soul_protocol.runtime.types import MemoryType as MT
 
     # Create an entry without any v0.2.0 fields (simulates v0.1.0 data)
     entry = ME(

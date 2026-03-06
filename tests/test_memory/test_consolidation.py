@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.memory.manager import MemoryManager
-from soul_protocol.soul import Soul
-from soul_protocol.types import (
+from soul_protocol.runtime.memory.manager import MemoryManager
+from soul_protocol.runtime.soul import Soul
+from soul_protocol.runtime.types import (
     CoreMemory,
     Interaction,
     MemoryEntry,
@@ -491,7 +491,7 @@ class TestGeneralEventPersistence:
         assert restored.general_events[0].theme == "python tools"
 
     async def test_save_load_preserves_general_events(self, tmp_path):
-        from soul_protocol.storage.file import load_soul_full
+        from soul_protocol.runtime.storage.file import load_soul_full
 
         soul = await Soul.birth("Aria")
         result = _make_reflection(themes=["testing"])

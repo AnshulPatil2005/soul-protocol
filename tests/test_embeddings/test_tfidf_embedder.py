@@ -8,8 +8,8 @@ import math
 
 import pytest
 
-from soul_protocol.embeddings.similarity import cosine_similarity
-from soul_protocol.embeddings.tfidf_embedder import TFIDFEmbedder
+from soul_protocol.runtime.embeddings.similarity import cosine_similarity
+from soul_protocol.runtime.embeddings.tfidf_embedder import TFIDFEmbedder
 
 
 class TestTFIDFEmbedderBasics:

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.soul import Soul
+from soul_protocol.runtime.soul import Soul
 
 
 @pytest.mark.asyncio

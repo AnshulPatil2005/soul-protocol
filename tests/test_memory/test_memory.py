@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.memory.graph import KnowledgeGraph
-from soul_protocol.memory.manager import MemoryManager
-from soul_protocol.types import (
+from soul_protocol.runtime.memory.graph import KnowledgeGraph
+from soul_protocol.runtime.memory.manager import MemoryManager
+from soul_protocol.runtime.types import (
     CoreMemory,
     Interaction,
     MemoryEntry,

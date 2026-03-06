@@ -6,11 +6,11 @@ from __future__ import annotations
 import io
 import zipfile
 
-from soul_protocol.export.pack import pack_soul
-from soul_protocol.export.unpack import unpack_soul
-from soul_protocol.skills import Skill, SkillRegistry
-from soul_protocol.soul import Soul
-from soul_protocol.types import (
+from soul_protocol.runtime.export.pack import pack_soul
+from soul_protocol.runtime.export.unpack import unpack_soul
+from soul_protocol.runtime.skills import Skill, SkillRegistry
+from soul_protocol.runtime.soul import Soul
+from soul_protocol.runtime.types import (
     Interaction,
     LifecycleState,
     MemoryType,

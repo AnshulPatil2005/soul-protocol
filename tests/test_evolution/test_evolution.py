@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.evolution.manager import EvolutionManager
-from soul_protocol.types import DNA, EvolutionConfig, EvolutionMode
+from soul_protocol.runtime.evolution.manager import EvolutionManager
+from soul_protocol.runtime.types import DNA, EvolutionConfig, EvolutionMode
 
 
 @pytest.fixture

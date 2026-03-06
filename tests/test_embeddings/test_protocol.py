@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.embeddings.hash_embedder import HashEmbedder
-from soul_protocol.embeddings.protocol import EmbeddingProvider
-from soul_protocol.embeddings.tfidf_embedder import TFIDFEmbedder
+from soul_protocol.runtime.embeddings.hash_embedder import HashEmbedder
+from soul_protocol.runtime.embeddings.protocol import EmbeddingProvider
+from soul_protocol.runtime.embeddings.tfidf_embedder import TFIDFEmbedder
 
 
 class TestProtocolCompliance:

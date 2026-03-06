@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.bond import Bond
+from soul_protocol.runtime.bond import Bond
 
 
 class TestBondCreation:

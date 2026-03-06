@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from soul_protocol.memory.sentiment import detect_sentiment
+from soul_protocol.runtime.memory.sentiment import detect_sentiment
 
 # ---------------------------------------------------------------------------
 # Helpers

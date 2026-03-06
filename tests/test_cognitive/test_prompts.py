@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import json
 
-from soul_protocol.cognitive.engine import _parse_json
-from soul_protocol.cognitive.prompts import (
+from soul_protocol.runtime.cognitive.engine import _parse_json
+from soul_protocol.runtime.cognitive.prompts import (
     ENTITY_EXTRACTION_PROMPT,
     FACT_EXTRACTION_PROMPT,
     REFLECT_PROMPT,

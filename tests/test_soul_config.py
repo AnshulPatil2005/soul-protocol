@@ -10,8 +10,8 @@ import json
 import pytest
 import yaml
 
-from soul_protocol.soul import Soul
-from soul_protocol.types import LifecycleState, Mood
+from soul_protocol.runtime.soul import Soul
+from soul_protocol.runtime.types import LifecycleState, Mood
 
 # ============ Soul.birth() with custom OCEAN ============
 

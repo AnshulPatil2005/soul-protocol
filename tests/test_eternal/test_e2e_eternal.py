@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.soul import Soul
-from soul_protocol.eternal.manager import EternalStorageManager
-from soul_protocol.eternal.protocol import RecoverySource
-from soul_protocol.eternal.providers import (
+from soul_protocol.runtime.soul import Soul
+from soul_protocol.runtime.eternal.manager import EternalStorageManager
+from soul_protocol.runtime.eternal.protocol import RecoverySource
+from soul_protocol.runtime.eternal.providers import (
     LocalStorageProvider,
     MockArweaveProvider,
     MockBlockchainProvider,

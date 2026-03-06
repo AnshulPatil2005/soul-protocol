@@ -1,4 +1,28 @@
 {
+  "$defs": {
+    "EternalLinks": {
+      "description": "References to eternal storage tiers for a soul archive.",
+      "properties": {
+        "ipfs": {
+          "additionalProperties": true,
+          "title": "Ipfs",
+          "type": "object"
+        },
+        "arweave": {
+          "additionalProperties": true,
+          "title": "Arweave",
+          "type": "object"
+        },
+        "blockchain": {
+          "additionalProperties": true,
+          "title": "Blockchain",
+          "type": "object"
+        }
+      },
+      "title": "EternalLinks",
+      "type": "object"
+    }
+  },
   "description": "Metadata for a .soul archive file.",
   "properties": {
     "format_version": {
@@ -35,6 +59,9 @@
       "additionalProperties": true,
       "title": "Stats",
       "type": "object"
+    },
+    "eternal": {
+      "$ref": "#/$defs/EternalLinks"
     }
   },
   "title": "SoulManifest",

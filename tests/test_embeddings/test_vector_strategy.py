@@ -10,10 +10,10 @@ from datetime import datetime
 
 import pytest
 
-from soul_protocol.embeddings.hash_embedder import HashEmbedder
-from soul_protocol.embeddings.tfidf_embedder import TFIDFEmbedder
-from soul_protocol.embeddings.vector_strategy import VectorSearchStrategy
-from soul_protocol.types import MemoryEntry, MemoryType
+from soul_protocol.runtime.embeddings.hash_embedder import HashEmbedder
+from soul_protocol.runtime.embeddings.tfidf_embedder import TFIDFEmbedder
+from soul_protocol.runtime.embeddings.vector_strategy import VectorSearchStrategy
+from soul_protocol.runtime.types import MemoryEntry, MemoryType
 
 
 def _make_entry(content: str, importance: int = 5) -> MemoryEntry:

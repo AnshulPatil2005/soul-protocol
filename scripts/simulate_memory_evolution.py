@@ -17,11 +17,11 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta
 
-from soul_protocol.memory.archival import ArchivalMemoryStore, ConversationArchive
-from soul_protocol.memory.compression import MemoryCompressor
-from soul_protocol.memory.graph import KnowledgeGraph
-from soul_protocol.soul import Soul
-from soul_protocol.types import Interaction, MemoryEntry, MemoryType
+from soul_protocol.runtime.memory.archival import ArchivalMemoryStore, ConversationArchive
+from soul_protocol.runtime.memory.compression import MemoryCompressor
+from soul_protocol.runtime.memory.graph import KnowledgeGraph
+from soul_protocol.runtime.soul import Soul
+from soul_protocol.runtime.types import Interaction, MemoryEntry, MemoryType
 
 
 # Simulated conversation topics for variety

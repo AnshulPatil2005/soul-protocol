@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from soul_protocol.state.manager import _LABEL_TO_MOOD, StateManager
-from soul_protocol.types import Interaction, Mood, SomaticMarker, SoulState
+from soul_protocol.runtime.state.manager import _LABEL_TO_MOOD, StateManager
+from soul_protocol.runtime.types import Interaction, Mood, SomaticMarker, SoulState
 
 
 def _make_state(**kwargs) -> SoulState:

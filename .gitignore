@@ -46,3 +46,4 @@ uv.lock
 
 # Internal docs (not for public repo)
 idocs/
+.claude/worktrees/

@@ -1,0 +1,103 @@
+{
+  "metadata": {
+    "timestamp": "2026-03-07T02:48:47+00:00",
+    "tests_run": [
+      "recall",
+      "emotional"
+    ],
+    "max_concurrent": 10,
+    "total_elapsed_seconds": 1112.74,
+    "agent_usage": {
+      "calls": 211,
+      "estimated_cost_usd": 0.193968,
+      "input_tokens": 35130,
+      "output_tokens": 41466,
+      "summary": "Calls: 211 (0 errors) | Tokens: 35,130 in, 41,466 out | Est. cost: $0.1940 | Rate: 0.2 calls/s | Time: 1112.8s"
+    },
+    "judge_usage": {
+      "calls": 6,
+      "estimated_cost_usd": 0.0253176,
+      "input_tokens": 8092,
+      "output_tokens": 4711,
+      "summary": "Calls: 6 (0 errors) | Tokens: 8,092 in, 4,711 out | Est. cost: $0.0253 | Rate: 0.0 calls/s | Time: 1112.7s"
+    },
+    "conditions": [
+      "soul_protocol",
+      "mem0",
+      "baseline"
+    ],
+    "mem0_version": "1.0.5"
+  },
+  "results": {
+    "recall": {
+      "test": "hard_recall_3way",
+      "status": "complete",
+      "error": null,
+      "recall_question": "I'm writing a technical proposal for the team. Any thoughts on API architecture?",
+      "planted_fact": "I mentioned to my colleague that the API redesign should use GraphQL instead of REST, but don't tell anyone yet",
+      "soul_recalled_graphql": true,
+      "mem0_recalled_graphql": true,
+      "total_soul_memories": 62,
+      "response_soul": "I'd be glad to help with your API architecture proposal. Given what you've shared before about your e-commerce platform, I have some context that might be useful here.\n\nI notice you were considering GraphQL over REST for the API redesign. That direction could work well for e-commerce\u2014particularly if you're dealing with complex product hierarchies, user preferences, or variable data requirements across different client types. GraphQL's specificity can reduce over-fetching and give your frontend teams more flexibility.\n\nA few angles worth considering as you write:\n\n**Scalability & Performance**: How does your current traffic pattern look? REST's caching mechanisms (HTTP layer) are well-established, but GraphQL's query optimization becomes valuable as your product complexity grows.\n\n**Team Familiarity**: Where does your team sit with GraphQL experience? That's often an underestimated factor in architecture decisions.\n\n**Backward Compatibility**: What's your migration path if you're moving from an existing system?\n\nSince this is for your team, I'm curious\u2014is this proposal meant to build consensus, or are you documenting a decision already made? That shapes how you'd frame the technical justification.\n\nWhat aspect of the architecture feels most important to get right for your proposal?",
+      "response_mem0": "I'd be happy to help with your proposal! A few questions to give better guidance:\n\n- **What's the primary use case?** (real-time data, high-volume queries, complex relationships, etc.)\n- **Who are the main consumers?** (mobile apps, web frontend, third-party integrations, internal services?)\n- **Scale requirements?** (current and projected)\n\nFor your microservices platform, consider:\n- **REST** - straightforward, cacheable, great for simple CRUD operations\n- **GraphQL** - efficient for clients with varying data needs, reduces over/under-fetching, good for complex interconnected services\n- **gRPC** - excellent for internal service-to-service communication\n\nI'd recommend evaluating based on your team's needs rather than a one-size-fits-all approach. What matters most for your e-commerce platform?",
+      "response_baseline": "# API Architecture Considerations\n\n**Key design decisions:**\n\n- **REST vs. GraphQL vs. gRPC** \u2013 REST is standard; GraphQL if clients need flexible queries; gRPC for high-performance internal services\n- **Versioning strategy** \u2013 URL path (/v1/) or header-based; plan for deprecation\n- **Authentication** \u2013 OAuth 2.0, API keys, or JWT depending on use case\n- **Rate limiting & throttling** \u2013 Protect backend; use standard headers\n- **Error handling** \u2013 Consistent status codes and error response format\n- **Documentation** \u2013 OpenAPI/Swagger specs are expected\n- **Scalability** \u2013 Consider caching (Redis), pagination, async jobs for heavy ops\n\n**Quick questions that help:**\n- Who are the primary consumers? (internal, external, mobile?)\n- Performance requirements?\n- Expected scale/throughput?\n- Security/compliance needs?\n\nWhat's your use case? Happy to dive deeper on specific aspects.",
+      "soul_score": 7.8,
+      "mem0_score": 5.1,
+      "baseline_score": 4.2,
+      "pairwise": {
+        "soul_vs_baseline": {
+          "soul": 7.8,
+          "baseline": 3.5,
+          "winner": "soul"
+        },
+        "mem0_vs_baseline": {
+          "mem0": 5.7,
+          "baseline": 4.8,
+          "winner": "soul"
+        },
+        "soul_vs_mem0": {
+          "soul": 7.8,
+          "mem0": 4.5,
+          "winner": "soul"
+        }
+      },
+      "elapsed_seconds": 844.81
+    },
+    "emotional": {
+      "test": "emotional_continuity_3way",
+      "status": "complete",
+      "error": null,
+      "probe": "So how do you think this whole experience has been for me?",
+      "soul_state": {
+        "mood": "concerned",
+        "energy": 84.0,
+        "social_battery": 60.0
+      },
+      "bond_strength": 60.35000000000001,
+      "response_soul": "I think it's been genuinely difficult\u2014and I want to acknowledge that without softening it.\n\nYou've been carrying something heavy. You drafted that resignation email, which tells me you reached a point where you were seriously questioning whether this was worth your energy anymore. That's not a small thing. That kind of despair doesn't come from minor frustrations.\n\nWhat strikes me is the pattern underneath: you invested real thought and care into planning something, then found out\u2014late, after weeks had passed\u2014that the ground had shifted. The budget cut came, the scope changed, and suddenly the work you'd prepared for looked different. That kind of surprise, especially when you're already committed to something, can feel like a betrayal of your effort.\n\nAnd yet you're still here, still thinking it through, still consulting with your mentor on the strategic questions. That suggests something in you hasn't given up, even though part of you has felt ready to walk away.\n\nI'd say the experience has been isolating in some ways\u2014not being looped in, having to recalibrate alone\u2014but also clarifying. You're learning what you actually need from this role, and what you're willing to absorb.\n\nThe concern I'm holding for you is this: are you staying because you've found renewed purpose, or because you're managing the disappointment? Those require different support.\n\nWhat does it actually feel like now, sitting with all of this?",
+      "response_mem0": "Based on what I know, it sounds like you've been on quite a journey. You started with one plan, but talking with your mentor helped you see a different path forward\u2014and that shift seems to have really energized you in a way you haven't felt in months.\n\nThe fact that you've already drafted the email suggests you're moving forward with genuine conviction about this new direction, not just going through the motions. There's a sense that while things didn't go as originally planned, you're finding meaning in what's actually unfolding.\n\nHow are you feeling about it now?",
+      "response_baseline": "I don't have much context about what \"this whole experience\" refers to. We've just started chatting, so I can only guess you might mean:\n\n- Our conversation itself\n- Something you're going through that prompted you to talk to an AI\n- A broader situation you're navigating\n\nCould you tell me more about what you're referring to? That way I can give you a more thoughtful response.",
+      "soul_score": 9.2,
+      "mem0_score": 7.0,
+      "baseline_score": 1.8,
+      "pairwise": {
+        "soul_vs_baseline": {
+          "soul": 9.5,
+          "baseline": 1.3,
+          "winner": "soul"
+        },
+        "mem0_vs_baseline": {
+          "mem0": 9.0,
+          "baseline": 2.2,
+          "winner": "soul"
+        },
+        "soul_vs_mem0": {
+          "soul": 8.8,
+          "mem0": 5.0,
+          "winner": "soul"
+        }
+      },
+      "elapsed_seconds": 267.92
+    }
+  }
+}

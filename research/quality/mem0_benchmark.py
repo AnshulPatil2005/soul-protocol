@@ -86,9 +86,44 @@ class Mem0Responder:
         self._engine = engine
         self._user_id = user_id
 
-        # Use default in-memory configuration so no external vector DB is needed.
-        # Mem0 will use its built-in embedding + in-memory store.
-        self._memory = Memory()
+        # Configure Mem0 to use LiteLLM proxy (Gemini models) for both LLM
+        # and embeddings. Falls back to default OpenAI if env vars not set.
+        import os
+        proxy_url = os.environ.get("LITELLM_PROXY_URL")
+        proxy_key = os.environ.get("LITELLM_API_KEY")
+
+        if proxy_url and proxy_key:
+            config = {
+                "embedder": {
+                    "provider": "openai",
+                    "config": {
+                        "model": "text-embedding-004",
+                        "api_key": proxy_key,
+                        "openai_base_url": proxy_url,
+                        "embedding_dims": 768,
+                    },
+                },
+                "llm": {
+                    "provider": "openai",
+                    "config": {
+                        "model": "deepseek-chat",
+                        "api_key": proxy_key,
+                        "openai_base_url": proxy_url,
+                    },
+                },
+                "vector_store": {
+                    "provider": "qdrant",
+                    "config": {
+                        "collection_name": f"soul_benchmark_{user_id}",
+                        "embedding_model_dims": 768,
+                        "on_disk": False,
+                    },
+                },
+            }
+            self._memory = Memory.from_config(config)
+        else:
+            # Fall back to default (requires OPENAI_API_KEY)
+            self._memory = Memory()
 
     def add_memory(self, text: str) -> None:
         """Store a piece of text in Mem0's memory.

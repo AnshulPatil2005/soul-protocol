@@ -1,5 +1,6 @@
 # enhanced_runner.py — Runs N scenario variations × 4 conditions × M judges.
 # Created: 2026-03-07
+# Updated: 2026-03-07 — Added checkpoint/resume so progress survives crashes.
 # Produces statistically meaningful results with error bars for the paper.
 
 from __future__ import annotations
@@ -325,6 +326,47 @@ def _aggregate_test_results(
 
 
 # ---------------------------------------------------------------------------
+# Checkpoint / resume
+# ---------------------------------------------------------------------------
+
+CHECKPOINT_FILE = "research/results/enhanced/_checkpoint.json"
+
+
+def _save_checkpoint(
+    all_results: dict[str, dict],
+    completed_keys: list[str],
+    metadata: dict,
+) -> None:
+    """Save progress after each test-judge combo so we can resume on crash."""
+    cp_path = Path(CHECKPOINT_FILE)
+    cp_path.parent.mkdir(parents=True, exist_ok=True)
+    cp_path.write_text(json.dumps({
+        "metadata": metadata,
+        "completed_keys": completed_keys,
+        "results": all_results,
+    }, indent=2, default=str))
+
+
+def _load_checkpoint() -> tuple[dict[str, dict], list[str]] | None:
+    """Load checkpoint if it exists. Returns (results, completed_keys) or None."""
+    cp_path = Path(CHECKPOINT_FILE)
+    if not cp_path.exists():
+        return None
+    try:
+        data = json.loads(cp_path.read_text())
+        return data["results"], data["completed_keys"]
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def _clear_checkpoint() -> None:
+    """Remove checkpoint file after successful completion."""
+    cp_path = Path(CHECKPOINT_FILE)
+    if cp_path.exists():
+        cp_path.unlink()
+
+
+# ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
 
@@ -333,12 +375,29 @@ async def run_enhanced_validation(
     tests: list[str] | None = None,
     judges: list[str] | None = None,
     output_dir: str = "research/results/enhanced",
+    resume: bool = True,
 ) -> dict[str, Any]:
-    """Run enhanced validation: N variations × 4 conditions × M judges."""
+    """Run enhanced validation: N variations × 4 conditions × M judges.
+
+    Progress is checkpointed after each test-judge combo. If the process
+    crashes, re-run with --resume to pick up where it left off.
+    """
 
     test_keys = tests or ["response", "recall", "emotional"]
     judge_keys = judges or DEFAULT_JUDGES
     conditions = list(Condition)
+
+    # Try to resume from checkpoint
+    all_results: dict[str, dict] = {}
+    completed_keys: list[str] = []
+
+    if resume:
+        checkpoint = _load_checkpoint()
+        if checkpoint:
+            all_results, completed_keys = checkpoint
+            print(f"  Resuming from checkpoint ({len(completed_keys)} test-judge combos done)")
+            print(f"  Completed: {', '.join(completed_keys)}")
+            print()
 
     print("=" * 70)
     print("  Enhanced Quality Validation")
@@ -352,7 +411,12 @@ async def run_enhanced_validation(
     agent_engine = HaikuCognitiveEngine(max_concurrent=10)
     start_time = time.monotonic()
 
-    all_results: dict[str, dict] = {}
+    checkpoint_meta = {
+        "n_variations": n_variations,
+        "tests": test_keys,
+        "judges": judge_keys,
+        "conditions": [c.value for c in conditions],
+    }
 
     for judge_name in judge_keys:
         judge_engine = _make_engine(JUDGE_MODELS[judge_name])
@@ -360,6 +424,13 @@ async def run_enhanced_validation(
         print(f"  {'-' * 50}")
 
         for test_key in test_keys:
+            result_key = f"{test_key}_{judge_name}"
+
+            # Skip if already completed in a previous run
+            if result_key in completed_keys:
+                print(f"\n  Test: {test_key} — already done (from checkpoint)")
+                continue
+
             print(f"\n  Test: {test_key} ({n_variations} variations)")
 
             variations: list[dict] = []
@@ -414,9 +485,8 @@ async def run_enhanced_validation(
                 print(f"    Skipping unknown test: {test_key}")
                 continue
 
-            # Aggregate
+            # Aggregate and checkpoint after each test-judge combo
             summary = _aggregate_test_results(variations, conditions)
-            result_key = f"{test_key}_{judge_name}"
             all_results[result_key] = {
                 "test": test_key,
                 "judge": judge_name,
@@ -424,6 +494,9 @@ async def run_enhanced_validation(
                 "summary": summary,
                 "variations": variations,
             }
+            completed_keys.append(result_key)
+            _save_checkpoint(all_results, completed_keys, checkpoint_meta)
+            print(f"    [checkpoint saved — {len(completed_keys)} combos done]")
 
     total_elapsed = time.monotonic() - start_time
 
@@ -432,7 +505,7 @@ async def run_enhanced_validation(
 
     print(f"\n  Total time: {total_elapsed:.1f}s")
 
-    # --- Save ---
+    # --- Save final results ---
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(":", "-").replace("+", "p")
@@ -452,6 +525,10 @@ async def run_enhanced_validation(
     json_path = out / f"enhanced_{ts}.json"
     json_path.write_text(json.dumps(payload, indent=2, default=str))
     print(f"\n  Results saved to {json_path}")
+
+    # Clear checkpoint on success
+    _clear_checkpoint()
+    print("  Checkpoint cleared (run complete)")
 
     return payload
 

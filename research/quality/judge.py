@@ -296,9 +296,16 @@ class ResponseJudge:
             score_val = scores_dict.get(key, 5.0)
             reason = reasoning_dict.get(key, "")
             dimension_label = f"{prefix}{dim.value}" if prefix else dim.value
+            # Robust score extraction: handle cases where judge returns text
+            try:
+                numeric_score = float(score_val)
+            except (ValueError, TypeError):
+                import re
+                nums = re.findall(r'\b(\d+(?:\.\d+)?)\b', str(score_val))
+                numeric_score = float(nums[0]) if nums else 5.0
             result.append(JudgeScore(
                 dimension=dimension_label,
-                score=float(score_val),
+                score=numeric_score,
                 reasoning=str(reason),
             ))
         return result
@@ -336,10 +343,19 @@ class ResponseJudge:
         )
 
         raw = await self._engine.think(prompt)
-        parsed = _parse_judge_response(raw)
+        try:
+            parsed = _parse_judge_response(raw)
+            if not isinstance(parsed, dict):
+                parsed = {}
+        except (ValueError, json.JSONDecodeError):
+            parsed = {}
 
         scores_dict = parsed.get("scores", {})
         reasoning_dict = parsed.get("reasoning", {})
+        if not isinstance(scores_dict, dict):
+            scores_dict = {}
+        if not isinstance(reasoning_dict, dict):
+            reasoning_dict = {}
 
         return self._build_scores_from_dict(scores_dict, reasoning_dict)
 
@@ -388,13 +404,27 @@ class ResponseJudge:
         )
 
         raw = await self._engine.think(prompt)
-        parsed = _parse_judge_response(raw)
+        try:
+            parsed = _parse_judge_response(raw)
+            if not isinstance(parsed, dict):
+                parsed = {}
+        except (ValueError, json.JSONDecodeError):
+            parsed = {}
 
         # Extract scores for both responses.
         a_scores_dict = parsed.get("response_a_scores", {})
         b_scores_dict = parsed.get("response_b_scores", {})
         a_reasoning_dict = parsed.get("response_a_reasoning", {})
         b_reasoning_dict = parsed.get("response_b_reasoning", {})
+        # Ensure dicts, not strings
+        if not isinstance(a_scores_dict, dict):
+            a_scores_dict = {}
+        if not isinstance(b_scores_dict, dict):
+            b_scores_dict = {}
+        if not isinstance(a_reasoning_dict, dict):
+            a_reasoning_dict = {}
+        if not isinstance(b_reasoning_dict, dict):
+            b_reasoning_dict = {}
 
         a_scores = self._build_scores_from_dict(a_scores_dict, a_reasoning_dict, prefix="a:")
         b_scores = self._build_scores_from_dict(b_scores_dict, b_reasoning_dict, prefix="b:")

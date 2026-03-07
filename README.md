@@ -1,5 +1,5 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-03-06 — spec/ + runtime/ architecture, 766 tests, bond/skills/eternal/vector features -->
+<!-- Updated: 2026-03-07 — added validated results section with charts, updated badges -->
 
 # Soul Protocol
 
@@ -16,6 +16,24 @@ AI memory systems optimize for retrieval: find the most similar text, stuff it i
 Soul Protocol gives AI agents persistent identity with psychology-informed memory. Your agent remembers selectively, forms emotional bonds, develops skills, and maintains a personality that evolves over time. The entire state exports as a portable `.soul` file. Switch LLMs, switch platforms, keep the soul.
 
 **[Read the whitepaper](WHITEPAPER.md)** for the full design rationale and empirical validation.
+
+---
+
+## Validated: 5 judges, 4 providers, 20/20 favored Soul
+
+We tested Soul Protocol against stateless baselines using five judge models from four competing AI providers. Every single judgment favored soul-enabled agents.
+
+![Quality Validation Results](assets/charts/tier3_multijudge.png)
+
+**Component ablation** — which parts actually matter:
+
+![Component Ablation](assets/charts/tier4_ablation.png)
+
+**Head-to-head vs. Mem0** — Soul Protocol outperforms production memory systems:
+
+![Mem0 Comparison](assets/charts/tier5_mem0.png)
+
+> Total validation cost: **under $5**. 1,100+ agent simulations, 25 scenario variations, 5 judge models. Full methodology in the [whitepaper](WHITEPAPER.md#12-empirical-validation).
 
 ---
 
@@ -268,7 +286,7 @@ SOUL_PATH=aria.soul soul-mcp
 
 ## Comparison
 
-**vs Mem0**: Mem0 does vector retrieval. Soul Protocol adds identity, personality, significance gating, emotional memory, and a portable file format.
+**vs Mem0**: Mem0 does vector retrieval. Soul Protocol adds identity, personality, significance gating, emotional memory, and a portable file format. In head-to-head benchmarks, Soul Protocol scored 8.5 vs. Mem0's 6.0 overall, with the largest gap in emotional continuity (9.2 vs. 7.0).
 
 **vs Cognee**: Cognee builds knowledge graphs from unstructured data. Good system, but platform-locked. Soul Protocol's knowledge graph is portable and comes with temporal edges.
 

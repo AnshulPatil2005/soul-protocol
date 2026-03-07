@@ -78,15 +78,24 @@ class HaikuCognitiveEngine:
         async with self._semaphore:
             for attempt in range(3):
                 try:
-                    response = await self._client.messages.create(
-                        model=self._model,
-                        max_tokens=self._max_tokens,
-                        messages=[{"role": "user", "content": prompt}],
+                    response = await asyncio.wait_for(
+                        self._client.messages.create(
+                            model=self._model,
+                            max_tokens=self._max_tokens,
+                            messages=[{"role": "user", "content": prompt}],
+                        ),
+                        timeout=120,  # 2 minute timeout per API call
                     )
                     self.usage.calls += 1
                     self.usage.input_tokens += response.usage.input_tokens
                     self.usage.output_tokens += response.usage.output_tokens
                     return response.content[0].text
+
+                except asyncio.TimeoutError:
+                    if attempt < 2:
+                        continue
+                    self.usage.errors += 1
+                    raise RuntimeError("Haiku API call timed out after 120s")
 
                 except Exception as e:
                     error_str = str(e).lower()

@@ -1,24 +1,57 @@
-<!-- README.md — Comprehensive README for soul-protocol open standard. -->
-<!-- Updated: 2026-03-02 — Removed dashboard, replaced with Rich TUI in inspect/status.
-     Fixed all inaccurate claims: GitHub URLs, .soul file table, install instructions,
-     paw section, badges, development section. -->
+<!-- README.md — soul-protocol open standard -->
+<!-- Updated: 2026-03-07 — added validated results section with charts, updated badges -->
 
 # Soul Protocol
 
-**The open standard for portable AI identity and memory.**
+**Portable AI identity, memory, and emotion. An open standard.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 455 passing](https://img.shields.io/badge/tests-455%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 766 passing](https://img.shields.io/badge/tests-766%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
-## What is Soul Protocol?
+AI memory systems optimize for retrieval: find the most similar text, stuff it into context, move on. They treat persistence as an IQ problem. But what makes a companion feel real isn't similarity search. It's knowing what matters, what to forget, and who it's becoming.
 
-Soul Protocol gives AI agents persistent identity and psychology-informed memory.
-Instead of stateless prompts, your agent remembers, evolves, and maintains a
-consistent personality across conversations. Export the soul as a portable `.soul`
-file and migrate between any platform.
+Soul Protocol gives AI agents persistent identity with psychology-informed memory. Your agent remembers selectively, forms emotional bonds, develops skills, and maintains a personality that evolves over time. The entire state exports as a portable `.soul` file. Switch LLMs, switch platforms, keep the soul.
+
+**[Read the whitepaper](WHITEPAPER.md)** for the full design rationale and empirical validation.
+
+---
+
+## Validated: 5 judges, 4 providers, 20/20 favored Soul
+
+We tested Soul Protocol against stateless baselines using five judge models from four competing AI providers. Every single judgment favored soul-enabled agents.
+
+![Quality Validation Results](assets/charts/tier3_multijudge.png)
+
+**Component ablation** — which parts actually matter:
+
+![Component Ablation](assets/charts/tier4_ablation.png)
+
+**Head-to-head vs. Mem0** — Soul Protocol outperforms production memory systems:
+
+![Mem0 Comparison](assets/charts/tier5_mem0.png)
+
+> Total validation cost: **under $5**. 1,100+ agent simulations, 25 scenario variations, 5 judge models. Full methodology in the [whitepaper](WHITEPAPER.md#12-empirical-validation).
+
+---
+
+## Architecture: spec + runtime
+
+```
+soul_protocol/
+├── spec/      624 lines   The protocol. Portable, minimal, no opinions.
+├── runtime/  7,495 lines  Reference implementation. Opinionated, batteries-included.
+├── cli/                    11-command CLI
+└── mcp/                    MCP server (10 tools, 3 resources)
+```
+
+**`spec/`** defines what any runtime must implement: Identity, MemoryStore, MemoryEntry, SoulContainer, `.soul` file format, EmbeddingProvider, EternalStorageProvider. Depends on Pydantic only.
+
+**`runtime/`** is one way to run the protocol. OCEAN personality, five-tier memory, psychology pipeline, cognitive engine, bonds, skills, evolution. Other runtimes can implement `spec/` differently.
+
+Like HTTP and nginx. The spec defines the contract. The runtime is one implementation.
 
 ---
 
@@ -26,33 +59,37 @@ file and migrate between any platform.
 
 | Category | What you get |
 |---|---|
-| **Memory** | 5-tier architecture: core, episodic, semantic, procedural, knowledge graph |
-| **Personality** | Big Five OCEAN model with communication style and biorhythms |
-| **Flexible Config** | Full control over OCEAN traits, communication style, biorhythms via code, YAML, or CLI |
-| **Emergent Self-Model** | Soul discovers its own identity from experience — no hardcoded categories |
-| **Cognition** | Psychology pipeline -- Damasio somatic markers, ACT-R activation, LIDA significance, Klein self-model |
+| **Memory** | 5-tier: core, episodic, semantic, procedural, knowledge graph. Plus archival compression. |
+| **Psychology** | Damasio somatic markers, ACT-R activation decay, LIDA significance gate, Klein self-model |
+| **Personality** | OCEAN Big Five with communication style and biorhythms. Structured, not a prompt string. |
+| **Bond** | Emotional attachment (0-100 strength). Grows with interaction, weakens with neglect. |
+| **Skills/XP** | Domain expertise with leveling (1-10, 1.5x scaling). Portable skill history. |
 | **Evolution** | Supervised or autonomous trait mutation with approval workflow |
-| **Portability** | `.soul` file format -- zip archive with identity, memory, and state |
-| **Integration** | Single `CognitiveEngine.think()` method -- plug in any LLM |
-| **Retrieval** | Pluggable `SearchStrategy` -- swap in embeddings with one class |
-| **CLI** | 8 commands: `init`, `birth`, `inspect`, `status`, `export`, `migrate`, `retire`, `list` — Rich TUI output |
+| **Reincarnation** | Rebirth preserving memories, personality, and bonds. Lineage tracking. |
+| **Vector search** | Pluggable EmbeddingProvider. Ships HashEmbedder and TFIDFEmbedder. |
+| **Eternal storage** | Archive to IPFS/Arweave/blockchain (mock providers, production planned) |
+| **Portability** | `.soul` ZIP archive. JSON inside. Rename to .zip and read it. |
+| **Integration** | Single `CognitiveEngine.think()` method. Plug in any LLM. |
+| **Cross-language** | JSON Schemas auto-generated from spec. Validate `.soul` files in any language. |
+| **CLI** | 11 commands. Rich TUI output. |
+| **MCP** | 10 tools + 3 resources for Claude Code, Cursor, or any MCP client |
 
 ---
 
-## Installation
+## Install
 
 ```bash
 pip install git+https://github.com/qbtrix/soul-protocol.git
 ```
 
-Optional extras:
+Extras:
 
 ```bash
-pip install "soul-protocol[graph] @ git+https://github.com/qbtrix/soul-protocol.git"    # Knowledge graph (networkx)
-pip install "soul-protocol[mcp] @ git+https://github.com/qbtrix/soul-protocol.git"      # MCP server (fastmcp)
+pip install "soul-protocol[graph] @ git+https://github.com/qbtrix/soul-protocol.git"  # networkx
+pip install "soul-protocol[mcp] @ git+https://github.com/qbtrix/soul-protocol.git"    # MCP server
 ```
 
-Or clone and install locally:
+Or clone:
 
 ```bash
 git clone https://github.com/qbtrix/soul-protocol.git
@@ -62,43 +99,32 @@ pip install -e ".[dev]"
 
 ---
 
-## Quick Start
+## Quick start
 
-### From the CLI
+### CLI
 
 ```bash
-# Initialize a .soul/ folder in your project (like .git/)
 soul init "Aria" --archetype "The Compassionate Creator"
-
-# Inspect your soul (rich TUI with OCEAN bars, memory, self-model)
 soul inspect .soul/
-
-# Quick status check
 soul status .soul/
 ```
 
-### From Python
+### Python
 
 ```python
 import asyncio
 from soul_protocol import Soul, Interaction
 
 async def main():
-    # Birth a soul with full personality control
     soul = await Soul.birth(
         name="Aria",
         archetype="The Coding Expert",
         values=["precision", "clarity"],
-        ocean={
-            "openness": 0.8,
-            "conscientiousness": 0.9,
-            "neuroticism": 0.2,
-        },
+        ocean={"openness": 0.8, "conscientiousness": 0.9, "neuroticism": 0.2},
         communication={"warmth": "high", "verbosity": "low"},
         persona="I am Aria, a precise coding assistant.",
     )
 
-    # Observe an interaction
     await soul.observe(Interaction(
         user_input="How do I optimize this SQL query?",
         agent_output="Add an index on the join column.",
@@ -107,7 +133,6 @@ async def main():
     # The soul discovers its own identity from experience
     images = soul.self_model.get_active_self_images()
 
-    # Recall memories, generate prompts, export
     memories = await soul.recall("SQL optimization")
     prompt = soul.to_system_prompt()
     await soul.export("aria.soul")
@@ -115,7 +140,7 @@ async def main():
 asyncio.run(main())
 ```
 
-Or birth from a config file:
+Or from config:
 
 ```python
 soul = await Soul.birth_from_config("soul-config.yaml")
@@ -138,110 +163,50 @@ persona: I am Aria, precise and efficient.
 
 ---
 
-## Use with PocketPaw
+## The .soul file
 
-[PocketPaw](https://github.com/pocketpaw/pocketpaw) is a self-hosted AI agent with
-Telegram, Discord, Slack, WhatsApp, and web dashboard support.
+A ZIP archive containing everything:
 
-PocketPaw uses soul-protocol for persistent identity — your agent remembers across
-conversations and maintains a consistent personality. The integration uses
-`SoulChannelObserver` to feed interactions into the soul's psychology pipeline
-non-invasively via the message bus.
-
-```python
-from soul_protocol import Soul, Interaction
-
-# Inside your agent's message handler
-soul = await Soul.awaken(".soul/")
-await soul.observe(Interaction(
-    user_input=user_message,
-    agent_output=agent_response,
-))
-```
-
----
-
-## Core Concepts
-
-### .soul File Format
-
-A `.soul` file is a zip archive containing:
-
-| File | Purpose |
+| File | Contents |
 |---|---|
 | `manifest.json` | Format version, soul ID, export timestamp, stats |
-| `soul.json` | Complete SoulConfig (identity, DNA, memory settings, evolution) |
+| `soul.json` | Identity, DNA, memory settings, evolution config |
+| `state.json` | Mood, energy, focus, social battery |
 | `dna.md` | Human-readable personality blueprint |
-| `state.json` | Current mood, energy, focus, social battery |
-| `memory/core.json` | Always-loaded persona + human profile |
+| `memory/core.json` | Persona + bonded-entity profile |
 | `memory/episodic.json` | Interaction history with somatic markers |
 | `memory/semantic.json` | Extracted facts with confidence scores |
-| `memory/procedural.json` | Learned patterns and preferences |
-| `memory/self_model.json` | Klein self-concept, relationship notes |
-| `memory/graph.json` | Entity relationships (if knowledge graph is used) |
-| `memory/general_events.json` | Conway hierarchy autobiographical events |
+| `memory/procedural.json` | Learned patterns |
+| `memory/graph.json` | Temporal entity relationships |
+| `memory/self_model.json` | Klein self-concept domains |
 
-Fully portable. Rename to `.zip` and open with any archive tool. Move between
-platforms, back up to cloud storage, version in git. See the full
-[format specification](spec/SOUL-FORMAT-SPEC.md) for details.
-
-### 5-Tier Memory
-
-| Tier | Role | Persistence |
-|---|---|---|
-| **Core** | Persona definition + human knowledge | Always in context |
-| **Episodic** | Interaction history with timestamps and somatic markers | Gated by significance |
-| **Semantic** | Extracted facts with confidence scores and conflict resolution | Updated on every interaction |
-| **Procedural** | Learned patterns and preferences | Long-term |
-| **Knowledge Graph** | Entity relationships (optional, requires `networkx`) | Long-term |
-
-The memory pipeline runs on every `soul.observe()` call:
-
-1. Detect sentiment (Damasio somatic markers)
-2. Compute significance (LIDA architecture)
-3. Gate for episodic storage -- only significant experiences are kept
-4. Extract semantic facts with confidence scoring
-5. Extract entities for the knowledge graph
-6. Update the self-model (Klein self-concept)
-
-### OCEAN Personality
-
-Big Five model on 0.0--1.0 scales:
-
-- **O**penness -- curiosity, creativity, willingness to try new things
-- **C**onscientiousness -- organization, reliability, attention to detail
-- **E**xtraversion -- social energy, talkativeness, assertiveness
-- **A**greeableness -- empathy, cooperation, warmth
-- **N**euroticism -- emotional reactivity, anxiety, sensitivity
-
-These traits drive communication style, social battery drain rate, and behavioral
-tendencies. They can evolve over time through the supervised mutation system.
-
-### CognitiveEngine
-
-A single-method protocol. Implement `async def think(self, prompt: str) -> str`
-to connect any LLM. When no engine is provided, the soul falls back to built-in
-heuristics for sentiment detection, significance scoring, and fact extraction.
-
-With an engine attached, the soul gains:
-- LLM-quality sentiment analysis
-- Nuanced significance assessment
-- Richer fact and entity extraction
-- Reflection and memory consolidation
-- Self-model updates grounded in conversation
+Rename to `.zip`, open with any archive tool. Move between platforms. Back up anywhere. Version in git.
 
 ---
 
-## CognitiveEngine Integration
+## Memory pipeline
 
-Connect any LLM in about 10 lines:
+Every `soul.observe()` call runs the psychology pipeline:
+
+1. **Sentiment** (Damasio). Tag emotional context as a somatic marker: valence, arousal, label.
+2. **Significance** (LIDA). Score novelty + emotional intensity + goal relevance. Below 0.3, skip episodic.
+3. **Episodic storage**. Only significant experiences.
+4. **Fact extraction**. Names, preferences, context. Conflict-checked against existing facts.
+5. **Entity extraction**. Feed the knowledge graph with temporal edges.
+6. **Self-model** (Klein). Update emergent domain confidence from accumulated experience.
+
+Retrieval uses ACT-R activation decay: recent, frequently accessed, emotionally charged memories rank higher. A memory recalled twice today outranks an "important" memory from last week that was never revisited.
+
+---
+
+## CognitiveEngine
+
+Connect any LLM:
 
 ```python
 from soul_protocol import Soul, CognitiveEngine
 
 class ClaudeEngine:
-    """Adapter for Anthropic's Claude API."""
-
     def __init__(self, client):
         self.client = client
 
@@ -253,160 +218,114 @@ class ClaudeEngine:
         )
         return response.content[0].text
 
-# Birth a soul with LLM-enhanced cognition
 soul = await Soul.birth("Aria", engine=ClaudeEngine(client))
 ```
 
-The same pattern works with OpenAI, Ollama, or any other provider. Just return
-a string from `think()`.
+Without an engine, the soul falls back to `HeuristicEngine`: word-list sentiment, formula-based significance, regex fact extraction. No LLM calls, no hallucination, no cost.
 
 ---
 
-## SearchStrategy -- Pluggable Retrieval
-
-The default retrieval uses token overlap with synonym expansion. Swap in embeddings
-or a vector database with a single class:
+## Vector search
 
 ```python
-from soul_protocol import Soul, SearchStrategy
+from soul_protocol.runtime.embeddings.hash_embedder import HashEmbedder
+from soul_protocol.runtime.embeddings.vector_strategy import VectorSearchStrategy
 
-class EmbeddingSearch:
-    """Use embeddings for semantic retrieval."""
-
-    def __init__(self, embed_fn):
-        self.embed_fn = embed_fn
-
-    def score(self, query: str, content: str) -> float:
-        q_vec = self.embed_fn(query)
-        c_vec = self.embed_fn(content)
-        return cosine_similarity(q_vec, c_vec)
-
-soul = await Soul.birth("Aria", search_strategy=EmbeddingSearch(my_embed))
-
-# recall() now uses your embedding function for relevance scoring
-memories = await soul.recall("Python projects")
+strategy = VectorSearchStrategy(embedder=HashEmbedder(dimensions=64))
+# Use with soul.recall() or standalone
 ```
+
+The `EmbeddingProvider` interface is defined in `spec/`. Swap in OpenAI, Cohere, or local embeddings by implementing `embed()` and `dimensions`.
 
 ---
 
-## .soul/ Folder
-
-Like `.git/` for repos or `.claude/` for Claude Code, the `.soul/` folder gives
-your project a persistent AI identity:
+## Eternal storage
 
 ```bash
-soul init "Aria" --archetype "The Coding Expert"
+soul archive aria.soul --tiers local,ipfs
+soul recover aria.soul --source ipfs
+soul eternal-status aria.soul
 ```
 
-Creates a human-readable, git-friendly, cloud-syncable folder:
-
-```
-.soul/
-├── soul.json       # Identity, DNA, config
-├── state.json      # Mood, energy, focus
-├── dna.md          # Human-readable personality
-└── memory/         # All 5 memory tiers as JSON
-```
-
-Load from a directory just like a file: `soul = await Soul.awaken(".soul/")`
+Archive souls to decentralized storage (local, IPFS, Arweave, blockchain). Current providers are mocks for development. Production integrations planned.
 
 ---
 
-## MCP Server
+## CLI
 
-Soul Protocol ships with an MCP (Model Context Protocol) server for agent
-integration. Give Claude Code, Cursor, or any MCP client a persistent soul:
+```
+soul <command> [options]
+```
+
+| Command | Description |
+|---|---|
+| `init` | Initialize a .soul/ folder (like .git/) |
+| `birth` | Birth a new soul (OCEAN flags, config files) |
+| `inspect` | Full TUI: identity, OCEAN bars, state, memory, self-model |
+| `status` | Quick check: mood, energy, memory count |
+| `export` | Export to .soul, .json, .yaml, or .md |
+| `migrate` | Convert SOUL.md to .soul format |
+| `retire` | Retire a soul (preserves memories) |
+| `list` | List saved souls in ~/.soul/ |
+| `archive` | Archive to eternal storage tiers |
+| `recover` | Recover from eternal storage |
+| `eternal-status` | Show eternal storage references |
+
+---
+
+## MCP server
 
 ```bash
 pip install soul-protocol[mcp]
 SOUL_PATH=aria.soul soul-mcp
 ```
 
-Exposes 10 tools that any MCP-compatible agent can call: observe interactions,
-recall memories, inspect state, and more. See the
-[integrations guide](docs/integrations.md) for Claude Code, Cursor, and other
-platforms.
+10 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client. See [integrations](docs/integrations.md).
 
 ---
 
-## CLI Reference
+## Comparison
 
-```
-soul <command> [options]
-```
+**vs Mem0**: Mem0 does vector retrieval. Soul Protocol adds identity, personality, significance gating, emotional memory, and a portable file format. In head-to-head benchmarks, Soul Protocol scored 8.5 vs. Mem0's 6.0 overall, with the largest gap in emotional continuity (9.2 vs. 7.0).
 
-| Command | Description | Example |
-|---|---|---|
-| `init` | Initialize a .soul/ folder in the current directory | `soul init Aria --archetype "The Creator"` |
-| `birth` | Birth a new soul (supports OCEAN flags and config files) | `soul birth Aria --openness 0.8 -o aria.soul` |
-| `inspect` | Full TUI view — identity, OCEAN bars, state, memory, self-model | `soul inspect .soul/` |
-| `status` | Quick status — mood, energy, social battery, memory count | `soul status .soul/` |
-| `export` | Export to .soul, .json, .yaml, or .md | `soul export .soul/ -o aria.json -f json` |
-| `migrate` | Convert SOUL.md to .soul format | `soul migrate SOUL.md -o aria.soul` |
-| `retire` | Retire a soul (preserves memories by default) | `soul retire aria.soul` |
-| `list` | List all saved souls in ~/.soul/ | `soul list` |
+**vs Cognee**: Cognee builds knowledge graphs from unstructured data. Good system, but platform-locked. Soul Protocol's knowledge graph is portable and comes with temporal edges.
+
+**vs MemGPT / Letta**: Context window management vs. identity. MemGPT optimizes what fits in the prompt. Soul Protocol defines who the agent *is*.
+
+**vs LangChain Memory**: RAG retrieval vs. psychology-informed processing. Soul Protocol adds significance scoring, somatic markers, fact conflict resolution, self-model tracking, and portable export.
+
+**vs OpenAI Memory**: Per-account facts vs. a portable standard. Export your soul, own your data.
 
 ---
 
-## Architecture
+## Use with PocketPaw
 
+[PocketPaw](https://github.com/pocketpaw/pocketpaw) uses soul-protocol for persistent identity across Telegram, Discord, Slack, WhatsApp, and web.
+
+```python
+from soul_protocol import Soul, Interaction
+
+soul = await Soul.awaken(".soul/")
+await soul.observe(Interaction(
+    user_input=user_message,
+    agent_output=agent_response,
+))
 ```
-                        Interaction
-                            |
-                            v
-                  +-------------------+
-                  | Psychology Pipeline|
-                  +-------------------+
-                            |
-          +---------+-------+-------+---------+
-          |         |               |         |
-          v         v               v         v
-     Somatic   Significance    Fact       Entity
-     Markers   Gate (LIDA)     Extraction Extraction
-     (Damasio)      |               |         |
-          |         v               v         v
-          |    [threshold?]    Semantic    Knowledge
-          |     /       \      Memory     Graph
-          |    yes       no        |         |
-          v     |                  v         v
-       Episodic |          +------------------+
-       Memory   |          |  Self-Model      |
-          |     |          |  Update (Klein)  |
-          v     v          +------------------+
-     +-------------------------------+
-     |       Memory Manager          |
-     |  (5-Tier Storage + Recall)    |
-     +-------------------------------+
-                    |
-                    v
-             .soul File Export
-```
-
----
-
-## How Is This Different?
-
-**vs MemGPT / Letta**: Soul Protocol is an identity layer, not a context window
-manager. MemGPT optimizes what fits in the prompt. Soul Protocol defines who
-the agent *is* -- personality, memory architecture, self-concept, and evolution.
-
-**vs LangChain Memory**: Psychology-informed, not just retrieval. Soul Protocol
-adds significance scoring, emotional markers, fact conflict resolution, and
-self-model tracking. Memories export as portable `.soul` files rather than being
-locked to a single framework.
-
-**vs Vector Databases**: Memory is more than retrieval. A vector DB gives you
-similarity search. Soul Protocol adds significance gating (not everything is
-worth remembering), somatic markers (emotional context on memories), fact
-supersession (newer facts replace outdated ones), and a self-model that updates
-as the agent learns about itself.
 
 ---
 
 ## Documentation
 
-- [Configuration Guide](docs/configuration.md) — OCEAN personality, communication style, config files, CLI options, presets
-- [Self-Model Architecture](docs/self-model.md) — Emergent domain discovery, Klein's self-concept, confidence formula
+- [Whitepaper](WHITEPAPER.md) -- design rationale, psychology stack, empirical validation
+- [Architecture](docs/architecture.md) -- two-layer diagrams, module dependency graph
+- [Configuration](docs/configuration.md) -- OCEAN, communication style, config files
+- [Self-Model](docs/self-model.md) -- Klein's self-concept, domain discovery
+- [Cognitive Engine](docs/cognitive-engine.md) -- LLM integration, heuristic fallback
+- [Memory Architecture](docs/memory-architecture.md) -- five tiers, activation, compression
+- [CLI Reference](docs/cli-reference.md) -- all commands and options
+- [MCP Server](docs/mcp-server.md) -- tools, resources, setup
+- [Gap Analysis](docs/GAP-ANALYSIS.md) -- what's built vs. what's planned
+- [JSON Schemas](schemas/) -- cross-language `.soul` file validation
 
 ---
 
@@ -416,7 +335,7 @@ as the agent learns about itself.
 git clone https://github.com/qbtrix/soul-protocol.git
 cd soul-protocol
 pip install -e ".[dev]"
-pytest tests/
+pytest tests/   # 766 tests
 ```
 
 ---

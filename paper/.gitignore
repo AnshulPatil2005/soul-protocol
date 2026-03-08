@@ -1,0 +1,17 @@
+# Compiled PDF (rebuild with: make)
+main.pdf
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.nav
+*.snm
+*.toc
+*.run.xml
+*.bcf

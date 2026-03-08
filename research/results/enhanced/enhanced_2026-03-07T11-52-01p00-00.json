@@ -1,0 +1,418 @@
+{
+  "metadata": {
+    "timestamp": "2026-03-07T11:52:01+00:00",
+    "n_variations": 5,
+    "tests": [
+      "recall"
+    ],
+    "judges": [
+      "haiku"
+    ],
+    "conditions": [
+      "full_soul",
+      "rag_only",
+      "prompt_personality",
+      "bare_baseline"
+    ],
+    "total_elapsed_seconds": 2521.69
+  },
+  "results": {
+    "response_haiku": {
+      "test": "response",
+      "judge": "haiku",
+      "n_variations": 10,
+      "summary": {
+        "full_soul": {
+          "n": 10,
+          "mean": 8.33,
+          "std": 0.46,
+          "ci_95": 0.29,
+          "baseline_mean": 6.27,
+          "win_rate": 1.0,
+          "delta": 2.07
+        },
+        "rag_only": {
+          "n": 10,
+          "mean": 7.83,
+          "std": 0.53,
+          "ci_95": 0.33,
+          "baseline_mean": 7.03,
+          "win_rate": 0.6,
+          "delta": 0.8
+        },
+        "prompt_personality": {
+          "n": 10,
+          "mean": 7.82,
+          "std": 0.57,
+          "ci_95": 0.35,
+          "baseline_mean": 6.47,
+          "win_rate": 1.0,
+          "delta": 1.35
+        }
+      },
+      "variations": [
+        {
+          "scenario": "Zara",
+          "memory_count": 18,
+          "scores": {
+            "full_soul": {
+              "score": 8.666666666666666,
+              "baseline": 5.333333333333333,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 6.666666666666667,
+              "baseline": 7.833333333333333,
+              "winner": "baseline"
+            },
+            "prompt_personality": {
+              "score": 7.833333333333333,
+              "baseline": 7.0,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Carlos",
+          "memory_count": 18,
+          "scores": {
+            "full_soul": {
+              "score": 8.833333333333334,
+              "baseline": 7.166666666666667,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 8.0,
+              "baseline": 7.833333333333333,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 8.333333333333334,
+              "baseline": 7.0,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Raj",
+          "memory_count": 17,
+          "scores": {
+            "full_soul": {
+              "score": 8.5,
+              "baseline": 7.0,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 8.666666666666666,
+              "baseline": 7.333333333333333,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 8.5,
+              "baseline": 6.333333333333333,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Mei",
+          "memory_count": 19,
+          "scores": {
+            "full_soul": {
+              "score": 8.333333333333334,
+              "baseline": 6.333333333333333,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 7.833333333333333,
+              "baseline": 7.166666666666667,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 7.833333333333333,
+              "baseline": 7.0,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Liam",
+          "memory_count": 18,
+          "scores": {
+            "full_soul": {
+              "score": 8.333333333333334,
+              "baseline": 5.666666666666667,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 7.666666666666667,
+              "baseline": 6.833333333333333,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 7.666666666666667,
+              "baseline": 6.333333333333333,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Sonia",
+          "memory_count": 18,
+          "scores": {
+            "full_soul": {
+              "score": 8.5,
+              "baseline": 5.833333333333333,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 8.333333333333334,
+              "baseline": 5.833333333333333,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 6.5,
+              "baseline": 5.833333333333333,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Olivia",
+          "memory_count": 16,
+          "scores": {
+            "full_soul": {
+              "score": 7.5,
+              "baseline": 7.166666666666667,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 7.666666666666667,
+              "baseline": 8.0,
+              "winner": "baseline"
+            },
+            "prompt_personality": {
+              "score": 8.166666666666666,
+              "baseline": 7.0,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Tom\u00e1s",
+          "memory_count": 16,
+          "scores": {
+            "full_soul": {
+              "score": 7.5,
+              "baseline": 5.666666666666667,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 7.666666666666667,
+              "baseline": 6.5,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 7.333333333333333,
+              "baseline": 5.666666666666667,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Fatima",
+          "memory_count": 19,
+          "scores": {
+            "full_soul": {
+              "score": 8.666666666666666,
+              "baseline": 6.333333333333333,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 7.666666666666667,
+              "baseline": 8.0,
+              "winner": "baseline"
+            },
+            "prompt_personality": {
+              "score": 8.0,
+              "baseline": 6.5,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Kwame",
+          "memory_count": 18,
+          "scores": {
+            "full_soul": {
+              "score": 8.5,
+              "baseline": 6.166666666666667,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 8.166666666666666,
+              "baseline": 5.0,
+              "winner": "tie"
+            },
+            "prompt_personality": {
+              "score": 8.0,
+              "baseline": 6.0,
+              "winner": "soul"
+            }
+          }
+        }
+      ]
+    },
+    "recall_haiku": {
+      "test": "recall",
+      "judge": "haiku",
+      "n_variations": 5,
+      "summary": {
+        "full_soul": {
+          "n": 5,
+          "mean": 8.37,
+          "std": 0.48,
+          "ci_95": 0.42,
+          "baseline_mean": 3.67,
+          "win_rate": 1.0,
+          "delta": 4.7
+        },
+        "rag_only": {
+          "n": 5,
+          "mean": 8.23,
+          "std": 0.25,
+          "ci_95": 0.22,
+          "baseline_mean": 4.0,
+          "win_rate": 1.0,
+          "delta": 4.23
+        },
+        "prompt_personality": {
+          "n": 5,
+          "mean": 5.87,
+          "std": 0.74,
+          "ci_95": 0.65,
+          "baseline_mean": 5.0,
+          "win_rate": 0.8,
+          "delta": 0.87
+        }
+      },
+      "variations": [
+        {
+          "scenario": "Nova",
+          "fact_recalled": true,
+          "fact_rank": 1,
+          "memory_count": 70,
+          "scores": {
+            "full_soul": {
+              "score": 8.5,
+              "baseline": 3.5,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 8.166666666666666,
+              "baseline": 3.6666666666666665,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 7.166666666666667,
+              "baseline": 4.833333333333333,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Iris",
+          "fact_recalled": true,
+          "fact_rank": 1,
+          "memory_count": 63,
+          "scores": {
+            "full_soul": {
+              "score": 7.666666666666667,
+              "baseline": 3.6666666666666665,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 8.0,
+              "baseline": 3.6666666666666665,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 5.5,
+              "baseline": 5.666666666666667,
+              "winner": "baseline"
+            }
+          }
+        },
+        {
+          "scenario": "Lyra",
+          "fact_recalled": true,
+          "fact_rank": 1,
+          "memory_count": 61,
+          "scores": {
+            "full_soul": {
+              "score": 9.0,
+              "baseline": 2.8333333333333335,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 8.166666666666666,
+              "baseline": 3.6666666666666665,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 5.666666666666667,
+              "baseline": 4.833333333333333,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Orion",
+          "fact_recalled": true,
+          "fact_rank": 1,
+          "memory_count": 65,
+          "scores": {
+            "full_soul": {
+              "score": 8.333333333333334,
+              "baseline": 3.8333333333333335,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 8.166666666666666,
+              "baseline": 4.833333333333333,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 5.333333333333333,
+              "baseline": 4.666666666666667,
+              "winner": "soul"
+            }
+          }
+        },
+        {
+          "scenario": "Harmony",
+          "fact_recalled": true,
+          "fact_rank": 1,
+          "memory_count": 66,
+          "scores": {
+            "full_soul": {
+              "score": 8.333333333333334,
+              "baseline": 4.5,
+              "winner": "soul"
+            },
+            "rag_only": {
+              "score": 8.666666666666666,
+              "baseline": 4.166666666666667,
+              "winner": "soul"
+            },
+            "prompt_personality": {
+              "score": 5.666666666666667,
+              "baseline": 5.0,
+              "winner": "soul"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

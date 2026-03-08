@@ -1,4 +1,5 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: Wired Bond.strengthen() and SkillRegistry into observe() pipeline.
 # Updated: Added reincarnate() classmethod for lifecycle rebirth.
 #   Preserves memories, personality, and tracks incarnation lineage.
 # Updated: v0.3.2 — Added proper error handling for awaken(), export(), retire().
@@ -28,6 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .bond import Bond
 from .cognitive.engine import CognitiveEngine
 from .dna.prompt import dna_to_system_prompt
 from .evolution.manager import EvolutionManager
@@ -36,6 +38,7 @@ from .export.unpack import unpack_soul
 from .identity.did import generate_did
 from .memory.manager import MemoryManager
 from .memory.strategy import SearchStrategy
+from .skills import SkillRegistry
 from .state.manager import StateManager
 from .types import (
     DNA,
@@ -83,6 +86,7 @@ class Soul:
         )
         self._state = StateManager(config.state)
         self._evolution = EvolutionManager(config.evolution)
+        self._skills = SkillRegistry()
 
     # ============ Lifecycle ============
 
@@ -591,6 +595,25 @@ class Soul:
         # Update state based on interaction + detected sentiment
         self._state.on_interaction(interaction, somatic=result.get("somatic"))
 
+        # Strengthen bond on each interaction
+        somatic = result.get("somatic")
+        if somatic and somatic.valence >= 0:
+            self._identity.bond.strengthen(amount=1.0 + somatic.valence)
+        else:
+            self._identity.bond.strengthen(amount=0.5)
+
+        # Grant XP to skills matching extracted entities/topics
+        for entity in raw_entities:
+            entity_name = entity["name"].lower().replace(" ", "_")
+            skill = self._skills.get(entity_name)
+            if skill:
+                skill.add_xp(10)
+            else:
+                from .skills import Skill
+                new_skill = Skill(id=entity_name, name=entity["name"])
+                new_skill.add_xp(10)
+                self._skills.add(new_skill)
+
         # Check for evolution triggers
         await self._evolution.check_triggers(self._dna, interaction)
 
@@ -631,6 +654,18 @@ class Soul:
     def general_events(self) -> list[GeneralEvent]:
         """Access the soul's general events (Conway hierarchy)."""
         return list(self._memory._general_events.values())
+
+    # ============ Bond / Skills ============
+
+    @property
+    def bond(self) -> Bond:
+        """Access the soul's bond with its bonded entity."""
+        return self._identity.bond
+
+    @property
+    def skills(self) -> SkillRegistry:
+        """Access the soul's skill registry."""
+        return self._skills
 
     # ============ State / Feelings ============
 

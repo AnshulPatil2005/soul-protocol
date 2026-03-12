@@ -1,8 +1,9 @@
-# demo.py — Interactive demo showing Soul Protocol's psychology-informed memory.
-# Created: v0.2.3 — Developer onboarding "holy shit" demo (issue #49).
-# Updated: 2026-03-12 — Show initial bond, memory breakdown, remove bare f-strings,
-#   tempdir scope comment, review fixes.
-# Run: python -m soul_protocol.demo
+# demo.py — Interactive Rich TUI demo for Soul Protocol.
+# Rewritten: 2026-03-13 — 5-act step-by-step walkthrough with Rich panels,
+#   tables, syntax highlighting, OCEAN bar charts, and "Press Enter" pauses.
+#   Designed for GIF recording (README/launch). No LLM or API keys needed.
+#   Set SOUL_DEMO_NO_PAUSE=1 to skip pauses (for CI/testing).
+# Run: python -m soul_protocol
 
 """
 Soul Protocol Demo — Watch an AI soul remember, feel, and grow.
@@ -10,7 +11,7 @@ Soul Protocol Demo — Watch an AI soul remember, feel, and grow.
 No LLM required. No API keys. Just the psychology pipeline doing its thing.
 
 Run it:
-    python -m soul_protocol.demo
+    python -m soul_protocol
 """
 
 from __future__ import annotations
@@ -20,58 +21,179 @@ import os
 import sys
 import tempfile
 
+# ── Rich dependency check ─────────────────────────────────────────────────────
 
-# ── Formatting helpers ──────────────────────────────────────────────────────
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.syntax import Syntax
+    from rich.text import Text
+    from rich.columns import Columns
+    from rich import box
 
-BOLD = "\033[1m"
-DIM = "\033[2m"
-RESET = "\033[0m"
-BLUE = "\033[94m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-RED = "\033[91m"
-CYAN = "\033[96m"
-MAGENTA = "\033[95m"
+    HAS_RICH = True
+except ImportError:
+    HAS_RICH = False
 
-# Disable colors if not a terminal
-if not sys.stdout.isatty():
-    BOLD = DIM = RESET = BLUE = GREEN = YELLOW = RED = CYAN = MAGENTA = ""
+# ── Configuration ─────────────────────────────────────────────────────────────
 
-
-def header(text: str) -> None:
-    print(f"\n{BOLD}{CYAN}{'─' * 60}{RESET}")
-    print(f"{BOLD}{CYAN}  {text}{RESET}")
-    print(f"{BOLD}{CYAN}{'─' * 60}{RESET}\n")
+IS_TTY = sys.stdout.isatty()
 
 
-def step(n: int, text: str) -> None:
-    print(f"  {BOLD}{YELLOW}[{n}]{RESET} {text}")
+def _no_pause() -> bool:
+    """Check at call time so monkeypatch/env changes take effect."""
+    return os.environ.get("SOUL_DEMO_NO_PAUSE", "0") == "1"
 
 
-def show(label: str, value: str) -> None:
-    print(f"      {DIM}{label}:{RESET} {value}")
+def _make_console() -> Console:
+    """Create a console, disabling markup/color when not a TTY."""
+    if not IS_TTY:
+        return Console(force_terminal=False, no_color=True, highlight=False)
+    return Console()
 
 
-def user_says(text: str) -> None:
-    print(f"      {BLUE}User:{RESET} {text}")
+# ── Somatic emoji map ─────────────────────────────────────────────────────────
+
+SOMATIC_EMOJI: dict[str, str] = {
+    "neutral": "😐",
+    "joy": "😊",
+    "curiosity": "🧐",
+    "interest": "🤔",
+    "excitement": "🎉",
+    "stress": "😰",
+    "concern": "😟",
+    "distress": "😣",
+    "sadness": "😢",
+    "empathy": "💛",
+    "gratitude": "🙏",
+    "relief": "😌",
+    "warmth": "🤗",
+    "trust": "🤝",
+    "surprise": "😲",
+    "anxiety": "😧",
+}
 
 
-def soul_says(text: str) -> None:
-    print(f"      {GREEN}Soul:{RESET} {text}")
+def _emoji_for(label: str) -> str:
+    return SOMATIC_EMOJI.get(label.lower(), "💭")
 
 
-def memory_hit(kind: str, content: str) -> None:
-    print(f"      {MAGENTA}[{kind}]{RESET} {content[:80]}")
+# ── Conversations ─────────────────────────────────────────────────────────────
 
+CONVERSATIONS = [
+    {
+        "label": "Casual intro",
+        "user": "Hey Aria, I'm Marcus. I'm a backend engineer at a startup in Austin.",
+        "agent": "Nice to meet you, Marcus! Austin's a great city for startups. What are you working on?",
+    },
+    {
+        "label": "Technical",
+        "user": "We're building a real-time analytics platform. I mostly write Python and Go.",
+        "agent": "That's a solid stack for real-time work. Python for the data layer, Go for the hot path?",
+    },
+    {
+        "label": "Emotional",
+        "user": "Exactly! But honestly, I've been feeling overwhelmed. We just lost two engineers and I'm carrying the whole backend alone.",
+        "agent": "That sounds really tough, carrying a whole backend solo after losing teammates. That kind of pressure wears on you. How are you holding up?",
+    },
+    {
+        "label": "Breakthrough",
+        "user": "Not great. I haven't taken a day off in three months. My partner keeps saying I need to slow down.",
+        "agent": "Three months without a break while carrying a team's worth of work — your partner is right to worry. You matter more than the sprint board.",
+    },
+    {
+        "label": "Reflection",
+        "user": "Thanks, that actually helps to hear. Oh, and I'm allergic to shellfish, so don't ever suggest a seafood restaurant.",
+        "agent": "Noted — no shellfish, ever. And seriously, Marcus, consider taking even one day. You've earned it ten times over.",
+    },
+]
+
+
+# ── OCEAN bar helper ──────────────────────────────────────────────────────────
+
+def _ocean_bars(console: Console, personality) -> None:
+    """Print OCEAN personality as horizontal bar chart."""
+    traits = [
+        ("Openness", personality.openness),
+        ("Conscientiousness", personality.conscientiousness),
+        ("Extraversion", personality.extraversion),
+        ("Agreeableness", personality.agreeableness),
+        ("Neuroticism", personality.neuroticism),
+    ]
+    for name, val in traits:
+        bar_width = 30
+        filled = int(val * bar_width)
+        empty = bar_width - filled
+        bar = f"[bold green]{'█' * filled}[/][dim]{'░' * empty}[/]"
+        label = f"  {name:<20s}"
+        console.print(f"{label} {bar} [bold]{val:.2f}[/]")
+
+
+# ── Pause helper ──────────────────────────────────────────────────────────────
+
+def _pause(console: Console) -> None:
+    """Wait for Enter key unless pauses are disabled."""
+    if _no_pause() or not IS_TTY:
+        return
+    console.print()
+    console.input("[dim]  Press Enter to continue...[/]")
+
+
+# ── Main demo ─────────────────────────────────────────────────────────────────
 
 async def run_demo() -> None:
+    if not HAS_RICH:
+        print(
+            "Rich library required for the interactive demo.\n"
+            "Install it with: pip install soul-protocol[engine]"
+        )
+        sys.exit(1)
+
     from soul_protocol import Soul, Interaction
 
-    header("Soul Protocol Demo")
-    print("  No LLM needed. No API keys. Just psychology-informed memory.\n")
+    console = _make_console()
 
-    # ── Step 1: Birth ───────────────────────────────────────────────────────
-    step(1, "Birthing a soul...")
+    # ── Title ─────────────────────────────────────────────────────────────
+    console.print()
+    console.print(
+        Panel(
+            "[bold]Soul Protocol[/bold]\n"
+            "[dim]Portable AI companion identity — memory, personality, feelings.[/dim]\n\n"
+            "No LLM needed. No API keys. Just psychology-informed memory.",
+            title="[bold cyan]~ Digital Soul Protocol ~[/]",
+            border_style="cyan",
+            padding=(1, 4),
+        )
+    )
+    _pause(console)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ACT 1: Birth
+    # ══════════════════════════════════════════════════════════════════════
+
+    console.print()
+    console.print(Panel("[bold]Act 1: Birth[/]  [dim]— Creating a soul from scratch[/]", border_style="yellow"))
+    console.print()
+
+    code = '''\
+soul = await Soul.birth(
+    name="Aria",
+    archetype="The Curious Companion",
+    values=["empathy", "curiosity", "honesty"],
+    ocean={
+        "openness": 0.9,
+        "conscientiousness": 0.7,
+        "extraversion": 0.6,
+        "agreeableness": 0.85,
+        "neuroticism": 0.25,
+    },
+    communication={"warmth": "high", "verbosity": "moderate", "humor_style": "dry"},
+    persona="I'm Aria. I pay attention to what matters to people.",
+)'''
+
+    console.print(Syntax(code, "python", theme="monokai", line_numbers=False, padding=1))
+    console.print()
 
     soul = await Soul.birth(
         name="Aria",
@@ -88,147 +210,248 @@ async def run_demo() -> None:
         persona="I'm Aria. I pay attention to what matters to people.",
     )
 
-    show("Name", soul.name)
-    p = soul.dna.personality
-    show("Personality", f"Open={p.openness}, Agreeable={p.agreeableness}, "
-         f"Neurotic={p.neuroticism}")
-    show("Initial bond strength", f"{soul.bond.bond_strength}")
-    print()
+    # Show result
+    result_table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+    result_table.add_column("Key", style="bold")
+    result_table.add_column("Value")
+    result_table.add_row("Name", soul.name)
+    result_table.add_row("Archetype", soul._identity.archetype or "—")
+    result_table.add_row("Values", ", ".join(soul._identity.core_values))
+    result_table.add_row("Communication", f"warmth={soul.dna.communication.warmth}, verbosity={soul.dna.communication.verbosity}, humor={soul.dna.communication.humor_style}")
+    result_table.add_row("Bond strength", f"{soul.bond.bond_strength:.0f}")
+    console.print(result_table)
 
-    # ── Step 2: Conversations ───────────────────────────────────────────────
-    step(2, "Having a conversation (5 turns)...")
-    print()
+    console.print()
+    console.print("  [bold]OCEAN Personality Profile[/]")
+    _ocean_bars(console, soul.dna.personality)
 
-    conversations = [
-        (
-            "Hey Aria, I'm Marcus. I'm a backend engineer at a startup in Austin.",
-            "Nice to meet you, Marcus! Austin's a great city for startups. What are you working on?",
-        ),
-        (
-            "We're building a real-time analytics platform. I mostly write Python and Go.",
-            "That's a solid stack for real-time work. Python for the data layer, Go for the hot path?",
-        ),
-        (
-            "Exactly! But honestly, I've been feeling overwhelmed. We just lost two engineers and I'm carrying the whole backend alone.",
-            "That sounds really tough, carrying a whole backend solo after losing teammates. That kind of pressure wears on you. How are you holding up?",
-        ),
-        (
-            "Not great. I haven't taken a day off in three months. My partner keeps saying I need to slow down.",
-            "Three months without a break while carrying a team's worth of work — your partner is right to worry. You matter more than the sprint board.",
-        ),
-        (
-            "Thanks, that actually helps to hear. Oh, and I'm allergic to shellfish, so don't ever suggest a seafood restaurant.",
-            "Noted — no shellfish, ever. And seriously, Marcus, consider taking even one day. You've earned it ten times over.",
-        ),
-    ]
+    _pause(console)
 
-    for user_input, agent_output in conversations:
-        user_says(user_input)
-        soul_says(agent_output)
-        await soul.observe(Interaction(
-            user_input=user_input,
-            agent_output=agent_output,
+    # ══════════════════════════════════════════════════════════════════════
+    # ACT 2: Experience
+    # ══════════════════════════════════════════════════════════════════════
+
+    console.print()
+    console.print(Panel("[bold]Act 2: Experience[/]  [dim]— 5 conversations through the psychology pipeline[/]", border_style="yellow"))
+    console.print()
+
+    initial_bond = soul.bond.bond_strength
+
+    for i, conv in enumerate(CONVERSATIONS, 1):
+        # Get pre-observation episodic count to compute delta
+        pre_episodic = len(soul._memory._episodic._memories)
+
+        # Process through pipeline — access memory manager for pipeline details
+        result = await soul._memory.observe(Interaction(
+            user_input=conv["user"],
+            agent_output=conv["agent"],
         ))
-        print()
 
-    # ── Step 3: What the soul remembers ─────────────────────────────────────
-    step(3, "What did the soul actually store?")
-    print()
+        # Do the remaining Soul.observe steps (bond, state, graph, evolution)
+        somatic = result.get("somatic")
+        if somatic and somatic.valence >= 0:
+            soul._identity.bond.strengthen(amount=1.0 + somatic.valence)
+        else:
+            soul._identity.bond.strengthen(amount=0.5)
+        soul._state.on_interaction(
+            Interaction(user_input=conv["user"], agent_output=conv["agent"]),
+            somatic=somatic,
+        )
 
+        # Build display
+        post_episodic = len(soul._memory._episodic._memories)
+        stored_episodic = post_episodic - pre_episodic
+        facts = result.get("facts", [])
+
+        conv_panel_lines = []
+        conv_panel_lines.append(f"[bold blue]User:[/] {conv['user'][:100]}{'...' if len(conv['user']) > 100 else ''}")
+        conv_panel_lines.append(f"[bold green]Aria:[/] {conv['agent'][:100]}{'...' if len(conv['agent']) > 100 else ''}")
+        conv_panel_lines.append("")
+
+        # Somatic marker
+        if somatic:
+            emoji = _emoji_for(somatic.label)
+            conv_panel_lines.append(
+                f"  {emoji}  [bold]Somatic marker:[/] {somatic.label}  "
+                f"[dim](valence={somatic.valence:+.2f}, arousal={somatic.arousal:.2f})[/]"
+            )
+
+        # Significance gate
+        sig = result.get("significance", 0)
+        passed = result.get("is_significant", False)
+        gate_icon = "[bold green]PASSED[/]" if passed else "[dim]filtered[/]"
+        conv_panel_lines.append(f"  🚪 [bold]Significance gate:[/] {gate_icon}  [dim](score={sig:.2f})[/]")
+
+        # Memories stored
+        mem_parts = []
+        if stored_episodic > 0:
+            mem_parts.append(f"{stored_episodic} episodic")
+        if facts:
+            mem_parts.append(f"{len(facts)} facts")
+        if mem_parts:
+            conv_panel_lines.append(f"  💾 [bold]Stored:[/] {', '.join(mem_parts)}")
+        else:
+            conv_panel_lines.append("  💾 [bold]Stored:[/] [dim]nothing new[/]")
+
+        console.print(Panel(
+            "\n".join(conv_panel_lines),
+            title=f"[bold]#{i} {conv['label']}[/]",
+            border_style="blue" if i <= 2 else ("red" if i <= 4 else "green"),
+            padding=(0, 2),
+        ))
+
+    # Show bond growth
+    console.print()
+    final_bond = soul.bond.bond_strength
+    console.print(f"  [bold]Bond strength:[/] {initial_bond:.0f} → [bold green]{final_bond:.1f}[/]  [dim](+{final_bond - initial_bond:.1f} from 5 interactions)[/]")
+
+    _pause(console)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ACT 3: Memory & Recall
+    # ══════════════════════════════════════════════════════════════════════
+
+    console.print()
+    console.print(Panel("[bold]Act 3: Memory & Recall[/]  [dim]— What did the soul actually store?[/]", border_style="yellow"))
+    console.print()
+
+    # Memory stats
     episodic_count = len(soul._memory._episodic._memories)
     semantic_count = len(soul._memory._semantic._facts)
     procedural_count = len(soul._memory._procedural._procedures)
-    show("Total memories", str(soul.memory_count))
-    show("  Episodic", str(episodic_count))
-    show("  Semantic", str(semantic_count))
-    show("  Procedural", str(procedural_count))
-    show("Bond strength", f"{soul.bond.bond_strength:.1f} (was 50.0)")
-    show("Interactions", str(soul.bond.interaction_count))
-    print()
 
-    # Show semantic facts
-    facts = await soul.recall("facts about Marcus", limit=10)
-    semantic = [m for m in facts if m.type == "semantic"]
-    if semantic:
-        print(f"      {BOLD}Extracted facts:{RESET}")
-        for m in semantic[:5]:
-            memory_hit("fact", m.content)
-        print()
+    stats_table = Table(title="Memory Stats", box=box.ROUNDED, border_style="magenta")
+    stats_table.add_column("Tier", style="bold")
+    stats_table.add_column("Count", justify="right")
+    stats_table.add_column("Description", style="dim")
+    stats_table.add_row("Episodic", str(episodic_count), "Significant experiences (LIDA gate)")
+    stats_table.add_row("Semantic", str(semantic_count), "Extracted facts")
+    stats_table.add_row("Procedural", str(procedural_count), "Learned procedures")
+    stats_table.add_row("[bold]Total[/]", f"[bold]{soul.memory_count}[/]", "")
+    console.print(stats_table)
+    console.print()
 
-    # Show episodic memories
-    episodes = await soul.recall("Marcus feeling overwhelmed", limit=5)
-    episodic = [m for m in episodes if m.type == "episodic"]
-    if episodic:
-        print(f"      {BOLD}Significant episodes (passed the LIDA gate):{RESET}")
-        for m in episodic[:3]:
-            marker = ""
-            if m.somatic:
-                marker = f" {DIM}[valence={m.somatic.valence}, arousal={m.somatic.arousal}]{RESET}"
-            memory_hit("episode", m.content + marker)
-        print()
-
-    # ── Step 4: Save and reload ─────────────────────────────────────────────
-    step(4, "Exporting to .soul file and reloading...")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        soul_path = os.path.join(tmp, "aria.soul")
-        await soul.export(soul_path)
-        file_size = os.path.getsize(soul_path)
-        show("File", soul_path)
-        show("Size", f"{file_size:,} bytes")
-
-        # Safe: Soul.awaken() loads everything into memory, no file handles kept open
-        reloaded = await Soul.awaken(soul_path)
-        show("Reloaded name", reloaded.name)
-        show("Reloaded memories", str(reloaded.memory_count))
-        show("Reloaded bond", f"{reloaded.bond.bond_strength:.1f}")
-        print()
-
-    # ── Step 5: Recall after reload ─────────────────────────────────────────
-    step(5, "Can the reloaded soul still remember?")
-    print()
-
+    # Recall queries
     queries = [
         "What does Marcus do for work?",
-        "shellfish allergic",
+        "shellfish allergy",
         "feeling overwhelmed stressed",
     ]
 
+    recall_table = Table(title="Recall Queries", box=box.ROUNDED, border_style="cyan")
+    recall_table.add_column("Query", style="bold")
+    recall_table.add_column("Type", style="dim")
+    recall_table.add_column("Result")
+
     for q in queries:
-        results = await reloaded.recall(q, limit=3)
-        print(f"      {BOLD}Q: {q}{RESET}")
+        results = await soul.recall(q, limit=3)
         if results:
-            for r in results[:2]:
-                memory_hit(r.type, r.content)
+            for j, r in enumerate(results[:2]):
+                query_col = q if j == 0 else ""
+                recall_table.add_row(query_col, r.type, r.content[:80])
         else:
-            print(f"      {DIM}(no results){RESET}")
-        print()
+            recall_table.add_row(q, "—", "[dim](no results)[/]")
 
-    # ── Step 6: Self-model ──────────────────────────────────────────────────
-    step(6, "What has the soul learned about itself?")
-    print()
+    console.print(recall_table)
+    console.print()
 
+    # Self-model
     images = soul.self_model.get_active_self_images()
     if images:
+        console.print("  [bold]Self-Model Domains (Klein)[/]")
         for img in images[:5]:
-            show(img.domain, f"confidence={img.confidence:.0%}")
+            bar_width = 20
+            filled = int(img.confidence * bar_width)
+            bar = f"[bold magenta]{'█' * filled}[/][dim]{'░' * (bar_width - filled)}[/]"
+            console.print(f"    {img.domain:<25s} {bar} {img.confidence:.0%}")
     else:
-        show("Self-model", "Still forming (needs more interactions)")
-    print()
+        console.print("  [dim]Self-model still forming (needs more interactions)[/]")
 
-    # ── Done ────────────────────────────────────────────────────────────────
-    header("That's Soul Protocol")
-    print(f"  {BOLD}What just happened:{RESET}")
-    print("  - 5 interactions processed through the psychology pipeline")
-    print("  - Somatic markers tagged emotional context (Damasio)")
-    print("  - Significance gate filtered what's worth remembering (LIDA)")
-    print("  - Facts extracted and stored in semantic memory")
-    print("  - Bond strength grew from interaction")
-    print("  - Self-model started forming identity domains (Klein)")
-    print("  - Everything saved to a portable .soul file and reloaded")
-    print("  - Zero LLM calls. Zero API keys. Zero cost.\n")
-    print(f"  {DIM}Learn more: https://github.com/qbtrix/soul-protocol{RESET}")
-    print(f"  {DIM}Read the whitepaper: WHITEPAPER.md{RESET}\n")
+    _pause(console)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ACT 4: Portability
+    # ══════════════════════════════════════════════════════════════════════
+
+    console.print()
+    console.print(Panel("[bold]Act 4: Portability[/]  [dim]— Export to .soul file, reload, verify[/]", border_style="yellow"))
+    console.print()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        soul_path = os.path.join(tmp, "aria.soul")
+
+        # Export
+        await soul.export(soul_path)
+        file_size = os.path.getsize(soul_path)
+
+        console.print(f"  [bold]Exported:[/] aria.soul  [dim]({file_size:,} bytes)[/]")
+        console.print()
+
+        # Import
+        reloaded = await Soul.awaken(soul_path)
+
+        # Comparison table
+        cmp_table = Table(title="Original vs. Reloaded", box=box.ROUNDED, border_style="green")
+        cmp_table.add_column("Property", style="bold")
+        cmp_table.add_column("Original")
+        cmp_table.add_column("Reloaded")
+        cmp_table.add_column("Match", justify="center")
+
+        checks = [
+            ("Name", soul.name, reloaded.name),
+            ("Memories", str(soul.memory_count), str(reloaded.memory_count)),
+            ("Bond strength", f"{soul.bond.bond_strength:.1f}", f"{reloaded.bond.bond_strength:.1f}"),
+            ("Openness", f"{soul.dna.personality.openness:.2f}", f"{reloaded.dna.personality.openness:.2f}"),
+            ("Agreeableness", f"{soul.dna.personality.agreeableness:.2f}", f"{reloaded.dna.personality.agreeableness:.2f}"),
+        ]
+
+        for label, orig, rel in checks:
+            match = "[bold green]✓[/]" if orig == rel else "[bold red]✗[/]"
+            cmp_table.add_row(label, orig, rel, match)
+
+        console.print(cmp_table)
+
+    _pause(console)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ACT 5: System Prompt
+    # ══════════════════════════════════════════════════════════════════════
+
+    console.print()
+    console.print(Panel("[bold]Act 5: System Prompt[/]  [dim]— What an LLM would receive[/]", border_style="yellow"))
+    console.print()
+
+    prompt = soul.system_prompt
+    # Truncate for display if very long
+    max_display = 1200
+    display_prompt = prompt if len(prompt) <= max_display else prompt[:max_display] + "\n\n... (truncated)"
+
+    console.print(Syntax(display_prompt, "markdown", theme="monokai", line_numbers=False, padding=1, word_wrap=True))
+
+    console.print()
+
+    # ── Final summary ─────────────────────────────────────────────────────
+
+    summary_lines = [
+        "[bold]What just happened:[/]\n",
+        "  • 5 interactions processed through the psychology pipeline",
+        "  • Somatic markers tagged emotional context [dim](Damasio)[/]",
+        "  • Significance gate filtered what's worth remembering [dim](LIDA)[/]",
+        "  • Facts extracted and stored in semantic memory",
+        f"  • Bond strength grew from {initial_bond:.0f} → {final_bond:.1f}",
+        "  • Self-model started forming identity domains [dim](Klein)[/]",
+        "  • Everything saved to a portable .soul file and reloaded",
+        "  • [bold]Zero LLM calls. Zero API keys. Zero cost.[/]\n",
+        "[dim]https://github.com/qbtrix/soul-protocol[/]",
+    ]
+
+    console.print(Panel(
+        "\n".join(summary_lines),
+        title="[bold cyan]~ That's Soul Protocol ~[/]",
+        border_style="cyan",
+        padding=(1, 3),
+    ))
+    console.print()
 
 
 def main() -> None:

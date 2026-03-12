@@ -1,6 +1,8 @@
 # report.py — Soul Health Score dashboard renderer.
 # Created: 2026-03-12 — Markdown + JSON + comparison table + ANSI terminal dashboard
 # for SHS evaluation results. No external dependencies (no rich, no tabulate).
+# Updated: 2026-03-12 — Fixed _score_label tiers: distinct symbols per tier,
+# simplified to 4 tiers (>=90 Production Ready ●, >=75 Strong ◐, >=50 Developing ○, <50 Needs Work ✗).
 
 from __future__ import annotations
 
@@ -52,13 +54,11 @@ def _score_label(score: float) -> tuple[str, str]:
     if score >= 90:
         return "Production Ready", "●"
     elif score >= 75:
-        return "Strong", "●"
-    elif score >= 60:
-        return "Developing", "◐"
-    elif score >= 40:
-        return "Early Stage", "○"
+        return "Strong", "◐"
+    elif score >= 50:
+        return "Developing", "○"
     else:
-        return "Baseline", "✗"
+        return "Needs Work", "✗"
 
 
 def _score_color(score: float) -> str:

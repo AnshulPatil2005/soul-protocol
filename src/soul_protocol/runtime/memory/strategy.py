@@ -4,6 +4,8 @@
 #   Fix: moved inline `import math` to top-level imports.
 >>>>>>> origin/dev
 
+
+>>>>>>> origin/dev
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Created: v0.2.2 — Pluggable retrieval following CognitiveEngine pattern.
 #   SearchStrategy: single-method protocol consumers implement for custom scoring.

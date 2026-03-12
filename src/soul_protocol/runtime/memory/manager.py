@@ -1,4 +1,9 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: feat/dspy-integration — Accept optional dspy_processor param. When set,
+#   observe() routes significance assessment through DSPy instead of heuristic gate.
+#   This enables the optimized DSPy SignificanceGate to catch facts the heuristic misses.
+# Updated: phase1-ablation-fixes — Pass token_count to significance gate, weaken
+#   promotion rule so trivial interactions with facts don't bypass the gate.
 # Updated: 2026-03-12 — Use UTC timestamps in deletion audit entries; document
 #   audit trail persistence gap (TODO #51).
 # Updated: 2026-03-10 — Added forget(), forget_entity(), forget_before() for
@@ -40,7 +45,7 @@ from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.recall import RecallEngine
-from soul_protocol.runtime.memory.search import relevance_score
+from soul_protocol.runtime.memory.search import relevance_score, tokenize
 from soul_protocol.runtime.memory.self_model import SelfModelManager
 from soul_protocol.runtime.memory.semantic import SemanticStore
 from soul_protocol.runtime.types import (
@@ -290,11 +295,13 @@ class MemoryManager:
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
         seed_domains: dict[str, list[str]] | None = None,
+        dspy_processor: object | None = None,
     ) -> None:
         self._settings = settings
         self._core_values = core_values or []
         self._engine = engine
         self._search_strategy = search_strategy
+        self._dspy_processor = dspy_processor
 
         self._core_manager = CoreMemoryManager(core)
         self._episodic = EpisodicStore(max_entries=settings.episodic_max_entries)
@@ -394,6 +401,19 @@ class MemoryManager:
         )
 
         # --- 2. Compute significance ---
+        # Use DSPy significance gate if available (LLM-powered, optimizable),
+        # otherwise fall back to heuristic via CognitiveProcessor.
+        recent = self._episodic.recent_contents(n=10)
+        if self._dspy_processor is not None:
+            sig_score = await self._dspy_processor.assess_significance(
+                interaction, values, recent
+            )
+        else:
+            sig_score = await self._cognitive.assess_significance(interaction, values, recent)
+        combined_text = f"{interaction.user_input} {interaction.agent_output}"
+        token_count = len(tokenize(combined_text))
+        sig_value = overall_significance(sig_score, token_count=token_count)
+        significant = is_significant(sig_score, token_count=token_count)
         recent = self._episodic.recent_contents(n=10)
         sig_score = await self._cognitive.assess_significance(
             interaction, values, recent
@@ -424,10 +444,14 @@ class MemoryManager:
         if facts:
             logger.debug("Facts extracted and stored: count=%d", len(facts))
 
+        # --- 4b. v0.2.3 — Conditionally promote if facts were extracted ---
+        # Only promote to episodic when significance is at least half the
+        # threshold (0.25) AND facts were extracted.  This prevents trivial
+        # interactions from being promoted just because a fact was found.
+        if not significant and facts and sig_value >= 0.3:
         # --- 4b. Promote to episodic if facts were extracted ---
         if not significant and facts:
             significant = True
-            sig_value = max(sig_value, 0.3)
             episodic_id = await self._episodic.add_with_psychology(
                 interaction,
                 somatic=somatic,

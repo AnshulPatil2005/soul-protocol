@@ -1,4 +1,25 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-03-12 — Use UTC timestamps in deletion audit entries; document
+#   audit trail persistence gap (TODO #51).
+# Updated: 2026-03-10 — Added forget(), forget_entity(), forget_before() for
+#   GDPR-compliant memory deletion with cascade logic and audit trail.
+# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
+# Updated: 2026-03-06 — Fixed edit_core docstring: edit() replaces values, not appends.
+#   v0.3.1 — Accept seed_domains param, forward to SelfModelManager.
+#   v0.2.3 — Added count() method for total memory count across all stores.
+#   Expanded FACT_PATTERNS with Q&A knowledge extraction:
+#   user questions, recommendations, advice, comparisons, user goals/learning.
+#   v0.2.2 — Added SearchStrategy support, consolidate() for reflect auto-apply,
+#   GeneralEvent storage (Conway hierarchy), fact conflict resolution via supersede.
+#   v0.2.1 — Integrated CognitiveProcessor for LLM-enhanced observe().
+#   All psychology steps now go through CognitiveProcessor which delegates to
+#   either an LLM (CognitiveEngine) or v0.2.0 heuristics (HeuristicEngine).
+#   Added reflect() method for LLM-driven memory consolidation.
+#   v0.2.0 — Wired psychology-informed observe pipeline:
+#   sentiment → significance → conditional episodic → facts → entities →
+#   graph → self-model → state.
+#   Added SelfModelManager, attention gate, and somatic marker integration.
+#   Recall now uses ACT-R activation scoring via updated RecallEngine.
 # Updated: Removed PII from debug logs — recall logs query length instead of
 #   raw query text, fact conflict resolution logs word count instead of content.
 
@@ -7,7 +28,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from soul_protocol.runtime.memory.attention import (
@@ -290,6 +311,14 @@ class MemoryManager:
         self._self_model = SelfModelManager(seed_domains=seed_domains)
         self._general_events: dict[str, GeneralEvent] = {}
 
+        # v0.3.0 — GDPR deletion audit trail
+        # TODO(#51): Persist audit trail through .soul pack/unpack cycle for GDPR compliance
+        self._deletion_audit: list[dict] = []
+
+        # v0.2.1 — Cognitive processor (LLM or heuristic)
+        # Lazy import to avoid circular dependency:
+        #   cognitive.engine → memory.attention → memory.__init__ → memory.manager
+        from soul_protocol.runtime.cognitive.engine import CognitiveProcessor, HeuristicEngine
         from soul_protocol.runtime.cognitive.engine import (
             CognitiveProcessor,
             HeuristicEngine,
@@ -456,6 +485,166 @@ class MemoryManager:
             return True
         return False
 
+    # ---- GDPR-compliant deletion (v0.3.0) ----
+
+    async def forget(self, query: str) -> dict:
+        """Search all memory tiers for matches and delete them.
+
+        Performs a cascading deletion: when episodic memories are deleted,
+        any derived semantic facts that overlap with the deleted content
+        are also removed.
+
+        Args:
+            query: Search query to match against memory content.
+
+        Returns:
+            Dict with deletion results:
+              - episodic: list of deleted episodic memory IDs
+              - semantic: list of deleted semantic fact IDs
+              - procedural: list of deleted procedural memory IDs
+              - total: total count of deleted memories
+        """
+        # Search and delete from each tier
+        episodic_ids = await self._episodic.search_and_delete(query)
+        semantic_ids = await self._semantic.search_and_delete(query)
+        procedural_ids = await self._procedural.search_and_delete(query)
+
+        total = len(episodic_ids) + len(semantic_ids) + len(procedural_ids)
+
+        # Record audit entry (no deleted content stored)
+        if total > 0:
+            self._deletion_audit.append(
+                {
+                    "deleted_at": datetime.now(timezone.utc).isoformat(),
+                    "count": total,
+                    "reason": f"forget(query='{query}')",
+                    "tiers": {
+                        "episodic": len(episodic_ids),
+                        "semantic": len(semantic_ids),
+                        "procedural": len(procedural_ids),
+                    },
+                }
+            )
+
+        return {
+            "episodic": episodic_ids,
+            "semantic": semantic_ids,
+            "procedural": procedural_ids,
+            "total": total,
+        }
+
+    async def forget_entity(self, entity: str) -> dict:
+        """Remove an entity from the knowledge graph and related memories.
+
+        Deletes the entity node and all connected edges from the graph,
+        then searches all memory tiers for content mentioning the entity
+        and removes those memories too.
+
+        Args:
+            entity: The entity name to forget.
+
+        Returns:
+            Dict with deletion results:
+              - edges_removed: number of graph edges removed
+              - episodic: list of deleted episodic memory IDs
+              - semantic: list of deleted semantic fact IDs
+              - procedural: list of deleted procedural memory IDs
+              - total: total count of deleted memories + edges
+        """
+        # Remove from knowledge graph
+        edges_removed = self._graph.remove_entity(entity)
+
+        # Remove related memories from all tiers
+        episodic_ids = await self._episodic.search_and_delete(entity)
+        semantic_ids = await self._semantic.search_and_delete(entity)
+        procedural_ids = await self._procedural.search_and_delete(entity)
+
+        total = edges_removed + len(episodic_ids) + len(semantic_ids) + len(procedural_ids)
+
+        # Record audit entry
+        if total > 0:
+            self._deletion_audit.append(
+                {
+                    "deleted_at": datetime.now(timezone.utc).isoformat(),
+                    "count": total,
+                    "reason": f"forget_entity(entity='{entity}')",
+                    "tiers": {
+                        "graph_edges": edges_removed,
+                        "episodic": len(episodic_ids),
+                        "semantic": len(semantic_ids),
+                        "procedural": len(procedural_ids),
+                    },
+                }
+            )
+
+        return {
+            "edges_removed": edges_removed,
+            "episodic": episodic_ids,
+            "semantic": semantic_ids,
+            "procedural": procedural_ids,
+            "total": total,
+        }
+
+    async def forget_before(self, timestamp: datetime) -> dict:
+        """Bulk delete memories older than a given timestamp.
+
+        Removes memories from all tiers that were created before the
+        specified timestamp.
+
+        Args:
+            timestamp: The cutoff datetime. Memories older than this
+                       are deleted.
+
+        Returns:
+            Dict with deletion results:
+              - episodic: list of deleted episodic memory IDs
+              - semantic: list of deleted semantic fact IDs
+              - procedural: list of deleted procedural memory IDs
+              - total: total count of deleted memories
+        """
+        episodic_ids = await self._episodic.delete_before(timestamp)
+        semantic_ids = await self._semantic.delete_before(timestamp)
+        procedural_ids = await self._procedural.delete_before(timestamp)
+
+        total = len(episodic_ids) + len(semantic_ids) + len(procedural_ids)
+
+        # Record audit entry
+        if total > 0:
+            self._deletion_audit.append(
+                {
+                    "deleted_at": datetime.now(timezone.utc).isoformat(),
+                    "count": total,
+                    "reason": f"forget_before(timestamp='{timestamp.isoformat()}')",
+                    "tiers": {
+                        "episodic": len(episodic_ids),
+                        "semantic": len(semantic_ids),
+                        "procedural": len(procedural_ids),
+                    },
+                }
+            )
+
+        return {
+            "episodic": episodic_ids,
+            "semantic": semantic_ids,
+            "procedural": procedural_ids,
+            "total": total,
+        }
+
+    @property
+    def deletion_audit(self) -> list[dict]:
+        """Return the deletion audit trail.
+
+        Each entry contains:
+          - deleted_at: ISO timestamp of the deletion
+          - count: number of items deleted
+          - reason: description of the deletion operation
+          - tiers: breakdown by memory tier
+
+        The audit trail intentionally does NOT contain deleted content.
+        """
+        return list(self._deletion_audit)
+
+    # ---- Extraction helpers (MVP placeholders) ----
     # ---- Extraction helpers ----
 
     def extract_facts(self, interaction: Interaction) -> list[MemoryEntry]:

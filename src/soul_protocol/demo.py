@@ -1,5 +1,7 @@
 # demo.py — Interactive demo showing Soul Protocol's psychology-informed memory.
 # Created: v0.2.3 — Developer onboarding "holy shit" demo (issue #49).
+# Updated: 2026-03-12 — Show initial bond, memory breakdown, remove bare f-strings,
+#   tempdir scope comment, review fixes.
 # Run: python -m soul_protocol.demo
 
 """
@@ -66,7 +68,7 @@ async def run_demo() -> None:
     from soul_protocol import Soul, Interaction
 
     header("Soul Protocol Demo")
-    print(f"  No LLM needed. No API keys. Just psychology-informed memory.\n")
+    print("  No LLM needed. No API keys. Just psychology-informed memory.\n")
 
     # ── Step 1: Birth ───────────────────────────────────────────────────────
     step(1, "Birthing a soul...")
@@ -90,7 +92,7 @@ async def run_demo() -> None:
     p = soul.dna.personality
     show("Personality", f"Open={p.openness}, Agreeable={p.agreeableness}, "
          f"Neurotic={p.neuroticism}")
-    show("Bond strength", f"{soul.bond.bond_strength}")
+    show("Initial bond strength", f"{soul.bond.bond_strength}")
     print()
 
     # ── Step 2: Conversations ───────────────────────────────────────────────
@@ -133,8 +135,13 @@ async def run_demo() -> None:
     step(3, "What did the soul actually store?")
     print()
 
-    mem_count = soul.memory_count
-    show("Total memories", str(mem_count))
+    episodic_count = len(soul._memory._episodic._memories)
+    semantic_count = len(soul._memory._semantic._facts)
+    procedural_count = len(soul._memory._procedural._procedures)
+    show("Total memories", str(soul.memory_count))
+    show("  Episodic", str(episodic_count))
+    show("  Semantic", str(semantic_count))
+    show("  Procedural", str(procedural_count))
     show("Bond strength", f"{soul.bond.bond_strength:.1f} (was 50.0)")
     show("Interactions", str(soul.bond.interaction_count))
     print()
@@ -170,6 +177,7 @@ async def run_demo() -> None:
         show("File", soul_path)
         show("Size", f"{file_size:,} bytes")
 
+        # Safe: Soul.awaken() loads everything into memory, no file handles kept open
         reloaded = await Soul.awaken(soul_path)
         show("Reloaded name", reloaded.name)
         show("Reloaded memories", str(reloaded.memory_count))
@@ -211,14 +219,14 @@ async def run_demo() -> None:
     # ── Done ────────────────────────────────────────────────────────────────
     header("That's Soul Protocol")
     print(f"  {BOLD}What just happened:{RESET}")
-    print(f"  - 5 interactions processed through the psychology pipeline")
-    print(f"  - Somatic markers tagged emotional context (Damasio)")
-    print(f"  - Significance gate filtered what's worth remembering (LIDA)")
-    print(f"  - Facts extracted and stored in semantic memory")
-    print(f"  - Bond strength grew from interaction")
-    print(f"  - Self-model started forming identity domains (Klein)")
-    print(f"  - Everything saved to a portable .soul file and reloaded")
-    print(f"  - Zero LLM calls. Zero API keys. Zero cost.\n")
+    print("  - 5 interactions processed through the psychology pipeline")
+    print("  - Somatic markers tagged emotional context (Damasio)")
+    print("  - Significance gate filtered what's worth remembering (LIDA)")
+    print("  - Facts extracted and stored in semantic memory")
+    print("  - Bond strength grew from interaction")
+    print("  - Self-model started forming identity domains (Klein)")
+    print("  - Everything saved to a portable .soul file and reloaded")
+    print("  - Zero LLM calls. Zero API keys. Zero cost.\n")
     print(f"  {DIM}Learn more: https://github.com/qbtrix/soul-protocol{RESET}")
     print(f"  {DIM}Read the whitepaper: WHITEPAPER.md{RESET}\n")
 

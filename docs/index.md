@@ -44,7 +44,7 @@ await soul.export("aria.soul")
 
 ## Version
 
-Current release: **v0.2.2**
+Current release: **v0.2.3**
 
 Requires Python 3.11+.
 

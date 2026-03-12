@@ -1,10 +1,10 @@
-<!-- API Reference for soul-protocol v0.2.2. Covers: Soul class (lifecycle, properties,
+<!-- API Reference for soul-protocol v0.2.3. Covers: Soul class (lifecycle, properties,
      memory, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums. -->
 
 # API Reference
 
-> soul-protocol v0.2.2
+> soul-protocol v0.2.3
 
 This is the complete public API reference for the `soul_protocol` package. Every class, method, field, and enum listed here is exported from `soul_protocol` and covered by semver guarantees.
 
@@ -124,6 +124,7 @@ async def awaken(
     source: str | Path | bytes,
     engine: CognitiveEngine | None = None,
     search_strategy: SearchStrategy | None = None,
+    password: str | None = None,
 ) -> Soul
 ```
 
@@ -137,7 +138,7 @@ Load an existing soul from disk or bytes. Supports `.soul` (zip archive), `.json
 
 **Returns:** `Soul`
 
-**Raises:** `ValueError` if the file extension is unrecognized.
+**Raises:** `ValueError` if the file extension is unrecognized. `SoulEncryptedError` if encrypted but no password given. `SoulDecryptionError` if wrong password.
 
 ```python
 soul = await Soul.awaken("./kavi.soul")

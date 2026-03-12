@@ -17,7 +17,7 @@ Soul Protocol has implemented roughly **65-70% of the vision** described across 
 - **Full parse/export pipeline.** All four input formats (md, yaml, json, .soul) are supported with round-trip fidelity.
 - **Cognitive Engine pattern.** The `CognitiveEngine` protocol allows LLM-enhanced cognition while the `HeuristicEngine` provides zero-dependency fallback --- a clean architecture not in the vision.
 - **MCP server.** 10 tools, 3 resources, 2 prompts for AI agent integration. Not in any vision doc.
-- **Solid test coverage.** 453 tests across 34 test files.
+- **Solid test coverage.** 981 tests across 56 test files.
 
 ### Key Gaps
 

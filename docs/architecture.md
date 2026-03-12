@@ -2,8 +2,8 @@
 
 > Current implementation architecture, module dependencies, memory layers, and data flow.
 
-**Date:** 2026-03-06
-**Version:** 0.2.2
+**Date:** 2026-03-12
+**Version:** 0.2.3
 
 ---
 

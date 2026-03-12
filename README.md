@@ -1,5 +1,6 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-03-07 — added validated results section with charts, updated badges -->
+<!-- Updated: 2026-03-12 — v0.2.3 release: updated test badge (981), added 1000-turn
+     scale results, marked planned features, tightened feature claims. -->
 
 # Soul Protocol
 
@@ -7,7 +8,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 766 passing](https://img.shields.io/badge/tests-766%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 981 passing](https://img.shields.io/badge/tests-981%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
@@ -33,7 +34,7 @@ We tested Soul Protocol against stateless baselines using five judge models from
 
 ![Mem0 Comparison](assets/charts/tier5_mem0.png)
 
-> Total validation cost: **under $5**. 1,100+ agent simulations, 25 scenario variations, 5 judge models. Full methodology in the [whitepaper](WHITEPAPER.md#12-empirical-validation).
+> Total validation cost: **under $5**. 1,100+ agent simulations, 25 scenario variations, 5 judge models. Plus a **1,000-turn marathon**: 85% recall at 4.9x memory efficiency vs. RAG. Full methodology in the [whitepaper](WHITEPAPER.md#12-empirical-validation).
 
 ---
 
@@ -59,15 +60,15 @@ Like HTTP and nginx. The spec defines the contract. The runtime is one implement
 
 | Category | What you get |
 |---|---|
-| **Memory** | 5-tier: core, episodic, semantic, procedural, knowledge graph. Plus archival compression. |
+| **Memory** | 5-tier: core, episodic, semantic, procedural, knowledge graph |
 | **Psychology** | Damasio somatic markers, ACT-R activation decay, LIDA significance gate, Klein self-model |
 | **Personality** | OCEAN Big Five with communication style and biorhythms. Structured, not a prompt string. |
-| **Bond** | Emotional attachment (0-100 strength). Grows with interaction, weakens with neglect. |
-| **Skills/XP** | Domain expertise with leveling (1-10, 1.5x scaling). Portable skill history. |
+| **Bond** | Emotional attachment (0-100 strength). Logarithmic growth, linear decay. |
 | **Evolution** | Supervised or autonomous trait mutation with approval workflow |
-| **Reincarnation** | Rebirth preserving memories, personality, and bonds. Lineage tracking. |
 | **Vector search** | Pluggable EmbeddingProvider. Ships HashEmbedder and TFIDFEmbedder. |
-| **Eternal storage** | Archive to IPFS/Arweave/blockchain (mock providers, production planned) |
+| **Encryption** | AES-256-GCM encryption at rest for .soul files (scrypt key derivation) |
+| **GDPR deletion** | Targeted memory deletion with cascade logic and audit trail |
+| **Eternal storage** | Archive to decentralized storage (mock providers, production planned) |
 | **Portability** | `.soul` ZIP archive. JSON inside. Rename to .zip and read it. |
 | **Integration** | Single `CognitiveEngine.think()` method. Plug in any LLM. |
 | **Cross-language** | JSON Schemas auto-generated from spec. Validate `.soul` files in any language. |
@@ -335,7 +336,7 @@ await soul.observe(Interaction(
 git clone https://github.com/qbtrix/soul-protocol.git
 cd soul-protocol
 pip install -e ".[dev]"
-pytest tests/   # 766 tests
+pytest tests/   # 981 tests
 ```
 
 ---

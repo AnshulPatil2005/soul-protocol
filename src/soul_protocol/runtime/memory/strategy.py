@@ -2,10 +2,6 @@
 # Updated: phase1-ablation-fixes — Added BM25SearchStrategy using BM25Index for
 #   term-frequency-saturated scoring with IDF weighting.  Now the default strategy.
 #   Fix: moved inline `import math` to top-level imports.
->>>>>>> origin/dev
-
-
->>>>>>> origin/dev
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Created: v0.2.2 — Pluggable retrieval following CognitiveEngine pattern.
 #   SearchStrategy: single-method protocol consumers implement for custom scoring.

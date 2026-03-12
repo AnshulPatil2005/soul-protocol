@@ -5,10 +5,6 @@
 #   goal 0.2, richness 0.3. Short penalty -0.3 -> -0.2.
 # Updated: phase1-ablation-fixes — emotional_intensity formula, select_top_k batch filter.
 #   Fix: is_significant docstring said "default 0.5" but constant is 0.35.
->>>>>>> origin/dev
-
-
->>>>>>> origin/dev
 # Created: v0.2.0 — Filters which interactions become episodic memories.
 
 from __future__ import annotations

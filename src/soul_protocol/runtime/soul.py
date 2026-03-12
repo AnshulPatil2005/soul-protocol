@@ -713,15 +713,6 @@ class Soul:
         forget_before() which provide GDPR-compliant bulk deletion
         with audit trails.
         """
-        logger.debug(
-            "observe() complete: significant=%s, facts=%d, entities=%d",
-            result.get("is_significant"),
-            len(result.get("facts", [])),
-            len(raw_entities),
-        )
-
-    async def forget(self, memory_id: str) -> bool:
-        """Soul forgets a specific memory."""
         return await self._memory.remove(memory_id)
 
     async def forget(self, query: str) -> dict:

@@ -1,4 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-13 — Added --traits/-t compact OCEAN shorthand to `soul birth`.
 # Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
 # Updated: 2026-03-02 — Removed dashboard/open commands (replaced by rich TUI in inspect/status).
 #   Enhanced `soul inspect` with OCEAN bars, memory stats, core memory, self-model panels.
@@ -69,6 +70,10 @@ def cli():
 @click.option("--extraversion", type=float, help="OCEAN extraversion (0.0-1.0)")
 @click.option("--agreeableness", type=float, help="OCEAN agreeableness (0.0-1.0)")
 @click.option("--neuroticism", type=float, help="OCEAN neuroticism (0.0-1.0)")
+@click.option(
+    "--traits", "-t", type=str,
+    help='Compact OCEAN traits: "O:0.9,C:0.8,E:0.4,A:0.6,N:0.2"',
+)
 @click.option("--output", "-o", type=click.Path(), help="Output path for .soul file")
 def birth(
     name,
@@ -80,13 +85,50 @@ def birth(
     extraversion,
     agreeableness,
     neuroticism,
+    traits,
     output,
 ):
     """Birth a new Soul.
 
     Create a soul with custom personality using OCEAN trait flags,
     a config file (--config), or an existing soul file (--from-file).
+
+    \b
+    Examples:
+      soul birth "Aria" --openness 0.9 --neuroticism 0.2
+      soul birth "Architect" -a systems-thinker -t "O:0.9,C:0.8,E:0.4,A:0.6,N:0.2"
     """
+
+    # Parse --traits shorthand before entering async (avoids closure scope issues)
+    _trait_keys = {
+        "O": "openness", "C": "conscientiousness",
+        "E": "extraversion", "A": "agreeableness", "N": "neuroticism",
+    }
+    ocean_flags = {
+        "openness": openness, "conscientiousness": conscientiousness,
+        "extraversion": extraversion, "agreeableness": agreeableness,
+        "neuroticism": neuroticism,
+    }
+    if traits:
+        for pair in traits.split(","):
+            pair = pair.strip()
+            if ":" not in pair:
+                raise click.BadParameter(
+                    f"Invalid trait format '{pair}'. Use 'O:0.9,C:0.8,...'",
+                    param_hint="--traits",
+                )
+            key, val = pair.split(":", 1)
+            key = key.strip().upper()
+            if key not in _trait_keys:
+                raise click.BadParameter(
+                    f"Unknown trait '{key}'. Use O, C, E, A, or N.",
+                    param_hint="--traits",
+                )
+            attr = _trait_keys[key]
+            if ocean_flags[attr] is None:
+                ocean_flags[attr] = float(val.strip())
+
+    ocean = {k: v for k, v in ocean_flags.items() if v is not None}
 
     async def _birth():
         from soul_protocol.runtime.soul import Soul
@@ -107,15 +149,6 @@ def birth(
                 name_input = name
 
             archetype_input = archetype or "The Companion"
-
-            ocean_flags = {
-                "openness": openness,
-                "conscientiousness": conscientiousness,
-                "extraversion": extraversion,
-                "agreeableness": agreeableness,
-                "neuroticism": neuroticism,
-            }
-            ocean = {k: v for k, v in ocean_flags.items() if v is not None}
 
             soul = await Soul.birth(
                 name=name_input,

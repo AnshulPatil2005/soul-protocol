@@ -8,13 +8,13 @@ from __future__ import annotations
 import math
 from datetime import datetime, timedelta
 
-from soul_protocol.memory.activation import (
+from soul_protocol.runtime.memory.activation import (
     base_level_activation,
     compute_activation,
     emotional_boost,
     spreading_activation,
 )
-from soul_protocol.types import MemoryEntry, MemoryType, SomaticMarker
+from soul_protocol.runtime.types import MemoryEntry, MemoryType, SomaticMarker
 
 # ---------------------------------------------------------------------------
 # Helpers

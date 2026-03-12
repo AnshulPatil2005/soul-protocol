@@ -10,9 +10,9 @@ import zipfile
 
 import pytest
 
-from soul_protocol.export.pack import pack_soul
-from soul_protocol.export.unpack import unpack_soul
-from soul_protocol.types import Identity, SoulConfig
+from soul_protocol.runtime.export.pack import pack_soul
+from soul_protocol.runtime.export.unpack import unpack_soul
+from soul_protocol.runtime.types import Identity, SoulConfig
 
 
 @pytest.fixture

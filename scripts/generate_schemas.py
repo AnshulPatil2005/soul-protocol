@@ -2,7 +2,7 @@
 # Created: 2026-03-02 — Initial version for cross-language schema support
 # Updated: 2026-03-02 — Handle Enum types (Mood) that lack model_json_schema()
 #
-# Imports every Pydantic model from soul_protocol.types, calls
+# Imports every Pydantic model from soul_protocol.runtime.types, calls
 # .model_json_schema() on each, and writes individual + combined schemas
 # to the schemas/ directory.
 
@@ -25,7 +25,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from soul_protocol.types import (
+from soul_protocol.runtime.types import (
     DNA,
     Biorhythms,
     CommunicationStyle,

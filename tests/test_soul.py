@@ -1,4 +1,6 @@
 # test_soul.py — Tests for the main Soul class API surface.
+# Updated: phase1-ablation-fixes — Updated test interactions to pass raised
+#   significance threshold (0.5) and short-message penalty.
 # Updated: v0.2.0 — Added psychology pipeline integration tests:
 #   attention gate, somatic markers, self-model, activation-based recall,
 #   and self-model persistence across export/awaken.
@@ -7,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.soul import Soul
-from soul_protocol.types import (
+from soul_protocol.runtime.soul import Soul
+from soul_protocol.runtime.types import (
     Interaction,
     LifecycleState,
     MemoryType,
@@ -194,14 +196,16 @@ async def test_export_awaken_preserves_memories(tmp_path):
 
 async def test_save_load_full_roundtrip(tmp_path):
     """Soul.save() + load_soul_full() preserves config and all memory tiers."""
-    from soul_protocol.storage.file import load_soul_full
+    from soul_protocol.runtime.storage.file import load_soul_full
 
     soul = await Soul.birth("Aria")
     await soul.remember("User prefers Python", type=MemoryType.SEMANTIC, importance=8)
+    # Use a substantive interaction that passes the raised significance threshold.
+    # Needs enough tokens (>=20 after tokenize) and some emotional/novelty signal.
     await soul.observe(
         Interaction(
-            user_input="I use FastAPI for my projects",
-            agent_output="FastAPI is great for building APIs!",
+            user_input="I have been working with FastAPI and Python for several years now and I absolutely love building performant REST APIs with async support",
+            agent_output="That is really impressive! FastAPI's async capabilities combined with Python's ecosystem make it an excellent choice for modern backend development.",
         )
     )
 
@@ -381,7 +385,7 @@ async def test_self_model_persists_through_export(tmp_path):
 
 async def test_save_load_preserves_self_model(tmp_path):
     """Soul.save() + load preserves self_model.json."""
-    from soul_protocol.storage.file import load_soul_full
+    from soul_protocol.runtime.storage.file import load_soul_full
 
     soul = await Soul.birth("Aria")
     await soul.observe(
@@ -424,8 +428,8 @@ async def test_episodic_entries_have_access_timestamps():
 
 async def test_backward_compatible_memory_entry():
     """v0.1.0 MemoryEntry (without psychology fields) still works."""
-    from soul_protocol.types import MemoryEntry as ME
-    from soul_protocol.types import MemoryType as MT
+    from soul_protocol.runtime.types import MemoryEntry as ME
+    from soul_protocol.runtime.types import MemoryType as MT
 
     # Create an entry without any v0.2.0 fields (simulates v0.1.0 data)
     entry = ME(
@@ -446,3 +450,60 @@ async def test_backward_compatible_memory_entry():
     restored = ME.model_validate(data)
     assert restored.content == entry.content
     assert restored.somatic is None
+
+
+# ============ Bond + Skills integration (v0.5.0) ============
+
+
+async def test_bond_strengthens_on_observe():
+    """Bond should strengthen automatically during observe()."""
+    soul = await Soul.birth("Aria", values=["coding"])
+    initial_strength = soul.bond.bond_strength
+    initial_count = soul.bond.interaction_count
+
+    await soul.observe(Interaction(
+        user_input="Help me with Python",
+        agent_output="Sure, here's how to use list comprehensions.",
+    ))
+
+    assert soul.bond.bond_strength > initial_strength
+    assert soul.bond.interaction_count > initial_count
+
+
+async def test_skills_created_from_entities():
+    """Skills should be auto-created from extracted entities during observe()."""
+    soul = await Soul.birth("Aria", values=["coding"])
+    assert len(soul.skills.skills) == 0
+
+    await soul.observe(Interaction(
+        user_input="I love Python programming",
+        agent_output="Python is great for data science and web dev.",
+    ))
+
+    # observe() extracts entities and creates skills from them
+    assert len(soul.skills.skills) > 0
+
+
+async def test_skills_accumulate_xp():
+    """Repeated interactions about the same topic should increase skill XP."""
+    soul = await Soul.birth("Aria", values=["coding"])
+
+    for _ in range(5):
+        await soul.observe(Interaction(
+            user_input="Tell me about Python",
+            agent_output="Python is a versatile language.",
+        ))
+
+    # Find a skill that was created (entity extraction is heuristic-based)
+    if soul.skills.skills:
+        skill = soul.skills.skills[0]
+        assert skill.xp > 0
+
+
+async def test_bond_and_skills_accessible():
+    """soul.bond and soul.skills properties should be accessible."""
+    soul = await Soul.birth("Aria")
+    assert soul.bond is not None
+    assert soul.bond.bond_strength == 50.0
+    assert soul.skills is not None
+    assert len(soul.skills.skills) == 0

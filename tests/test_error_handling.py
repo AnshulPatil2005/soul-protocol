@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from soul_protocol import Soul
-from soul_protocol.exceptions import (
+from soul_protocol.runtime.exceptions import (
     SoulCorruptError,
     SoulExportError,
     SoulFileNotFoundError,
@@ -153,7 +153,7 @@ class TestRetireErrors:
     async def test_retire_keeps_lifecycle_on_save_failure(self):
         """If save fails, the soul should stay ACTIVE, not become RETIRED."""
         soul = await Soul.birth(name="RetireTest")
-        from soul_protocol.types import LifecycleState
+        from soul_protocol.runtime.types import LifecycleState
 
         assert soul.lifecycle == LifecycleState.ACTIVE
 
@@ -169,7 +169,7 @@ class TestRetireErrors:
     async def test_retire_without_preserve_skips_save(self):
         """retire(preserve_memories=False) should not attempt save."""
         soul = await Soul.birth(name="RetireTest")
-        from soul_protocol.types import LifecycleState
+        from soul_protocol.runtime.types import LifecycleState
 
         with patch.object(soul, "save", new_callable=AsyncMock) as mock_save:
             await soul.retire(preserve_memories=False)
@@ -181,7 +181,7 @@ class TestRetireErrors:
     async def test_retire_success_still_works(self):
         """Normal retire with save should work."""
         soul = await Soul.birth(name="RetireTest")
-        from soul_protocol.types import LifecycleState
+        from soul_protocol.runtime.types import LifecycleState
 
         with patch.object(soul, "save", new_callable=AsyncMock) as mock_save:
             await soul.retire(preserve_memories=True)
@@ -218,7 +218,7 @@ class TestExceptionClasses:
         assert "disk full" in str(e)
 
     def test_all_exceptions_inherit_from_base(self):
-        from soul_protocol.exceptions import SoulProtocolError
+        from soul_protocol.runtime.exceptions import SoulProtocolError
 
         assert issubclass(SoulFileNotFoundError, SoulProtocolError)
         assert issubclass(SoulCorruptError, SoulProtocolError)

@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from soul_protocol.memory.search import (
+from soul_protocol.runtime.memory.search import (
     _SYNONYM_MAP,
     _expand_synonyms,
     relevance_score,

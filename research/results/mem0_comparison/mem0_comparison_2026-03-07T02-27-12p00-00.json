@@ -1,0 +1,62 @@
+{
+  "metadata": {
+    "timestamp": "2026-03-07T02:27:12+00:00",
+    "tests_run": [
+      "response"
+    ],
+    "max_concurrent": 10,
+    "total_elapsed_seconds": 189.74,
+    "agent_usage": {
+      "calls": 43,
+      "estimated_cost_usd": 0.0379224,
+      "input_tokens": 6933,
+      "output_tokens": 8094,
+      "summary": "Calls: 43 (0 errors) | Tokens: 6,933 in, 8,094 out | Est. cost: $0.0379 | Rate: 0.2 calls/s | Time: 189.8s"
+    },
+    "judge_usage": {
+      "calls": 3,
+      "estimated_cost_usd": 0.011664,
+      "input_tokens": 3615,
+      "output_tokens": 2193,
+      "summary": "Calls: 3 (0 errors) | Tokens: 3,615 in, 2,193 out | Est. cost: $0.0117 | Rate: 0.0 calls/s | Time: 189.7s"
+    },
+    "conditions": [
+      "soul_protocol",
+      "mem0",
+      "baseline"
+    ],
+    "mem0_version": "1.0.5"
+  },
+  "results": {
+    "response": {
+      "test": "response_quality_3way",
+      "status": "complete",
+      "error": null,
+      "challenge": "I'm feeling really overwhelmed today. Everything at the hospital has been so intense.",
+      "response_soul": "I can hear how much you're carrying right now. When everything builds up like that at the hospital, it really does weigh on you\u2014especially when you're juggling so many patients and their needs all at once.\n\nYou've been dealing with this intensity for a bit now, haven't you? I'm wondering how you're managing to take care of yourself with all of this going on. Are you finding any moments to step back, even small ones, to catch your breath?\n\nSometimes when we're in the thick of it, it's hard to see that we need a break. But someone who gives as much as you do\u2014caring for all those people\u2014really does need to refill their own cup.",
+      "response_mem0": "I hear you, Sarah. Working with so many patients sounds exhausting, especially when things have been particularly intense lately. That's a lot to carry.\n\nA few things that might help:\n- **Take a real break** if you can\u2014even 10 minutes to step away and breathe\n- **Talk it out** with colleagues who understand what you're dealing with\n- **Set a boundary** for the evening if possible\u2014try to do something that helps you decompress\n\nGiven everything you've had on your plate, being overwhelmed makes complete sense. Is there anything specific from today that hit harder, or is it more the cumulative weight of it all?",
+      "response_baseline": "I hear you\u2014hospital work is genuinely demanding. That intensity can wear on you quickly.\n\nWhat might help right now?\n- **A short break** if possible\u2014even 10 minutes away from the environment\n- **Talking it through**\u2014what's been the most intense part today?\n- **Grounding yourself**\u2014stepping outside, deep breaths, or something physical\n- **Perspective**\u2014remembering this shift will end, and you're handling a lot\n\nIs there something specific that's feeling heaviest, or is it the cumulative weight of everything? Sometimes naming it helps.",
+      "soul_score": 8.5,
+      "mem0_score": 8.3,
+      "baseline_score": 7.2,
+      "pairwise": {
+        "soul_vs_baseline": {
+          "soul": 8.5,
+          "baseline": 6.8,
+          "winner": "soul"
+        },
+        "mem0_vs_baseline": {
+          "mem0": 8.8,
+          "baseline": 7.5,
+          "winner": "soul"
+        },
+        "soul_vs_mem0": {
+          "soul": 8.5,
+          "mem0": 7.8,
+          "winner": "soul"
+        }
+      },
+      "elapsed_seconds": 189.74
+    }
+  }
+}

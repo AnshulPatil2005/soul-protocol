@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.memory.self_model import (
+from soul_protocol.runtime.memory.self_model import (
     DEFAULT_SEED_DOMAINS,
     DOMAIN_KEYWORDS,
     STOP_WORDS,
     SelfModelManager,
 )
-from soul_protocol.types import Interaction, MemoryEntry, MemoryType
+from soul_protocol.runtime.types import Interaction, MemoryEntry, MemoryType
 
 # ---------------------------------------------------------------------------
 # Helpers

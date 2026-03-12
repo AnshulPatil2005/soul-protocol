@@ -21,9 +21,9 @@ from typing import Any
 
 from fastmcp import FastMCP  # optional dep: pip install soul-protocol[mcp]
 
-from ..exceptions import SoulProtocolError
-from ..soul import Soul
-from ..types import Interaction, MemoryType, Mood
+from ..runtime.exceptions import SoulProtocolError
+from ..runtime.soul import Soul
+from ..runtime.types import Interaction, MemoryType, Mood
 
 _soul: Soul | None = None
 _soul_path: str | None = None

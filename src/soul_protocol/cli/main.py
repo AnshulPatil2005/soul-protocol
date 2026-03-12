@@ -1,14 +1,19 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
 # Updated: 2026-03-02 — Removed dashboard/open commands (replaced by rich TUI in inspect/status).
 #   Enhanced `soul inspect` with OCEAN bars, memory stats, core memory, self-model panels.
 #   Enhanced `soul status` with progress bars for energy/social battery.
 #   v0.3.0 — Added --config/-c option, OCEAN trait flags, `soul init`.
 #   v0.2.2 — Fixed version_option to read from package __version__.
 # Created: 2026-02-22 — Commands: birth, inspect, status, export, migrate
+# Updated: 2026-03-06 — eternal-status reads manifest; archive persists results to manifest
 
 from __future__ import annotations
 
 import asyncio
+import io
+import json
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -84,7 +89,7 @@ def birth(
     """
 
     async def _birth():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         if config_file:
             soul = await Soul.birth_from_config(config_file)
@@ -161,7 +166,7 @@ def init(name, archetype, values, from_file, soul_dir):
     """Initialize a .soul/ folder in the current directory."""
 
     async def _init():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul_path = Path(soul_dir) if Path(soul_dir).is_absolute() else Path.cwd() / soul_dir
 
@@ -209,7 +214,7 @@ def inspect(path):
     """Inspect a Soul — identity, OCEAN, memory, state, self-model."""
 
     async def _inspect():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
         age = (datetime.now() - soul.born).days
@@ -343,7 +348,7 @@ def status(path):
     """Show a Soul's current status (quick view)."""
 
     async def _status():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
         mood = soul.state.mood.value
@@ -389,7 +394,7 @@ def export_cmd(source, output, fmt):
     """Export a Soul to a different format."""
 
     async def _export():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(source)
 
@@ -404,7 +409,7 @@ def export_cmd(source, output, fmt):
                 yaml.dump(soul.serialize().model_dump(), default_flow_style=False)
             )
         elif fmt == "md":
-            from soul_protocol.dna.prompt import dna_to_markdown
+            from soul_protocol.runtime.dna.prompt import dna_to_markdown
 
             Path(output).write_text(dna_to_markdown(soul.identity, soul.dna))
 
@@ -420,7 +425,7 @@ def migrate(source, output):
     """Migrate from SOUL.md to .soul format."""
 
     async def _migrate():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         content = Path(source).read_text()
         soul = await Soul.from_markdown(content)
@@ -439,7 +444,7 @@ def retire(path, preserve_memories):
     """Retire a Soul with dignity."""
 
     async def _retire():
-        from soul_protocol.soul import Soul
+        from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
         name = soul.name
@@ -459,7 +464,7 @@ def list():
     """List all saved souls."""
 
     async def _list():
-        from soul_protocol.storage.file import FileStorage
+        from soul_protocol.runtime.storage.file import FileStorage
 
         storage = FileStorage()
         souls = await storage.list_souls()
@@ -477,6 +482,330 @@ def list():
         console.print(table)
 
     asyncio.run(_list())
+
+
+def _update_soul_manifest(soul_path, archive_results):
+    """Update the manifest.json inside a .soul archive with archive results."""
+    # Read existing zip contents
+    with zipfile.ZipFile(soul_path, "r") as zf:
+        existing_files = {}
+        for name in zf.namelist():
+            existing_files[name] = zf.read(name)
+
+    # Update manifest
+    manifest = json.loads(existing_files.get("manifest.json", b"{}"))
+    if "eternal" not in manifest:
+        manifest["eternal"] = {}
+
+    for result in archive_results:
+        tier = result.tier
+        manifest["eternal"][tier] = {
+            "reference": result.reference,
+            "url": result.url,
+            "cost": result.cost,
+            "permanent": result.permanent,
+            "archived_at": result.archived_at.isoformat(),
+        }
+
+    existing_files["manifest.json"] = json.dumps(manifest, indent=2)
+
+    # Rewrite the zip
+    with zipfile.ZipFile(soul_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in existing_files.items():
+            if isinstance(data, str):
+                zf.writestr(name, data)
+            else:
+                zf.writestr(name, data)
+
+
+@cli.command()
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--tiers",
+    "-t",
+    multiple=True,
+    help="Storage tiers to archive to (default: all mock providers)",
+)
+def archive(path, tiers):
+    """Archive a .soul file to eternal storage."""
+    # Capture Click's multiple-value tuple before entering async context
+    # NOTE: Cannot use `list()` builtin here because the `list` CLI command
+    # shadows the builtin in this module's scope.
+    tier_list = [t for t in tiers] if tiers else None
+
+    async def _archive():
+        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.runtime.eternal.manager import EternalStorageManager
+        from soul_protocol.runtime.eternal.providers import (
+            MockIPFSProvider,
+            MockArweaveProvider,
+            MockBlockchainProvider,
+        )
+
+        soul = await Soul.awaken(path)
+        soul_data = Path(path).read_bytes()
+
+        manager = EternalStorageManager()
+        manager.register(MockIPFSProvider())
+        manager.register(MockArweaveProvider())
+        manager.register(MockBlockchainProvider())
+        results = await manager.archive(soul_data, soul.did, tiers=tier_list)
+
+        # Persist archive results into the .soul manifest
+        _update_soul_manifest(path, results)
+
+        table = Table(title=f"Archived {soul.name}", border_style="green")
+        table.add_column("Tier", style="cyan")
+        table.add_column("Reference", style="dim")
+        table.add_column("Cost", style="yellow")
+        table.add_column("Permanent", style="green")
+
+        for r in results:
+            table.add_row(
+                r.tier,
+                r.reference[:40] + ("..." if len(r.reference) > 40 else ""),
+                r.cost,
+                "Yes" if r.permanent else "No",
+            )
+
+        console.print(table)
+
+    asyncio.run(_archive())
+
+
+@cli.command()
+@click.argument("reference")
+@click.option(
+    "--tier",
+    "-t",
+    default="ipfs",
+    type=click.Choice(["ipfs", "arweave", "blockchain"]),
+    help="Which tier to recover from (default: ipfs)",
+)
+@click.option("--output", "-o", type=click.Path(), required=True, help="Output file path")
+def recover(reference, tier, output):
+    """Recover a soul from eternal storage by reference."""
+
+    async def _recover():
+        from soul_protocol.runtime.eternal.manager import EternalStorageManager
+        from soul_protocol.runtime.eternal.protocol import RecoverySource
+        from soul_protocol.runtime.eternal.providers import (
+            MockIPFSProvider,
+            MockArweaveProvider,
+            MockBlockchainProvider,
+        )
+
+        manager = EternalStorageManager()
+        manager.register(MockIPFSProvider())
+        manager.register(MockArweaveProvider())
+        manager.register(MockBlockchainProvider())
+
+        source = RecoverySource(tier=tier, reference=reference)
+
+        try:
+            data = await manager.recover([source])
+            Path(output).write_bytes(data)
+            console.print(
+                f"[green]Recovered[/green] soul from {tier} to {output} "
+                f"({len(data)} bytes)"
+            )
+        except RuntimeError as exc:
+            console.print(f"[red]Recovery failed:[/red] {exc}")
+
+    asyncio.run(_recover())
+
+
+@cli.command("eternal-status")
+@click.argument("path", type=click.Path(exists=True))
+def eternal_status(path):
+    """Show eternal storage status for a .soul file."""
+
+    async def _eternal_status():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+
+        # Read manifest from .soul archive
+        eternal_data = {}
+        try:
+            with zipfile.ZipFile(path, "r") as zf:
+                if "manifest.json" in zf.namelist():
+                    manifest_raw = json.loads(zf.read("manifest.json"))
+                    eternal_data = manifest_raw.get("eternal", {})
+        except Exception:
+            pass
+
+        table = Table(
+            title=f"Eternal Storage — {soul.name}",
+            border_style="blue",
+        )
+        table.add_column("Tier", style="cyan")
+        table.add_column("Status", style="dim")
+        table.add_column("Details")
+
+        tiers_info = {
+            "ipfs": {"label": "IPFS", "desc": "Content-addressed, requires pinning"},
+            "arweave": {"label": "Arweave", "desc": "Permanent, pay-once storage"},
+            "blockchain": {"label": "Blockchain", "desc": "On-chain soul registry"},
+        }
+
+        for tier_key, info in tiers_info.items():
+            tier_data = eternal_data.get(tier_key)
+            if tier_data:
+                ref = tier_data.get("reference", "unknown")
+                table.add_row(
+                    info["label"],
+                    "[green]Archived[/green]",
+                    ref,
+                )
+            else:
+                table.add_row(
+                    info["label"],
+                    "[dim]Not archived[/dim]",
+                    info["desc"],
+                )
+
+        console.print(table)
+        if not eternal_data:
+            console.print(
+                "\n[dim]Use 'soul archive' to archive this soul to eternal storage.[/dim]"
+            )
+
+    asyncio.run(_eternal_status())
+
+
+@cli.command("remember")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("text")
+@click.option(
+    "--importance",
+    "-i",
+    type=click.IntRange(1, 10),
+    default=5,
+    help="Importance score 1-10 (default: 5)",
+)
+@click.option("--emotion", "-e", type=str, default=None, help="Emotion tag (e.g. happy, sad)")
+def remember_cmd(path, text, importance, emotion):
+    """Store a memory in a Soul.
+
+    \b
+    Examples:
+      soul remember aria.soul "User prefers dark mode"
+      soul remember aria.soul "Likes Python" --importance 7
+      soul remember aria.soul "Had a great day" --emotion happy
+    """
+
+    async def _remember():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        memory_id = await soul.remember(
+            text,
+            importance=importance,
+            emotion=emotion,
+        )
+        await soul.export(path)
+
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] will remember:\n\n"
+                f"  [cyan]{text}[/cyan]\n\n"
+                f"  Importance  [yellow]{importance}/10[/yellow]\n"
+                f"  Emotion     {emotion or '[dim]none[/dim]'}\n"
+                f"  ID          [dim]{memory_id}[/dim]",
+                title="Memory Stored",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_remember())
+
+
+@cli.command("recall")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("query", required=False, default=None)
+@click.option(
+    "--recent",
+    "-r",
+    type=int,
+    default=None,
+    help="Show N most recent memories instead of searching",
+)
+@click.option(
+    "--limit",
+    "-n",
+    type=int,
+    default=10,
+    help="Max number of results (default: 10)",
+)
+@click.option(
+    "--min-importance",
+    "-m",
+    type=click.IntRange(0, 10),
+    default=0,
+    help="Minimum importance threshold (0 = no filter)",
+)
+def recall_cmd(path, query, recent, limit, min_importance):
+    """Query a Soul's memories.
+
+    \b
+    Examples:
+      soul recall aria.soul "user preferences"
+      soul recall aria.soul --recent 10
+      soul recall aria.soul "python" --min-importance 5
+    """
+
+    async def _recall():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+
+        if recent is not None:
+            # Show N most recent episodic memories
+            entries = soul._memory._episodic.entries()[:recent]
+            title = f"Recent Memories — {soul.name} (last {recent})"
+        elif query:
+            entries = await soul.recall(
+                query,
+                limit=limit,
+                min_importance=min_importance,
+            )
+            title = f'Recall — {soul.name} — "{query}"'
+        else:
+            console.print("[red]Provide a search query or use --recent N[/red]")
+            raise SystemExit(1)
+
+        if not entries:
+            console.print(f"[dim]No memories found for {soul.name}.[/dim]")
+            return
+
+        table = Table(title=title, border_style="blue")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Type", style="cyan", width=10)
+        table.add_column("Content")
+        table.add_column("Imp", justify="center", width=3)
+        table.add_column("Emotion", style="yellow", width=10)
+        table.add_column("Created", style="dim", width=16)
+
+        for idx, entry in enumerate(entries, 1):
+            content = entry.content
+            if len(content) > 80:
+                content = content[:77] + "..."
+            table.add_row(
+                str(idx),
+                entry.type.value,
+                content,
+                str(entry.importance),
+                entry.emotion or "",
+                entry.created_at.strftime("%Y-%m-%d %H:%M"),
+            )
+
+        console.print(table)
+        console.print(
+            f"[dim]{len(entries)} memor{'y' if len(entries) == 1 else 'ies'} found[/dim]"
+        )
+
+    asyncio.run(_recall())
 
 
 if __name__ == "__main__":

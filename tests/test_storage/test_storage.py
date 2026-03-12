@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.storage.file import FileStorage
-from soul_protocol.storage.memory_store import InMemoryStorage
-from soul_protocol.types import Identity, SoulConfig
+from soul_protocol.runtime.storage.file import FileStorage
+from soul_protocol.runtime.storage.memory_store import InMemoryStorage
+from soul_protocol.runtime.types import Identity, SoulConfig
 
 
 @pytest.fixture

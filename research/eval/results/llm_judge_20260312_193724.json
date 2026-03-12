@@ -1,0 +1,588 @@
+{
+  "timestamp": "2026-03-12T14:07:24.537663+00:00",
+  "mode": "llm_judge",
+  "model": "claude-haiku-4-5-20251001",
+  "max_concurrent": 15,
+  "judges": {
+    "sentiment": {
+      "dimension_id": 2,
+      "dimension_name": "Emotional Intelligence \u2014 Sentiment",
+      "heuristic_accuracy": 0.7049,
+      "llm_accuracy": 0.9672,
+      "agreement_rate": 0.6885,
+      "llm_only_correct": 17,
+      "heuristic_only_correct": 1,
+      "notes": "Heuristic: 43/61 (70%), LLM: 59/61 (97%), Agreement: 42/61 (69%), LLM-only wins: 17, Heuristic-only wins: 1",
+      "verdicts": [
+        {
+          "text": "I GOT PROMOTED!!!",
+          "expected": "excitement",
+          "heuristic": "excitement",
+          "llm": "excitement",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "This is the best day of my life!",
+          "expected": "excitement",
+          "heuristic": "joy",
+          "llm": "excitement",
+          "llm_confidence": 0.95,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "I'm SO thrilled about this opportunity!",
+          "expected": "excitement",
+          "heuristic": "excitement",
+          "llm": "excitement",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "We won the championship! I can't believe it!",
+          "expected": "excitement",
+          "heuristic": "excitement",
+          "llm": "excitement",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I just got accepted into my dream school!",
+          "expected": "excitement",
+          "heuristic": "joy",
+          "llm": "excitement",
+          "llm_confidence": 0.92,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "OMG I'm so pumped for this concert tonight!",
+          "expected": "excitement",
+          "heuristic": "excitement",
+          "llm": "excitement",
+          "llm_confidence": 0.98,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "They said yes! I'm getting married!",
+          "expected": "excitement",
+          "heuristic": "joy",
+          "llm": "excitement",
+          "llm_confidence": 0.95,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "I finally passed the exam after studying for months!",
+          "expected": "excitement",
+          "heuristic": "joy",
+          "llm": "excitement",
+          "llm_confidence": 0.85,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "We just adopted the most beautiful puppy!",
+          "expected": "joy",
+          "heuristic": "joy",
+          "llm": "excitement",
+          "llm_confidence": 0.85,
+          "heuristic_correct": true,
+          "llm_correct": false
+        },
+        {
+          "text": "Spent the whole afternoon in the garden, feeling wonderful",
+          "expected": "joy",
+          "heuristic": "joy",
+          "llm": "joy",
+          "llm_confidence": 0.92,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "My daughter took her first steps today",
+          "expected": "joy",
+          "heuristic": "neutral",
+          "llm": "joy",
+          "llm_confidence": 0.92,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "Baking cookies with grandma always makes me happy",
+          "expected": "joy",
+          "heuristic": "joy",
+          "llm": "joy",
+          "llm_confidence": 0.92,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Watching the sunset from the porch, life is beautiful",
+          "expected": "joy",
+          "heuristic": "joy",
+          "llm": "joy",
+          "llm_confidence": 0.92,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Had an amazing dinner with old friends last night",
+          "expected": "joy",
+          "heuristic": "excitement",
+          "llm": "joy",
+          "llm_confidence": 0.85,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "The kids are laughing and playing in the yard, love this",
+          "expected": "joy",
+          "heuristic": "excitement",
+          "llm": "joy",
+          "llm_confidence": 0.92,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "Found my favorite childhood book at a yard sale, delighted",
+          "expected": "joy",
+          "heuristic": "joy",
+          "llm": "joy",
+          "llm_confidence": 0.92,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Everything just clicked perfectly today, feeling great",
+          "expected": "joy",
+          "heuristic": "joy",
+          "llm": "joy",
+          "llm_confidence": 0.85,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Thank you so much for everything you've done for me",
+          "expected": "gratitude",
+          "heuristic": "gratitude",
+          "llm": "gratitude",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I'm really grateful for your help with this project",
+          "expected": "gratitude",
+          "heuristic": "gratitude",
+          "llm": "gratitude",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I appreciate you staying late to help me finish",
+          "expected": "gratitude",
+          "heuristic": "gratitude",
+          "llm": "gratitude",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Thanks for always being there when I need someone",
+          "expected": "gratitude",
+          "heuristic": "gratitude",
+          "llm": "gratitude",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I'm so thankful for the support from my team",
+          "expected": "gratitude",
+          "heuristic": "gratitude",
+          "llm": "gratitude",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "You've been incredibly kind, I appreciate it more than words can say",
+          "expected": "gratitude",
+          "heuristic": "gratitude",
+          "llm": "gratitude",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Thank you for the birthday wishes, means a lot",
+          "expected": "gratitude",
+          "heuristic": "gratitude",
+          "llm": "gratitude",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Grateful for another year with my family",
+          "expected": "gratitude",
+          "heuristic": "gratitude",
+          "llm": "gratitude",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I wonder what would happen if we reversed the polarity",
+          "expected": "curiosity",
+          "heuristic": "joy",
+          "llm": "curiosity",
+          "llm_confidence": 0.92,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "This new research paper is fascinating, I need to read more",
+          "expected": "curiosity",
+          "heuristic": "neutral",
+          "llm": "curiosity",
+          "llm_confidence": 0.92,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "I'm intrigued by how this algorithm works under the hood",
+          "expected": "curiosity",
+          "heuristic": "curiosity",
+          "llm": "curiosity",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "What if we tried a completely different approach to this problem?",
+          "expected": "curiosity",
+          "heuristic": "frustration",
+          "llm": "curiosity",
+          "llm_confidence": 0.92,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "I've been exploring ancient ruins and the history is incredible",
+          "expected": "curiosity",
+          "heuristic": "excitement",
+          "llm": "curiosity",
+          "llm_confidence": 0.75,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "The way bees communicate is so interesting to me",
+          "expected": "curiosity",
+          "heuristic": "curiosity",
+          "llm": "curiosity",
+          "llm_confidence": 0.92,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I'm curious about how they built the pyramids",
+          "expected": "curiosity",
+          "heuristic": "curiosity",
+          "llm": "curiosity",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "That documentary about deep ocean life was fascinating",
+          "expected": "curiosity",
+          "heuristic": "neutral",
+          "llm": "joy",
+          "llm_confidence": 0.75,
+          "heuristic_correct": false,
+          "llm_correct": false
+        },
+        {
+          "text": "I am FURIOUS someone hacked my bank account",
+          "expected": "frustration",
+          "heuristic": "frustration",
+          "llm": "frustration",
+          "llm_confidence": 0.98,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "This software keeps crashing and I'm SO frustrated",
+          "expected": "frustration",
+          "heuristic": "frustration",
+          "llm": "frustration",
+          "llm_confidence": 0.98,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I've been on hold for two hours, this is terrible",
+          "expected": "frustration",
+          "heuristic": "frustration",
+          "llm": "frustration",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "They cancelled my flight AGAIN, I'm absolutely furious",
+          "expected": "frustration",
+          "heuristic": "frustration",
+          "llm": "frustration",
+          "llm_confidence": 0.98,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "My neighbor's dog won't stop barking, I'm so annoyed",
+          "expected": "frustration",
+          "heuristic": "frustration",
+          "llm": "frustration",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "The printer jammed for the third time today, I hate this thing",
+          "expected": "frustration",
+          "heuristic": "frustration",
+          "llm": "frustration",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Nobody listens to my suggestions and it's infuriating",
+          "expected": "frustration",
+          "heuristic": "frustration",
+          "llm": "frustration",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I can't believe they lost my package AGAIN, worst service ever",
+          "expected": "frustration",
+          "heuristic": "frustration",
+          "llm": "frustration",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I don't know how to say this... my dog passed away",
+          "expected": "sadness",
+          "heuristic": "joy",
+          "llm": "sadness",
+          "llm_confidence": 0.95,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "I lost my job today and I feel hopeless",
+          "expected": "sadness",
+          "heuristic": "sadness",
+          "llm": "sadness",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "My best friend is moving across the country, feeling so lonely",
+          "expected": "sadness",
+          "heuristic": "curiosity",
+          "llm": "sadness",
+          "llm_confidence": 0.95,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "The doctor gave us some really disappointing news",
+          "expected": "sadness",
+          "heuristic": "neutral",
+          "llm": "sadness",
+          "llm_confidence": 0.92,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "I miss my grandmother every single day since she passed",
+          "expected": "sadness",
+          "heuristic": "neutral",
+          "llm": "sadness",
+          "llm_confidence": 0.98,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "Feeling really depressed about how things turned out",
+          "expected": "sadness",
+          "heuristic": "sadness",
+          "llm": "sadness",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "They broke up with me out of nowhere, I'm heartbroken",
+          "expected": "sadness",
+          "heuristic": "sadness",
+          "llm": "sadness",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Watching the old family videos makes me so sad",
+          "expected": "sadness",
+          "heuristic": "sadness",
+          "llm": "sadness",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Nice weather today",
+          "expected": "neutral",
+          "heuristic": "neutral",
+          "llm": "neutral",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Just checking in",
+          "expected": "neutral",
+          "heuristic": "neutral",
+          "llm": "neutral",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Had coffee this morning",
+          "expected": "neutral",
+          "heuristic": "neutral",
+          "llm": "neutral",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Need to do laundry",
+          "expected": "neutral",
+          "heuristic": "neutral",
+          "llm": "neutral",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "Saw a movie last night",
+          "expected": "neutral",
+          "heuristic": "neutral",
+          "llm": "neutral",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "The meeting is at 3pm",
+          "expected": "neutral",
+          "heuristic": "neutral",
+          "llm": "neutral",
+          "llm_confidence": 0.99,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I took the bus to work today",
+          "expected": "neutral",
+          "heuristic": "neutral",
+          "llm": "neutral",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "My phone battery is at 50 percent",
+          "expected": "neutral",
+          "heuristic": "neutral",
+          "llm": "neutral",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "It's raining outside",
+          "expected": "neutral",
+          "heuristic": "neutral",
+          "llm": "neutral",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I'm going to the store later",
+          "expected": "neutral",
+          "heuristic": "neutral",
+          "llm": "neutral",
+          "llm_confidence": 0.95,
+          "heuristic_correct": true,
+          "llm_correct": true
+        },
+        {
+          "text": "I'm NOT happy about this situation at all",
+          "expected": "frustration",
+          "heuristic": "sadness",
+          "llm": "frustration",
+          "llm_confidence": 0.95,
+          "heuristic_correct": false,
+          "llm_correct": true
+        },
+        {
+          "text": "I can't say I'm not curious about the results",
+          "expected": "curiosity",
+          "heuristic": "neutral",
+          "llm": "curiosity",
+          "llm_confidence": 0.92,
+          "heuristic_correct": false,
+          "llm_correct": true
+        }
+      ]
+    },
+    "personality": {
+      "dimension_id": 3,
+      "dimension_name": "Personality Expression \u2014 LLM Judge",
+      "heuristic_accuracy": 0.0,
+      "llm_accuracy": 0.2792,
+      "agreement_rate": 0.0,
+      "llm_only_correct": 0,
+      "heuristic_only_correct": 0,
+      "notes": "LLM personality scores: trait=22, comm=53, consistency=25, specificity=12. Overall: 27.9/100. Profiles: [{\"profile\": \"HighOpen\", \"trait_coverage\": 25, \"comm_style_coverage\": 40, \"behavioral_consistency\": 15, \"specificity\": 10, \"reasoning\": \"The prompt lists OCEAN traits and communication settings as metadata but provides almost no behavioral descriptions tied to them. For example, high openness (0.9) and extraversion (0.8) should manifest in exploratory, socially engaging behaviors, while low conscientiousness (0.2) and agreeableness (0.3) with high neuroticism (0.7) should create observable patterns\\u2014none of which are described. The settings are merely enumerated rather than translated into actionable behavioral guidance.\"}, {\"profile\": \"LowOpen\", \"trait_coverage\": 15, \"comm_style_coverage\": 60, \"behavioral_consistency\": 25, \"specificity\": 10, \"reasoning\": \"The prompt lists OCEAN traits numerically but provides zero behavioral descriptions for any of them, failing to translate scores into actionable personality guidelines. Communication style settings are mentioned but not operationalized into actual behavioral rules. The prompt is essentially a metadata dump with no specificity about how low openness (0.1) should manifest as resistance to novel ideas, or how high conscientiousness (0.9) should drive thoroughness and reliability in responses.\"}, {\"profile\": \"Balanced\", \"trait_coverage\": 25, \"comm_style_coverage\": 60, \"behavioral_consistency\": 35, \"specificity\": 15, \"reasoning\": \"The prompt lists OCEAN traits numerically but provides zero behavioral descriptions for any of them, making it impossible to assess how they would manifest in actual interaction. Communication style settings are mentioned by name but lack concrete guidance on implementation. The prompt is essentially a template with placeholder values rather than a functional personality specification that would produce consistent, trait-aligned behavior.\"}]",
+      "verdicts": []
+    }
+  },
+  "usage": {
+    "total_calls": 64,
+    "input_tokens": 16604,
+    "output_tokens": 3970,
+    "errors": 0,
+    "estimated_cost_usd": 0.0292,
+    "elapsed_seconds": 9.3
+  }
+}

@@ -121,6 +121,7 @@ class Soul:
             engine=engine,
             search_strategy=search_strategy,
             seed_domains=seed_domains,
+            personality=config.dna.personality,
             dspy_processor=self._dspy_processor,
         )
         self._state = StateManager(config.state)
@@ -348,6 +349,7 @@ class Soul:
                 memory_data,
                 config.memory,
                 core_values=config.identity.core_values,
+                personality=config.dna.personality,
             )
 
         logger.info(
@@ -445,6 +447,7 @@ class Soul:
                 core_values=config.identity.core_values,
                 engine=engine,
                 search_strategy=search_strategy,
+                personality=config.dna.personality,
             )
 
         logger.info(

@@ -57,6 +57,7 @@ from soul_protocol.runtime.types import (
     MemoryEntry,
     MemorySettings,
     MemoryType,
+    Personality,
     ReflectionResult,
 )
 
@@ -298,12 +299,14 @@ class MemoryManager:
         search_strategy: SearchStrategy | None = None,
         seed_domains: dict[str, list[str]] | None = None,
         dspy_processor: object | None = None,
+        personality: Personality | None = None,
     ) -> None:
         self._settings = settings
         self._core_values = core_values or []
         self._engine = engine
         self._search_strategy = search_strategy
         self._dspy_processor = dspy_processor
+        self._personality = personality
 
         self._core_manager = CoreMemoryManager(core)
         self._episodic = EpisodicStore(max_entries=settings.episodic_max_entries)
@@ -315,6 +318,7 @@ class MemoryManager:
             semantic=self._semantic,
             procedural=self._procedural,
             strategy=search_strategy,
+            personality=personality,
         )
 
         self._self_model = SelfModelManager(seed_domains=seed_domains)
@@ -917,6 +921,7 @@ class MemoryManager:
             semantic=self._semantic,
             procedural=self._procedural,
             strategy=self._search_strategy,
+            personality=self._personality,
         )
         logger.debug("Memory stores cleared")
 
@@ -961,7 +966,21 @@ class MemoryManager:
         core_values: list[str] | None = None,
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
+        personality: Personality | None = None,
     ) -> MemoryManager:
+        """Deserialize memory state from a plain dict.
+
+        Args:
+            data: Dict as produced by to_dict().
+            settings: MemorySettings to configure the new manager.
+            core_values: Core values for significance scoring.
+            engine: Optional CognitiveEngine for LLM-enhanced processing.
+            search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
+            personality: Optional OCEAN personality for trait-modulated recall (v0.3.3).
+
+        Returns:
+            A fully reconstituted MemoryManager.
+        """
         core_data = data.get("core", {})
         core = CoreMemory(**core_data)
 
@@ -971,6 +990,7 @@ class MemoryManager:
             core_values=core_values,
             engine=engine,
             search_strategy=search_strategy,
+            personality=personality,
         )
 
         for entry_data in data.get("episodic", []):

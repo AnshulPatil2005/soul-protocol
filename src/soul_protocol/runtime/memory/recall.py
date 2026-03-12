@@ -1,8 +1,10 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
+# Updated: v0.3.3 — Accept optional Personality for OCEAN trait-modulated recall.
+#   Personality influences which memories surface: high-Neuroticism boosts emotional
+#   memories, high-Openness boosts knowledge, etc. Backwards compatible.
 # Updated: phase1-ablation-fixes — Default to BM25SearchStrategy instead of
 #   TokenOverlapStrategy when no strategy is provided.
 # Updated: 2026-03-10 — Accept optional personality param (passed by MemoryManager, reserved for future use).
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Updated: v0.2.2 — Accept optional SearchStrategy for pluggable spreading activation.
 #   v0.2.0 — Replaced flat relevance scoring with ACT-R activation-based
 #   ranking. Memories are now scored by base-level activation (recency + frequency),
@@ -26,7 +28,7 @@ from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.semantic import SemanticStore
 from soul_protocol.runtime.memory.strategy import BM25SearchStrategy
-from soul_protocol.runtime.types import MemoryEntry, MemoryType
+from soul_protocol.runtime.types import MemoryEntry, MemoryType, Personality
 
 if TYPE_CHECKING:
     from soul_protocol.runtime.memory.strategy import SearchStrategy
@@ -50,13 +52,12 @@ class RecallEngine:
         semantic: SemanticStore,
         procedural: ProceduralStore,
         strategy: SearchStrategy | None = None,
-        personality: object | None = None,
+        personality: Personality | None = None,
     ) -> None:
         self._episodic = episodic
         self._semantic = semantic
         self._procedural = procedural
         self._strategy = strategy if strategy is not None else BM25SearchStrategy()
-        self._strategy = strategy
         self._personality = personality
 
     async def recall(
@@ -104,9 +105,13 @@ class RecallEngine:
 
         # Score by ACT-R activation (deterministic — no noise in recall ranking)
         # Uses pluggable strategy for spreading activation if provided (v0.2.2)
+        # Uses personality modulation for trait-influenced ranking (v0.3.3)
         results.sort(
             key=lambda e: (
-                -compute_activation(e, query, now=now, noise=False, strategy=self._strategy)
+                -compute_activation(
+                    e, query, now=now, noise=False,
+                    strategy=self._strategy, personality=self._personality,
+                )
             ),
         )
 

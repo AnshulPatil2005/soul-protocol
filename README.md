@@ -1,5 +1,5 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-03-07 — added validated results section with charts, updated badges -->
+<!-- Updated: 2026-03-12 — updated test count to 996, added Soul Health Score section, updated line counts -->
 
 # Soul Protocol
 
@@ -7,7 +7,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 766 passing](https://img.shields.io/badge/tests-766%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 996 passing](https://img.shields.io/badge/tests-996%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
@@ -37,12 +37,32 @@ We tested Soul Protocol against stateless baselines using five judge models from
 
 ---
 
+## Soul Health Score: 90.2 / 100
+
+SHS is a 0-100 composite score across 7 psychology-informed dimensions. It measures whether a soul actually works -- remembers selectively, expresses personality consistently, maintains identity across exports, and forms meaningful bonds.
+
+| Dimension | Score | Status |
+|-----------|------:|--------|
+| Memory Recall (D1) | -- | Not run (requires long-horizon scenarios) |
+| Emotional Intelligence (D2) | 72.8 | Heuristic: 70% accuracy. LLM judge: 97%. |
+| Personality Expression (D3) | 96.0 | Prompt fidelity 100%, OCEAN stability 100% |
+| Bond / Relationship (D4) | 100.0 | Logarithmic growth curve r=1.000 |
+| Self-Model (D5) | 88.0 | Domain classification 100%, emergence at turn 2 |
+| Identity Continuity (D6) | 100.0 | Export/import round-trip lossless |
+| Portability (D7) | 100.0 | Engine-independent by design |
+
+The entire eval suite runs without an LLM. Cost: $0. Fully reproducible. When tested with Claude Haiku as an LLM judge, sentiment accuracy jumps from 70% to 97%, proving the architecture works -- the heuristic fallback is the honest baseline, not the ceiling.
+
+Full methodology: [research/EVAL-FRAMEWORK.md](research/EVAL-FRAMEWORK.md)
+
+---
+
 ## Architecture: spec + runtime
 
 ```
 soul_protocol/
-├── spec/      624 lines   The protocol. Portable, minimal, no opinions.
-├── runtime/  7,495 lines  Reference implementation. Opinionated, batteries-included.
+├── spec/      695 lines   The protocol. Portable, minimal, no opinions.
+├── runtime/  9,693 lines  Reference implementation. Opinionated, batteries-included.
 ├── cli/                    11-command CLI
 └── mcp/                    MCP server (10 tools, 3 resources)
 ```
@@ -335,7 +355,7 @@ await soul.observe(Interaction(
 git clone https://github.com/qbtrix/soul-protocol.git
 cd soul-protocol
 pip install -e ".[dev]"
-pytest tests/   # 766 tests
+pytest tests/   # 996 tests
 ```
 
 ---

@@ -1,5 +1,7 @@
-<!-- Created 2026-03-08. Consolidated evaluation results from the five-tier
-     Soul Protocol validation study. Data sourced from research/results/ JSON
+<!-- Created 2026-03-08. Updated 2026-03-12: Added Soul Health Score (SHS)
+     Framework section with 7-dimension evaluation results and LLM judge
+     validation. Consolidated evaluation results from the five-tier Soul
+     Protocol validation study. Data sourced from research/results/ JSON
      files, WHITEPAPER.md Section 12, and idocs/launch/LAUNCH-STATUS.md.
      This document is the canonical reference for all benchmark claims. -->
 
@@ -165,6 +167,51 @@ Validated through 475+ heuristic-only interactions across the four psychology fo
 **Klein (self-model):** 67 distinct self-concept domains emerged from 100 diverse interactions with no hardcoded taxonomy. Two souls with opposite OCEAN profiles receiving identical messages developed different domain specializations: the agreeable soul formed emotional domains, the disagreeable soul formed process-oriented ones. Same inputs, different identities.
 
 **Portability:** A soul carrying 40 conversations serialized into a 4,293-byte `.soul` file. After re-awakening: every count matched (episodic, semantic, graph). Recall behavior was identical. Nothing lost in transit.
+
+---
+
+## Soul Health Score (SHS) Framework
+
+A deterministic, 7-dimension evaluation framework that produces a single composite score (0-100) for any soul. Runs without an LLM, costs $0, and is fully CI-compatible.
+
+Each dimension is weighted by its importance to overall soul capability. The composite score is a weighted sum across all dimensions.
+
+### Results
+
+| Dimension | Weight | Score | Key Metric |
+|-----------|--------|------:|------------|
+| D1: Memory Recall | 20% | — | Not yet run in SHS (covered by Tiers 1-2) |
+| D2: Emotional Intelligence | 20% | 72.8 | Sentiment accuracy 70%, arc coherence 91% |
+| D3: Personality Expression | 15% | 96.0 | Prompt fidelity 100%, OCEAN stability 100% |
+| D4: Bond / Relationship | 15% | 100.0 | Growth curve r=1.000, all tiers correct |
+| D5: Self-Model | 15% | 88.0 | Domain classification 100%, emergence turn 2 |
+| D6: Identity Continuity | 10% | 100.0 | All round-trip checks passed |
+| D7: Portability | 5% | 100.0 | Engine-independent verification passed |
+| **Soul Health Score** | | **90.2** | **Production Ready** |
+
+D2 (Emotional Intelligence) is the weakest dimension at 72.8, driven by heuristic sentiment classification accuracy at 70%. The remaining dimensions score 88 or above, reflecting strong pipeline correctness across personality, bonding, self-model, identity, and portability.
+
+### LLM Judge Validation
+
+To validate the heuristic baseline and measure the ceiling, Claude Haiku was run as an evaluator on two dimensions.
+
+**Sentiment classification (D2).** Haiku evaluated 61 sentiment entries from the test corpus and achieved 97% accuracy versus the heuristic engine's 70%. Of the 17 cases only Haiku classified correctly, all were context-dependent emotions that keyword matching cannot resolve (e.g., "I GOT PROMOTED" classified as negative by the heuristic due to capitalization heuristics). This confirms the pipeline architecture is sound: upgrading the CognitiveEngine from heuristic to LLM closes the accuracy gap without any structural changes.
+
+**Personality fidelity (D3).** Haiku scored the generated system prompts for behavioral alignment with OCEAN values. The score was 28/100, flagging that while OCEAN values are numerically stable, the system prompts lack concrete behavioral descriptions that would make personality differences observable in output. This is a known improvement target.
+
+**Cost:** $0.03 for 64 Haiku API calls.
+
+### How to Run
+
+```bash
+# Heuristic eval (no API key needed)
+python -m research.eval.suite --quick
+
+# LLM judge eval (requires ANTHROPIC_API_KEY)
+python -m research.eval.llm_judge --dimensions 2,3
+```
+
+**Code location:** `research/eval/` directory containing `suite.py`, `llm_judge.py`, `report.py`, seven dimension-specific modules, and corpus data.
 
 ---
 

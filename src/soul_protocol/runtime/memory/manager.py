@@ -1,4 +1,14 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-03-13 — Replaced direct _memories dict access with
+#   EpisodicStore.update_entry() public API. Deduplicated cognitive engine
+#   imports in __init__ and observe().
+# Updated: v0.3.4 — Phase 2 memory-runtime-v2
+#   - observe() passes SignificanceScore to extract_facts for salience computation
+#   - observe() passes episodic_id to extract_entities for edge metadata provenance
+#   - observe() sets abstract and salience on episodic memories at storage time
+#   - update_graph() forwards edge_metadata to KnowledgeGraph.add_relationship()
+#   - observe() uses dedup.reconcile_fact() for semantic memory deduplication
+#   - Fixed duplicate significance computation block
 # Updated: v0.2.3 — Removed duplicate header comment entry, fixed stale promote block.
 # Updated: phase1-ablation-fixes — Pass token_count to significance gate, weaken
 #   promotion rule so trivial interactions with facts don't bypass the gate.
@@ -42,6 +52,7 @@ from soul_protocol.runtime.memory.attention import (
     overall_significance,
 )
 from soul_protocol.runtime.memory.core import CoreMemoryManager
+from soul_protocol.runtime.memory.dedup import reconcile_fact
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
 from soul_protocol.runtime.memory.procedural import ProceduralStore
@@ -331,10 +342,6 @@ class MemoryManager:
         # Lazy import to avoid circular dependency:
         #   cognitive.engine → memory.attention → memory.__init__ → memory.manager
         from soul_protocol.runtime.cognitive.engine import CognitiveProcessor, HeuristicEngine
-        from soul_protocol.runtime.cognitive.engine import (
-            CognitiveProcessor,
-            HeuristicEngine,
-        )
 
         heuristic = HeuristicEngine()
         if engine is not None:
@@ -394,6 +401,11 @@ class MemoryManager:
         core_values: list[str] | None = None,
     ) -> dict:
         """Process an interaction through the psychology-informed pipeline."""
+        from soul_protocol.runtime.cognitive.engine import (
+            compute_salience,
+            generate_abstract,
+        )
+
         values = core_values or self._core_values
 
         # --- 1. Detect sentiment ---
@@ -409,9 +421,8 @@ class MemoryManager:
         # Use DSPy significance gate if available (LLM-powered, optimizable),
         # otherwise fall back to heuristic via CognitiveProcessor.
         recent = self._episodic.recent_contents(n=10)
-        sig_score = await self._cognitive.assess_significance(interaction, values, recent)
         if self._dspy_processor is not None:
-            sig_score = await self._dspy_processor.assess_significance(
+            sig_score = await self._dspy_processor.assess_significance(  # type: ignore[union-attr]
                 interaction, values, recent
             )
         else:
@@ -420,12 +431,6 @@ class MemoryManager:
         token_count = len(tokenize(combined_text))
         sig_value = overall_significance(sig_score, token_count=token_count)
         significant = is_significant(sig_score, token_count=token_count)
-        recent = self._episodic.recent_contents(n=10)
-        sig_score = await self._cognitive.assess_significance(
-            interaction, values, recent
-        )
-        sig_value = overall_significance(sig_score)
-        significant = is_significant(sig_score)
         logger.debug(
             "Significance assessed: score=%.3f, significant=%s", sig_value, significant
         )
@@ -438,15 +443,45 @@ class MemoryManager:
                 somatic=somatic,
                 significance=sig_value,
             )
+            # Phase 2: set abstract and salience on the stored episodic memory
+            if episodic_id:
+                abstract = generate_abstract(
+                    f"User: {interaction.user_input}\nAgent: {interaction.agent_output}"
+                )
+                salience = compute_salience(sig_score)
+                self._episodic.update_entry(episodic_id, abstract=abstract, salience=salience)
             logger.debug("Episodic memory stored: id=%s", episodic_id)
 
         # --- 4. Extract and store semantic facts ---
         facts = await self._cognitive.extract_facts(
-            interaction, self._semantic.facts()
+            interaction, self._semantic.facts(), significance=sig_score,
         )
         await self._resolve_fact_conflicts(facts)
+        # Phase 2: dedup pipeline before storing
+        stored_facts: list[MemoryEntry] = []
+        existing_facts = self._semantic.facts()
         for fact in facts:
-            await self.add(fact)
+            action, merge_id = reconcile_fact(fact.content, existing_facts)
+            if action == "SKIP":
+                logger.debug("Dedup SKIP: fact too similar to existing id=%s", merge_id)
+                continue
+            elif action == "MERGE" and merge_id:
+                # Store first so fact.id is populated, then link superseded
+                await self.add(fact)
+                for ef in existing_facts:
+                    if ef.id == merge_id:
+                        ef.superseded_by = fact.id
+                        logger.debug(
+                            "Dedup MERGE: old id=%s superseded by %s",
+                            merge_id, fact.id,
+                        )
+                        break
+                stored_facts.append(fact)
+            else:
+                # CREATE
+                await self.add(fact)
+                stored_facts.append(fact)
+        facts = stored_facts
         if facts:
             logger.debug("Facts extracted and stored: count=%d", len(facts))
 
@@ -458,14 +493,23 @@ class MemoryManager:
                 somatic=somatic,
                 significance=sig_value,
             )
+            # Phase 2: set abstract and salience on promoted episodic
+            if episodic_id:
+                abstract = generate_abstract(
+                    f"User: {interaction.user_input}\nAgent: {interaction.agent_output}"
+                )
+                salience = compute_salience(sig_score)
+                self._episodic.update_entry(episodic_id, abstract=abstract, salience=salience)
             logger.debug(
                 "Promoted to episodic (facts found): id=%s, sig=%.3f",
                 episodic_id,
                 sig_value,
             )
 
-        # --- 5. Extract entities ---
-        entities = await self._cognitive.extract_entities(interaction)
+        # --- 5. Extract entities (with provenance metadata) ---
+        entities = await self._cognitive.extract_entities(
+            interaction, source_memory_id=episodic_id,
+        )
         if entities:
             logger.debug(
                 "Entities extracted: %s",
@@ -770,11 +814,16 @@ class MemoryManager:
             entity_type = entity.get("entity_type", "unknown")
             self._graph.add_entity(name, entity_type)
 
+            # Phase 2: forward edge_metadata for provenance tracking
+            edge_metadata = entity.get("edge_metadata")
+
             for rel in entity.get("relationships", []):
                 target = rel.get("target", "")
                 relation = rel.get("relation", "related_to")
                 if target:
-                    self._graph.add_relationship(name, target, relation)
+                    self._graph.add_relationship(
+                        name, target, relation, metadata=edge_metadata,
+                    )
 
     @property
     def self_model(self) -> SelfModelManager:

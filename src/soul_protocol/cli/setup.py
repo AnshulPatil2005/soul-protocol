@@ -261,7 +261,7 @@ def _write_mcp_toml(config_path: Path, soul_path: Path) -> bool:
     """Write MCP config for Codex CLI (TOML format). Returns True if written."""
     # Use forward slashes (posix) for cross-platform TOML safety
     safe_path = soul_path.resolve().as_posix()
-    uvx_cmd = _resolve_uvx()
+    uvx_cmd = Path(_resolve_uvx()).as_posix()  # forward slashes for TOML safety
     toml_section = (
         f'\n[mcp_servers.soul]\n'
         f'command = "{uvx_cmd}"\n'

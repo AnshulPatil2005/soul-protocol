@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -324,7 +325,6 @@ def test_resolve_uvx_returns_absolute_path():
     # On a dev machine with uv installed, should be absolute
     # On CI without uv, falls back to bare "uvx"
     assert result.endswith("uvx")
-    import shutil
     if shutil.which("uvx"):
         assert "/" in result or "\\" in result  # absolute path
 

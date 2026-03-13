@@ -1,4 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-13 — Added --setup flag for universal agent platform integration.
 # Updated: 2026-03-13 — Added `soul unpack` command, made export --output optional.
 # Updated: 2026-03-13 — Added --traits/-t compact OCEAN shorthand to `soul birth`.
 # Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
@@ -201,8 +202,27 @@ def birth(
     default=".soul",
     help="Directory to create (default: .soul)",
 )
-def init(name, archetype, values, from_file, soul_dir):
-    """Initialize a .soul/ folder in the current directory."""
+@click.option(
+    "--setup",
+    "-s",
+    "setup_targets",
+    default=None,
+    help=(
+        "Configure agent platform integration. "
+        "Use 'auto' to detect installed tools, or specify platforms: "
+        "claude-code,cursor,vscode,windsurf,cline,continue,gemini,codex,amazon-q"
+    ),
+)
+def init(name, archetype, values, from_file, soul_dir, setup_targets):
+    """Initialize a .soul/ folder in the current directory.
+
+    \b
+    Examples:
+      soul init "Aria"                    # basic init
+      soul init "Aria" --setup auto       # init + auto-detect platforms
+      soul init "Aria" -s claude-code     # init + Claude Code only
+      soul init "Aria" -s cursor,vscode   # init + specific platforms
+    """
 
     async def _init():
         from soul_protocol.runtime.soul import Soul
@@ -237,12 +257,38 @@ def init(name, archetype, values, from_file, soul_dir):
         console.print(f"  Archetype: {soul.archetype or '(none)'}")
         console.print(f"  DID:       [dim]{soul.did}[/dim]")
         console.print(f"  Values:    {', '.join(soul.identity.core_values)}")
-        console.print()
-        console.print("[dim]Next steps:[/dim]")
-        console.print(f"  [cyan]soul inspect {soul_dir}/[/cyan]     -- view soul details")
-        console.print(
-            f"  [cyan]soul export {soul_dir}/ -o name.soul[/cyan] -- create portable .soul file"
-        )
+
+        if setup_targets is not None:
+            from .setup import setup_integrations
+
+            console.print()
+            console.print("[bold]Setting up agent integrations...[/bold]")
+            console.print()
+
+            if setup_targets == "auto":
+                platform_list = None  # auto-detect
+            else:
+                platform_list = [s.strip() for s in setup_targets.split(",")]
+
+            messages = setup_integrations(
+                soul_path=soul_path,
+                soul_name=soul.name,
+                cwd=Path.cwd(),
+                platforms=platform_list,
+            )
+            for msg in messages:
+                console.print(msg)
+
+            console.print()
+            console.print("[green]Ready![/green] Restart your editors to activate.")
+        else:
+            console.print()
+            console.print("[dim]Next steps:[/dim]")
+            console.print(f"  [cyan]soul inspect {soul_dir}/[/cyan]     -- view soul details")
+            console.print(
+                f"  [cyan]soul init {name or 'MyAgent'} --setup auto[/cyan]"
+                "  -- configure all detected agent platforms"
+            )
 
     asyncio.run(_init())
 

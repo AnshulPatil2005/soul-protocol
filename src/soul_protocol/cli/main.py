@@ -1,7 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol
-# Updated: 2026-03-13 — Added --setup flag for universal agent platform integration.
-# Updated: 2026-03-13 — Added `soul unpack` command, made export --output optional.
-# Updated: 2026-03-13 — Added --traits/-t compact OCEAN shorthand to `soul birth`.
+# Updated: 2026-03-13 — --setup preserves existing souls, warns on --from-file conflict.
 # Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
 # Updated: 2026-03-02 — Removed dashboard/open commands (replaced by rich TUI in inspect/status).
 #   Enhanced `soul inspect` with OCEAN bars, memory stats, core memory, self-model panels.
@@ -228,35 +226,50 @@ def init(name, archetype, values, from_file, soul_dir, setup_targets):
         from soul_protocol.runtime.soul import Soul
 
         soul_path = Path(soul_dir) if Path(soul_dir).is_absolute() else Path.cwd() / soul_dir
+        existing = soul_path.exists() and (soul_path / "soul.json").exists()
 
-        if soul_path.exists() and (soul_path / "soul.json").exists():
-            if not click.confirm(f"{soul_path}/ already contains a soul. Overwrite?"):
-                console.print("[dim]Cancelled.[/dim]")
-                return
-
-        if from_file:
-            soul = await Soul.awaken(from_file)
-            console.print(f"[green]Loaded[/green] {soul.name} from {from_file}")
-        else:
-            if not name:
-                name_input = click.prompt("Soul name")
-            else:
-                name_input = name
-
-            values_list = [v.strip() for v in values.split(",")]
-            soul = await Soul.birth(
-                name=name_input,
-                archetype=archetype,
-                values=values_list,
+        if existing and setup_targets is not None:
+            # Soul already exists, --setup just configures platforms around it
+            if from_file:
+                console.print(
+                    "[yellow]Warning:[/yellow] --from-file ignored; existing soul "
+                    f"found at {soul_path}/. Remove the existing soul to replace it."
+                )
+            soul = await Soul.awaken(str(soul_path))
+            console.print(
+                f"\n[green]Found[/green] existing soul [bold]{soul.name}[/bold] "
+                f"in {soul_path}/\n"
             )
+        else:
+            # Create new soul
+            if existing:
+                if not click.confirm(f"{soul_path}/ already contains a soul. Overwrite?"):
+                    console.print("[dim]Cancelled.[/dim]")
+                    return
 
-        await soul.save_local(str(soul_path))
+            if from_file:
+                soul = await Soul.awaken(from_file)
+                console.print(f"[green]Loaded[/green] {soul.name} from {from_file}")
+            else:
+                if not name:
+                    name_input = click.prompt("Soul name")
+                else:
+                    name_input = name
 
-        console.print(f"\n[green]OK[/green] Soul initialized in [bold]{soul_path}/[/bold]\n")
-        console.print(f"  Name:      [bold]{soul.name}[/bold]")
-        console.print(f"  Archetype: {soul.archetype or '(none)'}")
-        console.print(f"  DID:       [dim]{soul.did}[/dim]")
-        console.print(f"  Values:    {', '.join(soul.identity.core_values)}")
+                values_list = [v.strip() for v in values.split(",")]
+                soul = await Soul.birth(
+                    name=name_input,
+                    archetype=archetype,
+                    values=values_list,
+                )
+
+            await soul.save_local(str(soul_path))
+
+            console.print(f"\n[green]OK[/green] Soul initialized in [bold]{soul_path}/[/bold]\n")
+            console.print(f"  Name:      [bold]{soul.name}[/bold]")
+            console.print(f"  Archetype: {soul.archetype or '(none)'}")
+            console.print(f"  DID:       [dim]{soul.did}[/dim]")
+            console.print(f"  Values:    {', '.join(soul.identity.core_values)}")
 
         if setup_targets is not None:
             from .setup import setup_integrations

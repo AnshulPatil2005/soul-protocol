@@ -29,6 +29,11 @@ from rich.text import Text
 console = Console()
 
 
+def _safe_name(name: str) -> str:
+    """Sanitize a soul name for use in file paths (no traversal)."""
+    return Path(name.lower().replace(" ", "-")).name or "soul"
+
+
 def _ocean_bar(label: str, value: float) -> Text:
     """Render a single OCEAN trait as a labeled bar."""
     pct = int(value * 100)
@@ -166,7 +171,7 @@ def birth(
                     f"N={p.neuroticism:.1f}[/dim]"
                 )
 
-        out = output or f"./{soul.name.lower()}.soul"
+        out = output or f"./{_safe_name(soul.name)}.soul"
         await soul.export(out)
         console.print(f"[dim]Saved to {out}[/dim]")
 
@@ -431,7 +436,7 @@ def export_cmd(source, output, fmt):
         from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(source)
-        out = output or f"{soul.name.lower().replace(' ', '-')}.{fmt}"
+        out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
             await soul.export(out)
@@ -473,7 +478,7 @@ def unpack_cmd(source, soul_dir):
         from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(source)
-        target = soul_dir or f".soul/{soul.name.lower().replace(' ', '-')}"
+        target = soul_dir or f".soul/{_safe_name(soul.name)}"
         await soul.save_local(target)
         console.print(f"[green]Unpacked[/green] {soul.name} → {target}/")
         console.print("[dim]Browse the folder in VS Code or any editor.[/dim]")

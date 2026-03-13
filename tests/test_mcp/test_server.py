@@ -256,14 +256,10 @@ async def test_soul_save():
             )
             data = json.loads(result.data)
             assert data["status"] == "saved"
-            # save() creates <path>/<soul_id>/ directory structure
+            # save_local creates flat directory with soul.json directly inside
             save_dir = Path(path)
             assert save_dir.is_dir()
-            soul_dirs = list(save_dir.iterdir())
-            assert len(soul_dirs) >= 1
-            # Should contain soul.json inside the soul_id subdir
-            soul_files = list(save_dir.glob("*/soul.json"))
-            assert len(soul_files) == 1
+            assert (save_dir / "soul.json").exists()
 
 
 async def test_soul_export():

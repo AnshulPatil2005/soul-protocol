@@ -1,4 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-13 — Added `soul unpack` command, made export --output optional.
 # Updated: 2026-03-13 — Added --traits/-t compact OCEAN shorthand to `soul birth`.
 # Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
 # Updated: 2026-03-02 — Removed dashboard/open commands (replaced by rich TUI in inspect/status).
@@ -26,6 +27,11 @@ from rich.table import Table
 from rich.text import Text
 
 console = Console()
+
+
+def _safe_name(name: str) -> str:
+    """Sanitize a soul name for use in file paths (no traversal)."""
+    return Path(name.lower().replace(" ", "-")).name or "soul"
 
 
 def _ocean_bar(label: str, value: float) -> Text:
@@ -165,7 +171,7 @@ def birth(
                     f"N={p.neuroticism:.1f}[/dim]"
                 )
 
-        out = output or f"./{soul.name.lower()}.soul"
+        out = output or f"./{_safe_name(soul.name)}.soul"
         await soul.export(out)
         console.print(f"[dim]Saved to {out}[/dim]")
 
@@ -414,7 +420,7 @@ def status(path):
 
 @cli.command("export")
 @click.argument("source", type=click.Path(exists=True))
-@click.option("--output", "-o", type=click.Path(), required=True, help="Output file path")
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output path (default: <name>.<format>)")
 @click.option(
     "--format",
     "-f",
@@ -430,25 +436,54 @@ def export_cmd(source, output, fmt):
         from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(source)
+        out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
-            await soul.export(output)
+            await soul.export(out)
         elif fmt == "json":
-            Path(output).write_text(soul.serialize().model_dump_json(indent=2))
+            Path(out).write_text(soul.serialize().model_dump_json(indent=2))
         elif fmt == "yaml":
             import yaml
 
-            Path(output).write_text(
+            Path(out).write_text(
                 yaml.dump(soul.serialize().model_dump(), default_flow_style=False)
             )
         elif fmt == "md":
             from soul_protocol.runtime.dna.prompt import dna_to_markdown
 
-            Path(output).write_text(dna_to_markdown(soul.identity, soul.dna))
+            Path(out).write_text(dna_to_markdown(soul.identity, soul.dna))
 
-        console.print(f"[green]Exported[/green] {soul.name} to {output} ({fmt})")
+        console.print(f"[green]Exported[/green] {soul.name} to {out} ({fmt})")
 
     asyncio.run(_export())
+
+
+@cli.command("unpack")
+@click.argument("source", type=click.Path(exists=True))
+@click.option("--dir", "-d", "soul_dir", default=None, help="Target directory (default: .soul/<name>/)")
+def unpack_cmd(source, soul_dir):
+    """Unpack a .soul file into a browsable directory.
+
+    \b
+    Creates a folder with readable YAML/JSON files you can
+    browse in VS Code, diff with git, and edit directly.
+
+    \b
+    Examples:
+      soul unpack guardian.soul              # → .soul/soul/
+      soul unpack guardian.soul -d guardian/  # → guardian/
+    """
+
+    async def _unpack():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(source)
+        target = soul_dir or f".soul/{_safe_name(soul.name)}"
+        await soul.save_local(target)
+        console.print(f"[green]Unpacked[/green] {soul.name} → {target}/")
+        console.print("[dim]Browse the folder in VS Code or any editor.[/dim]")
+
+    asyncio.run(_unpack())
 
 
 @cli.command()

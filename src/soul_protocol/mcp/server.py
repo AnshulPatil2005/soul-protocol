@@ -1,6 +1,7 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 10 tools, 3 resources, 2 prompts for AI agent integration
 #
+# Updated: 2026-03-13 — Auto-save on shutdown, directory SOUL_PATH support.
 # Updated: Lifespan-based startup, enum validation, core memory guard,
 #          export path validation, single-client documentation
 #
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -29,6 +31,30 @@ _soul: Soul | None = None
 _soul_path: str | None = None
 
 
+def _is_directory_path(p: Path) -> bool:
+    """Check if a path is (or should be) a directory soul store."""
+    if p.is_dir():
+        return True
+    # Non-existent path without a file extension → treat as directory
+    if not p.exists() and not p.suffix:
+        return True
+    return False
+
+
+async def _auto_save(soul: Soul, path: str | None) -> None:
+    """Save the soul to the appropriate format based on path type."""
+    if path:
+        p = Path(path)
+        if _is_directory_path(p):
+            await soul.save_local(str(p))
+        elif p.suffix == ".soul":
+            await soul.export(str(p))
+        else:
+            await soul.save_local(str(p))
+    else:
+        await soul.save()
+
+
 @asynccontextmanager
 async def _lifespan(server: FastMCP):
     """Load soul from SOUL_PATH on startup, cleanup on shutdown."""
@@ -39,8 +65,6 @@ async def _lifespan(server: FastMCP):
         try:
             _soul = await Soul.awaken(path)
         except (FileNotFoundError, ValueError, SoulProtocolError) as e:
-            import sys
-
             print(
                 f"soul-mcp: failed to load SOUL_PATH={path!r}: {e}",
                 file=sys.stderr,
@@ -54,6 +78,21 @@ async def _lifespan(server: FastMCP):
             _soul = None
             _soul_path = None
     yield
+    # Auto-save on shutdown
+    if _soul is not None:
+        try:
+            await _auto_save(_soul, _soul_path)
+            print(
+                f"soul-mcp: auto-saved to {_soul_path or '~/.soul/'}",
+                file=sys.stderr,
+                flush=True,
+            )
+        except Exception as e:
+            print(
+                f"soul-mcp: auto-save failed: {e}",
+                file=sys.stderr,
+                flush=True,
+            )
     _soul = None
     _soul_path = None
 
@@ -313,9 +352,12 @@ async def soul_save(path: str | None = None) -> str:
         path: Base directory to save into. If omitted, saves to
               the original SOUL_PATH or ~/.soul/<soul_id>/.
     """
+    global _soul_path
     soul = await _get_soul()
     save_path = path or _soul_path
-    await soul.save(save_path)
+    await _auto_save(soul, save_path)
+    if save_path:
+        _soul_path = save_path
     default_path = str(Path.home() / ".soul" / soul.did)
     return json.dumps(
         {

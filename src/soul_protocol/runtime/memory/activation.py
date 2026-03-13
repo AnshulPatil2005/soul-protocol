@@ -1,4 +1,8 @@
 # memory/activation.py — ACT-R activation-based memory scoring.
+# Updated: v0.3.4-fix — Salience now uses additive boost instead of multiplicative.
+#   Fixes bug where multiplying negative base by salience amplified the penalty.
+#   High salience always helps activation, never hurts it. Replaced getattr with
+#   direct field access since salience is a Pydantic field with default 0.5.
 # Updated: v0.3.3 — Added personality parameter to compute_activation().
 #   Personality-modulated boost from OCEAN traits influences recall ranking.
 #   Backwards compatible: personality=None produces identical scores to before.
@@ -175,11 +179,25 @@ def compute_activation(
     # Importance boost: memories that passed a high significance bar get recall priority
     sig_boost = 0.3 * entry.significance if entry.significance else 0.0
 
+    # Salience boost (v0.3.4-fix): additive instead of multiplicative.
+    # Multiplicative salience amplified negative base (importance < 5), making
+    # high-salience memories score WORSE — the opposite of intent.
+    # Additive boost: high salience always helps, low salience is neutral.
+    # Range: salience 0.0 → -0.25, salience 0.5 → 0.0, salience 1.0 → +0.25
+    salience_boost = (entry.salience - 0.5) * 0.5
+
     # Personality modulation (v0.3.3)
     personality_boost = compute_personality_boost(entry, personality)
 
     # Combine with weights
-    activation = (W_BASE * base) + (W_SPREAD * spread) + (W_EMOTION * emo) + sig_boost + personality_boost
+    activation = (
+        (W_BASE * base)
+        + (W_SPREAD * spread)
+        + (W_EMOTION * emo)
+        + sig_boost
+        + salience_boost
+        + personality_boost
+    )
 
     # Add stochastic noise for natural variability
     if noise:

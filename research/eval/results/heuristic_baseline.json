@@ -1,0 +1,138 @@
+{
+  "timestamp": "2026-03-12T14:03:55.228366+00:00",
+  "mode": "heuristic",
+  "quick": false,
+  "dimensions_run": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "dimensions": {
+    "D2": {
+      "name": "Emotional Intelligence",
+      "score": 72.82,
+      "metrics": {
+        "sentiment_accuracy": 0.7049,
+        "emotional_storage_rate": 0.9,
+        "neutral_rejection_rate": 0.2,
+        "mood_responsiveness": 1.0,
+        "emotional_arc_coherence": 0.9132
+      },
+      "passed": [
+        "sentiment_accuracy",
+        "emotional_storage_rate",
+        "mood_responsiveness",
+        "emotional_arc_coherence"
+      ],
+      "failed": [
+        "neutral_rejection_rate"
+      ],
+      "notes": "Sentiment 70%, gate pass 90%/20%, mood 100%, arc 91%. Score: 72.82/100."
+    },
+    "D3": {
+      "name": "Personality Expression",
+      "score": 96.0,
+      "metrics": {
+        "prompt_fidelity": 1.0,
+        "communication_style_coverage": 1.0,
+        "value_alignment_gap": 1.0,
+        "personality_stability": 1.0,
+        "prompt_differentiation": 0.6
+      },
+      "passed": [
+        "prompt_fidelity",
+        "communication_style_coverage",
+        "value_alignment_gap",
+        "personality_stability"
+      ],
+      "failed": [
+        "prompt_differentiation"
+      ],
+      "notes": "Prompt fidelity 100%, comm 100%, values PASS, stability 100%, contrast 60%. Score: 96.0/100."
+    },
+    "D4": {
+      "name": "Bond / Relationship",
+      "score": 100.0,
+      "metrics": {
+        "bond_growth_curve_r": 0.9999,
+        "positive_acceleration_ratio": 1.1742,
+        "milestone_all_pass": 1.0,
+        "tier_progression_correct": 1.0,
+        "milestone_N50_delta": 0.0,
+        "milestone_N100_delta": 0.0,
+        "milestone_N200_delta": 0.0
+      },
+      "passed": [
+        "bond_growth_curve",
+        "positive_acceleration",
+        "milestone_accuracy",
+        "tier_progression"
+      ],
+      "failed": [],
+      "notes": "Growth curve r=1.000, accel ratio=1.17x, milestones=PASS, tiers=PASS. Score: 100.0/100."
+    },
+    "D5": {
+      "name": "Self-Model",
+      "score": 88.0,
+      "metrics": {
+        "domain_accuracy": 1.0,
+        "domain_emergence_speed": 2.0,
+        "domain_specificity": 1.0,
+        "relationship_note_extraction": 0.0,
+        "confidence_curve_fit": 1.0
+      },
+      "passed": [
+        "domain_accuracy",
+        "domain_emergence_speed",
+        "domain_specificity"
+      ],
+      "failed": [
+        "relationship_note_extraction"
+      ],
+      "notes": "Classification 100%, emergence turn 2, isolation CLEAN, rel notes MISSING, curve fit r=1.000. Score: 88.0/100."
+    },
+    "D6": {
+      "name": "Identity Continuity",
+      "score": 100.0,
+      "metrics": {
+        "identity_hash_match": 1.0,
+        "dna_fidelity": 1.0,
+        "bond_fidelity": 1.0,
+        "memory_count_fidelity": 1.0,
+        "recall_consistency": 1.0,
+        "incarnation_chain_integrity": 1.0
+      },
+      "passed": [
+        "identity_hash_match",
+        "dna_fidelity",
+        "bond_fidelity",
+        "memory_count_fidelity",
+        "recall_consistency",
+        "incarnation_chain_integrity"
+      ],
+      "failed": [],
+      "notes": "All continuity checks passed."
+    },
+    "D7": {
+      "name": "Portability",
+      "score": 100.0,
+      "metrics": {
+        "system_prompt_engine_independence": 1.0,
+        "recall_engine_independence": 1.0,
+        "engine_swap_continuity": 1.0
+      },
+      "passed": [
+        "system_prompt_engine_independence",
+        "recall_engine_independence",
+        "engine_swap_continuity"
+      ],
+      "failed": [],
+      "notes": "All portability checks passed."
+    }
+  },
+  "soul_health_score": 90.2,
+  "weight_coverage": 0.8
+}

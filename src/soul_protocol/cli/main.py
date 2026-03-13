@@ -1,4 +1,8 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-13 — Added `soul inject <target>` command for fast CLI-based
+#   soul context injection into agent config files (claude-code, cursor, vscode,
+#   windsurf, cline, continue). Idempotent with marker-based replacement.
+# Updated: 2026-03-13 — Added --format option (dir/zip) to soul init.
 # Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
 # Updated: 2026-03-02 — Removed dashboard/open commands (replaced by rich TUI in inspect/status).
 #   Enhanced `soul inspect` with OCEAN bars, memory stats, core memory, self-model panels.
@@ -25,6 +29,11 @@ from rich.table import Table
 from rich.text import Text
 
 console = Console()
+
+
+def _safe_name(name: str) -> str:
+    """Sanitize a soul name for use in file paths (no traversal)."""
+    return Path(name.lower().replace(" ", "-")).name or "soul"
 
 
 def _ocean_bar(label: str, value: float) -> Text:
@@ -69,6 +78,10 @@ def cli():
 @click.option("--extraversion", type=float, help="OCEAN extraversion (0.0-1.0)")
 @click.option("--agreeableness", type=float, help="OCEAN agreeableness (0.0-1.0)")
 @click.option("--neuroticism", type=float, help="OCEAN neuroticism (0.0-1.0)")
+@click.option(
+    "--traits", "-t", type=str,
+    help='Compact OCEAN traits: "O:0.9,C:0.8,E:0.4,A:0.6,N:0.2"',
+)
 @click.option("--output", "-o", type=click.Path(), help="Output path for .soul file")
 def birth(
     name,
@@ -80,13 +93,50 @@ def birth(
     extraversion,
     agreeableness,
     neuroticism,
+    traits,
     output,
 ):
     """Birth a new Soul.
 
     Create a soul with custom personality using OCEAN trait flags,
     a config file (--config), or an existing soul file (--from-file).
+
+    \b
+    Examples:
+      soul birth "Aria" --openness 0.9 --neuroticism 0.2
+      soul birth "Architect" -a systems-thinker -t "O:0.9,C:0.8,E:0.4,A:0.6,N:0.2"
     """
+
+    # Parse --traits shorthand before entering async (avoids closure scope issues)
+    _trait_keys = {
+        "O": "openness", "C": "conscientiousness",
+        "E": "extraversion", "A": "agreeableness", "N": "neuroticism",
+    }
+    ocean_flags = {
+        "openness": openness, "conscientiousness": conscientiousness,
+        "extraversion": extraversion, "agreeableness": agreeableness,
+        "neuroticism": neuroticism,
+    }
+    if traits:
+        for pair in traits.split(","):
+            pair = pair.strip()
+            if ":" not in pair:
+                raise click.BadParameter(
+                    f"Invalid trait format '{pair}'. Use 'O:0.9,C:0.8,...'",
+                    param_hint="--traits",
+                )
+            key, val = pair.split(":", 1)
+            key = key.strip().upper()
+            if key not in _trait_keys:
+                raise click.BadParameter(
+                    f"Unknown trait '{key}'. Use O, C, E, A, or N.",
+                    param_hint="--traits",
+                )
+            attr = _trait_keys[key]
+            if ocean_flags[attr] is None:
+                ocean_flags[attr] = float(val.strip())
+
+    ocean = {k: v for k, v in ocean_flags.items() if v is not None}
 
     async def _birth():
         from soul_protocol.runtime.soul import Soul
@@ -108,15 +158,6 @@ def birth(
 
             archetype_input = archetype or "The Companion"
 
-            ocean_flags = {
-                "openness": openness,
-                "conscientiousness": conscientiousness,
-                "extraversion": extraversion,
-                "agreeableness": agreeableness,
-                "neuroticism": neuroticism,
-            }
-            ocean = {k: v for k, v in ocean_flags.items() if v is not None}
-
             soul = await Soul.birth(
                 name=name_input,
                 archetype=archetype_input,
@@ -132,7 +173,7 @@ def birth(
                     f"N={p.neuroticism:.1f}[/dim]"
                 )
 
-        out = output or f"./{soul.name.lower()}.soul"
+        out = output or f"./{_safe_name(soul.name)}.soul"
         await soul.export(out)
         console.print(f"[dim]Saved to {out}[/dim]")
 
@@ -162,48 +203,122 @@ def birth(
     default=".soul",
     help="Directory to create (default: .soul)",
 )
-def init(name, archetype, values, from_file, soul_dir):
-    """Initialize a .soul/ folder in the current directory."""
+@click.option(
+    "--format",
+    "soul_format",
+    type=click.Choice(["dir", "zip"], case_sensitive=False),
+    default="dir",
+    help="Storage format: 'dir' for browsable directory (default), 'zip' for portable .soul file",
+)
+@click.option(
+    "--setup",
+    "-s",
+    "setup_targets",
+    default=None,
+    help=(
+        "Configure agent platform integration. "
+        "Use 'auto' to detect installed tools, or specify platforms: "
+        "claude-code,cursor,vscode,windsurf,cline,continue,gemini,codex,amazon-q"
+    ),
+)
+def init(name, archetype, values, from_file, soul_dir, soul_format, setup_targets):
+    """Initialize a .soul/ folder in the current directory.
+
+    \b
+    Examples:
+      soul init "Aria"                    # basic init
+      soul init "Aria" --setup auto       # init + auto-detect platforms
+      soul init "Aria" -s claude-code     # init + Claude Code only
+      soul init "Aria" -s cursor,vscode   # init + specific platforms
+    """
 
     async def _init():
         from soul_protocol.runtime.soul import Soul
 
         soul_path = Path(soul_dir) if Path(soul_dir).is_absolute() else Path.cwd() / soul_dir
+        existing = soul_path.exists() and (soul_path / "soul.json").exists()
 
-        if soul_path.exists() and (soul_path / "soul.json").exists():
-            if not click.confirm(f"{soul_path}/ already contains a soul. Overwrite?"):
-                console.print("[dim]Cancelled.[/dim]")
-                return
-
-        if from_file:
-            soul = await Soul.awaken(from_file)
-            console.print(f"[green]Loaded[/green] {soul.name} from {from_file}")
-        else:
-            if not name:
-                name_input = click.prompt("Soul name")
-            else:
-                name_input = name
-
-            values_list = [v.strip() for v in values.split(",")]
-            soul = await Soul.birth(
-                name=name_input,
-                archetype=archetype,
-                values=values_list,
+        if existing and setup_targets is not None:
+            # Soul already exists, --setup just configures platforms around it
+            if from_file:
+                console.print(
+                    "[yellow]Warning:[/yellow] --from-file ignored; existing soul "
+                    f"found at {soul_path}/. Remove the existing soul to replace it."
+                )
+            soul = await Soul.awaken(str(soul_path))
+            console.print(
+                f"\n[green]Found[/green] existing soul [bold]{soul.name}[/bold] "
+                f"in {soul_path}/\n"
             )
+        else:
+            # Create new soul
+            if existing:
+                if not click.confirm(f"{soul_path}/ already contains a soul. Overwrite?"):
+                    console.print("[dim]Cancelled.[/dim]")
+                    return
 
-        await soul.save_local(str(soul_path))
+            if from_file:
+                soul = await Soul.awaken(from_file)
+                console.print(f"[green]Loaded[/green] {soul.name} from {from_file}")
+            else:
+                if not name:
+                    name_input = click.prompt("Soul name")
+                else:
+                    name_input = name
 
-        console.print(f"\n[green]OK[/green] Soul initialized in [bold]{soul_path}/[/bold]\n")
-        console.print(f"  Name:      [bold]{soul.name}[/bold]")
-        console.print(f"  Archetype: {soul.archetype or '(none)'}")
-        console.print(f"  DID:       [dim]{soul.did}[/dim]")
-        console.print(f"  Values:    {', '.join(soul.identity.core_values)}")
-        console.print()
-        console.print("[dim]Next steps:[/dim]")
-        console.print(f"  [cyan]soul inspect {soul_dir}/[/cyan]     -- view soul details")
-        console.print(
-            f"  [cyan]soul export {soul_dir}/ -o name.soul[/cyan] -- create portable .soul file"
-        )
+                values_list = [v.strip() for v in values.split(",")]
+                soul = await Soul.birth(
+                    name=name_input,
+                    archetype=archetype,
+                    values=values_list,
+                )
+
+            if soul_format == "zip":
+                # ZIP format: append .soul extension if not already there
+                zip_path = soul_path if str(soul_path).endswith(".soul") else Path(f"{soul_path}.soul")
+                zip_path.parent.mkdir(parents=True, exist_ok=True)
+                await soul.export(str(zip_path))
+                console.print(f"\n[green]OK[/green] Soul exported to [bold]{zip_path}[/bold]\n")
+            else:
+                await soul.save_local(str(soul_path))
+                console.print(f"\n[green]OK[/green] Soul initialized in [bold]{soul_path}/[/bold]\n")
+
+            console.print(f"  Name:      [bold]{soul.name}[/bold]")
+            console.print(f"  Archetype: {soul.archetype or '(none)'}")
+            console.print(f"  DID:       [dim]{soul.did}[/dim]")
+            console.print(f"  Values:    {', '.join(soul.identity.core_values)}")
+
+        if setup_targets is not None:
+            from .setup import setup_integrations
+
+            console.print()
+            console.print("[bold]Setting up agent integrations...[/bold]")
+            console.print()
+
+            if setup_targets == "auto":
+                platform_list = None  # auto-detect
+            else:
+                platform_list = [s.strip() for s in setup_targets.split(",")]
+
+            messages = setup_integrations(
+                soul_path=soul_path,
+                soul_name=soul.name,
+                cwd=Path.cwd(),
+                platforms=platform_list,
+            )
+            for msg in messages:
+                console.print(msg)
+
+            console.print()
+            console.print("[green]Ready![/green] Restart your editors to activate.")
+        else:
+            console.print()
+            console.print("[dim]Next steps:[/dim]")
+            console.print(f"  [cyan]soul inspect {soul_dir}/[/cyan]     -- view soul details")
+            console.print(
+                f"  [cyan]soul init {name or 'MyAgent'} --setup auto[/cyan]"
+                "  -- configure all detected agent platforms"
+            )
 
     asyncio.run(_init())
 
@@ -381,7 +496,7 @@ def status(path):
 
 @cli.command("export")
 @click.argument("source", type=click.Path(exists=True))
-@click.option("--output", "-o", type=click.Path(), required=True, help="Output file path")
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output path (default: <name>.<format>)")
 @click.option(
     "--format",
     "-f",
@@ -397,25 +512,54 @@ def export_cmd(source, output, fmt):
         from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(source)
+        out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
-            await soul.export(output)
+            await soul.export(out)
         elif fmt == "json":
-            Path(output).write_text(soul.serialize().model_dump_json(indent=2))
+            Path(out).write_text(soul.serialize().model_dump_json(indent=2))
         elif fmt == "yaml":
             import yaml
 
-            Path(output).write_text(
+            Path(out).write_text(
                 yaml.dump(soul.serialize().model_dump(), default_flow_style=False)
             )
         elif fmt == "md":
             from soul_protocol.runtime.dna.prompt import dna_to_markdown
 
-            Path(output).write_text(dna_to_markdown(soul.identity, soul.dna))
+            Path(out).write_text(dna_to_markdown(soul.identity, soul.dna))
 
-        console.print(f"[green]Exported[/green] {soul.name} to {output} ({fmt})")
+        console.print(f"[green]Exported[/green] {soul.name} to {out} ({fmt})")
 
     asyncio.run(_export())
+
+
+@cli.command("unpack")
+@click.argument("source", type=click.Path(exists=True))
+@click.option("--dir", "-d", "soul_dir", default=None, help="Target directory (default: .soul/<name>/)")
+def unpack_cmd(source, soul_dir):
+    """Unpack a .soul file into a browsable directory.
+
+    \b
+    Creates a folder with readable YAML/JSON files you can
+    browse in VS Code, diff with git, and edit directly.
+
+    \b
+    Examples:
+      soul unpack guardian.soul              # → .soul/soul/
+      soul unpack guardian.soul -d guardian/  # → guardian/
+    """
+
+    async def _unpack():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(source)
+        target = soul_dir or f".soul/{_safe_name(soul.name)}"
+        await soul.save_local(target)
+        console.print(f"[green]Unpacked[/green] {soul.name} → {target}/")
+        console.print("[dim]Browse the folder in VS Code or any editor.[/dim]")
+
+    asyncio.run(_unpack())
 
 
 @cli.command()
@@ -806,6 +950,85 @@ def recall_cmd(path, query, recent, limit, min_importance):
         )
 
     asyncio.run(_recall())
+
+
+@cli.command("inject")
+@click.argument(
+    "target",
+    type=click.Choice(
+        ["claude-code", "cursor", "vscode", "windsurf", "cline", "continue"],
+        case_sensitive=False,
+    ),
+)
+@click.option("--soul", "soul_name", default=None, help="Soul name to inject (default: first found)")
+@click.option(
+    "--dir",
+    "-d",
+    "soul_dir",
+    default=".soul",
+    help="Soul directory path (default: .soul/ in cwd)",
+)
+@click.option(
+    "--memories",
+    "-m",
+    type=int,
+    default=10,
+    help="Number of recent memories to include (default: 10)",
+)
+@click.option("--quiet", "-q", is_flag=True, help="Suppress output")
+def inject_cmd(target, soul_name, soul_dir, memories, quiet):
+    """Inject soul context into an agent platform's config file.
+
+    Reads the active soul and writes identity, core memory, state, and
+    recent memories into the target platform's configuration file.
+    Idempotent — safe to re-run without duplicating content.
+
+    \b
+    Examples:
+      soul inject claude-code                # inject into .claude/CLAUDE.md
+      soul inject cursor --soul Aria         # inject specific soul
+      soul inject vscode --memories 20       # include more memories
+      soul inject windsurf --dir ~/my-soul   # custom soul directory
+    """
+
+    async def _inject():
+        from .inject import (
+            build_context_block,
+            find_soul,
+            inject_context_block,
+            resolve_target_path,
+        )
+
+        # Resolve soul directory
+        dir_path = Path(soul_dir)
+        if not dir_path.is_absolute():
+            dir_path = Path.cwd() / soul_dir
+
+        # Find the soul
+        try:
+            soul_path = find_soul(dir_path, soul_name)
+        except FileNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise SystemExit(1)
+
+        # Build context block
+        try:
+            block = await build_context_block(soul_path, memory_limit=memories)
+        except Exception as e:
+            console.print(f"[red]Error reading soul:[/red] {e}")
+            raise SystemExit(1)
+
+        # Resolve target config file and inject
+        target_path = resolve_target_path(target, Path.cwd())
+        inject_context_block(target_path, block)
+
+        if not quiet:
+            console.print(
+                f"[green]Injected[/green] soul context into "
+                f"[bold]{target_path.relative_to(Path.cwd())}[/bold]"
+            )
+
+    asyncio.run(_inject())
 
 
 if __name__ == "__main__":

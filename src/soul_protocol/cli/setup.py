@@ -216,44 +216,59 @@ def _write_mcp_json(config_path: Path, soul_path: Path, platform: Platform) -> b
         except (json.JSONDecodeError, OSError):
             pass
 
-    key = platform.mcp_key
-    config.setdefault(key, {})
-
     if platform.slug == "vscode":
         entry = _mcp_server_entry_vscode(soul_path)
     else:
         entry = _mcp_server_entry(soul_path)
 
-    # For Continue, the file IS the server config (drop-in format)
+    # Continue uses drop-in dir: each file = one server config
     if platform.slug == "continue":
-        config = {"mcpServers": {"soul": entry}}
+        if config_path.exists():
+            try:
+                existing = json.loads(config_path.read_text())
+                if existing.get("command") == "uvx":
+                    return False  # already configured
+            except (json.JSONDecodeError, OSError):
+                pass
+        output = entry
     else:
+        key = platform.mcp_key
+        config.setdefault(key, {})
         config[key]["soul"] = entry
+        output = config
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    try:
+        config_path.write_text(json.dumps(output, indent=2) + "\n")
+    except OSError:
+        return False
     return True
 
 
 def _write_mcp_toml(config_path: Path, soul_path: Path) -> bool:
     """Write MCP config for Codex CLI (TOML format). Returns True if written."""
+    # Use forward slashes (posix) for cross-platform TOML safety
+    safe_path = soul_path.resolve().as_posix()
     toml_section = (
         f'\n[mcp_servers.soul]\n'
         f'command = "uvx"\n'
         f'args = ["--from", "soul-protocol[mcp]", "soul-mcp"]\n'
         f'\n[mcp_servers.soul.env]\n'
-        f'SOUL_PATH = "{soul_path.resolve()}"\n'
+        f"SOUL_PATH = '{safe_path}'\n"  # single-quoted TOML literal string
     )
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if config_path.exists():
-        content = config_path.read_text()
-        if "[mcp_servers.soul]" in content:
-            return False  # already configured
-        config_path.write_text(content.rstrip() + "\n" + toml_section)
-    else:
-        config_path.write_text(toml_section)
+    try:
+        if config_path.exists():
+            content = config_path.read_text()
+            if "[mcp_servers.soul]" in content:
+                return False  # already configured
+            config_path.write_text(content.rstrip() + "\n" + toml_section)
+        else:
+            config_path.write_text(toml_section)
+    except OSError:
+        return False
     return True
 
 
@@ -262,16 +277,19 @@ def _write_mcp_toml(config_path: Path, soul_path: Path) -> bool:
 
 def _append_instructions(file_path: Path, header: str | None = None) -> bool:
     """Append soul instructions to an instruction file. Returns True if written."""
-    file_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if file_path.exists():
-        content = file_path.read_text()
-        if _SOUL_MARKER in content:
-            return False  # already has soul instructions
-        file_path.write_text(content.rstrip() + "\n" + _SOUL_INSTRUCTIONS)
-    else:
-        preamble = f"# {header}\n" if header else ""
-        file_path.write_text(preamble + _SOUL_INSTRUCTIONS)
+        if file_path.exists():
+            content = file_path.read_text()
+            if _SOUL_MARKER in content:
+                return False  # already has soul instructions
+            file_path.write_text(content.rstrip() + "\n" + _SOUL_INSTRUCTIONS)
+        else:
+            preamble = f"# {header}\n" if header else ""
+            file_path.write_text(preamble + _SOUL_INSTRUCTIONS)
+    except OSError:
+        return False
     return True
 
 
@@ -321,6 +339,11 @@ def setup_integrations(
     all_platforms = {p.slug: p for p in get_platforms(cwd)}
 
     if platforms:
+        unknowns = [s for s in platforms if s not in all_platforms]
+        if unknowns:
+            messages.append(
+                f"  [yellow]Unknown platforms ignored: {', '.join(unknowns)}[/yellow]"
+            )
         targets = [all_platforms[s] for s in platforms if s in all_platforms]
         if not targets:
             messages.append("[yellow]No recognized platforms specified.[/yellow]")

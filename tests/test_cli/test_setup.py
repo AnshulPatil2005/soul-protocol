@@ -1,12 +1,12 @@
 # tests.test_cli.test_setup — Tests for universal agent platform integration
 # Created: 2026-03-13 — Tests for setup.py platform detection, MCP config, instructions.
+# Updated: 2026-03-13 — Fixed CI isolation (monkeypatch _home to prevent real fs writes).
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import pytest
+from unittest.mock import patch
 
 from soul_protocol.cli.setup import (
     _append_instructions,
@@ -20,6 +20,14 @@ from soul_protocol.cli.setup import (
     setup_integrations,
     Platform,
 )
+
+
+def _isolated_setup(tmp_path, **kwargs):
+    """Run setup_integrations with home dir isolated to tmp_path."""
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir(exist_ok=True)
+    with patch("soul_protocol.cli.setup._home", return_value=fake_home):
+        return setup_integrations(**kwargs)
 
 
 # --- Platform detection ---
@@ -225,7 +233,8 @@ def test_setup_integrations_specific_platforms(tmp_path):
     soul_path = tmp_path / ".soul"
     soul_path.mkdir()
 
-    messages = setup_integrations(
+    messages = _isolated_setup(
+        tmp_path,
         soul_path=soul_path,
         soul_name="TestBot",
         cwd=tmp_path,
@@ -237,6 +246,7 @@ def test_setup_integrations_specific_platforms(tmp_path):
     assert (tmp_path / ".mcp.json").exists()
     assert (tmp_path / ".cursor" / "mcp.json").exists()
     assert (tmp_path / ".gitignore").exists()
+    assert len(messages) >= 4  # AGENTS.md + 2 MCP + gitignore at minimum
 
     # Should NOT have created VS Code config
     assert not (tmp_path / ".vscode" / "mcp.json").exists()
@@ -246,7 +256,8 @@ def test_setup_integrations_auto_detect_empty(tmp_path):
     soul_path = tmp_path / ".soul"
     soul_path.mkdir()
 
-    messages = setup_integrations(
+    messages = _isolated_setup(
+        tmp_path,
         soul_path=soul_path,
         soul_name="TestBot",
         cwd=tmp_path,
@@ -255,9 +266,35 @@ def test_setup_integrations_auto_detect_empty(tmp_path):
 
     # AGENTS.md should always be created
     assert (tmp_path / "AGENTS.md").exists()
-    # No project-scoped platforms detected, so no project MCP configs
-    # (global platforms like Windsurf may still be configured if installed)
-    assert not (tmp_path / ".cursor" / "mcp.json").exists()
+    # No platforms detected in isolated dir, so no MCP configs
+    assert not (tmp_path / ".mcp.json").exists()
+    assert any("AGENTS.md" in m for m in messages)
+
+
+def test_setup_continue_dropin_format(tmp_path):
+    """Continue uses drop-in format: each file = one server entry."""
+    soul_path = tmp_path / ".soul"
+    soul_path.mkdir()
+    fake_home = tmp_path / "fake_home"
+    continue_dir = fake_home / ".continue" / "mcpServers"
+    continue_dir.mkdir(parents=True)
+
+    plat = Platform(
+        name="Continue", slug="continue",
+        mcp_config_paths=[continue_dir / "soul.json"],
+    )
+
+    result = _write_mcp_json(continue_dir / "soul.json", soul_path, plat)
+    assert result is True
+
+    data = json.loads((continue_dir / "soul.json").read_text())
+    # Should be bare server entry, NOT wrapped in mcpServers
+    assert "command" in data
+    assert "mcpServers" not in data
+
+    # Idempotent
+    result2 = _write_mcp_json(continue_dir / "soul.json", soul_path, plat)
+    assert result2 is False
 
 
 # --- Helpers ---

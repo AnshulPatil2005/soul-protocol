@@ -1,10 +1,10 @@
 # tests.test_cli.test_setup — Tests for universal agent platform integration
-# Created: 2026-03-13 — Tests for setup.py platform detection, MCP config, instructions.
-# Updated: 2026-03-13 — Fixed CI isolation (monkeypatch _home to prevent real fs writes).
+# Updated: 2026-03-13 — Added test for _resolve_uvx absolute path resolution.
 
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +12,7 @@ from soul_protocol.cli.setup import (
     _append_instructions,
     _mcp_server_entry,
     _rel_path,
+    _resolve_uvx,
     _update_gitignore,
     _write_mcp_json,
     _write_mcp_toml,
@@ -87,7 +88,7 @@ def test_write_mcp_json_creates_file(tmp_path):
     assert config_path.exists()
     data = json.loads(config_path.read_text())
     assert "soul" in data["mcpServers"]
-    assert data["mcpServers"]["soul"]["command"] == "uvx"
+    assert data["mcpServers"]["soul"]["command"].endswith("uvx")
 
 
 def test_write_mcp_json_merges_existing(tmp_path):
@@ -313,6 +314,23 @@ def test_rel_path_home():
 
 def test_mcp_server_entry(tmp_path):
     entry = _mcp_server_entry(tmp_path / ".soul")
-    assert entry["command"] == "uvx"
+    assert entry["command"].endswith("uvx")
     assert "soul-mcp" in entry["args"]
     assert "SOUL_PATH" in entry["env"]
+
+
+def test_resolve_uvx_returns_absolute_path():
+    """uvx should resolve to an absolute path when available on PATH."""
+    result = _resolve_uvx()
+    # On a dev machine with uv installed, should be absolute
+    # On CI without uv, falls back to bare "uvx"
+    assert result.endswith("uvx")
+    if shutil.which("uvx"):
+        assert "/" in result or "\\" in result  # absolute path
+
+
+def test_resolve_uvx_fallback():
+    """When uvx is not on PATH, fall back to bare 'uvx'."""
+    with patch("soul_protocol.cli.setup.shutil.which", return_value=None):
+        result = _resolve_uvx()
+    assert result == "uvx"

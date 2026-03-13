@@ -1,5 +1,5 @@
 # cli/setup.py — Universal agent platform integration for soul-protocol
-# Created: 2026-03-13 — Auto-detect and configure coding agents + AI platforms.
+# Updated: 2026-03-13 — Resolve absolute path to uvx for GUI app compatibility.
 #
 # Supports: Claude Code, Cursor, VS Code/Copilot, Windsurf, Cline, Continue,
 #           Gemini CLI, Codex CLI, Amazon Q, Zed, Claude Desktop.
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import platform
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -188,10 +189,21 @@ def detect_platforms(cwd: Path) -> list[Platform]:
 # ── MCP config writers ──
 
 
+def _resolve_uvx() -> str:
+    """Resolve the absolute path to uvx.
+
+    GUI apps (Claude Desktop, VS Code, Cursor, Windsurf) don't inherit the
+    user's shell PATH, so bare 'uvx' fails with "No such file or directory".
+    We resolve the full path at setup time so the config works everywhere.
+    """
+    resolved = shutil.which("uvx")
+    return resolved if resolved else "uvx"  # fallback to bare name
+
+
 def _mcp_server_entry(soul_path: Path) -> dict:
     """Standard MCP server config for soul-protocol."""
     return {
-        "command": "uvx",
+        "command": _resolve_uvx(),
         "args": ["--from", "soul-protocol[mcp]", "soul-mcp"],
         "env": {"SOUL_PATH": str(soul_path.resolve())},
     }
@@ -201,7 +213,7 @@ def _mcp_server_entry_vscode(soul_path: Path) -> dict:
     """VS Code MCP server config (slightly different schema)."""
     return {
         "type": "stdio",
-        "command": "uvx",
+        "command": _resolve_uvx(),
         "args": ["--from", "soul-protocol[mcp]", "soul-mcp"],
         "env": {"SOUL_PATH": str(soul_path.resolve())},
     }
@@ -226,7 +238,7 @@ def _write_mcp_json(config_path: Path, soul_path: Path, platform: Platform) -> b
         if config_path.exists():
             try:
                 existing = json.loads(config_path.read_text())
-                if existing.get("command") == "uvx":
+                if "soul-mcp" in existing.get("args", []):
                     return False  # already configured
             except (json.JSONDecodeError, OSError):
                 pass
@@ -249,9 +261,10 @@ def _write_mcp_toml(config_path: Path, soul_path: Path) -> bool:
     """Write MCP config for Codex CLI (TOML format). Returns True if written."""
     # Use forward slashes (posix) for cross-platform TOML safety
     safe_path = soul_path.resolve().as_posix()
+    uvx_cmd = Path(_resolve_uvx()).as_posix()  # forward slashes for TOML safety
     toml_section = (
         f'\n[mcp_servers.soul]\n'
-        f'command = "uvx"\n'
+        f'command = "{uvx_cmd}"\n'
         f'args = ["--from", "soul-protocol[mcp]", "soul-mcp"]\n'
         f'\n[mcp_servers.soul.env]\n'
         f"SOUL_PATH = '{safe_path}'\n"  # single-quoted TOML literal string

@@ -1,8 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol
-# Updated: 2026-03-13 — --setup skips soul creation when soul already exists.
-# Updated: 2026-03-13 — Added --setup flag for universal agent platform integration.
-# Updated: 2026-03-13 — Added `soul unpack` command, made export --output optional.
-# Updated: 2026-03-13 — Added --traits/-t compact OCEAN shorthand to `soul birth`.
+# Updated: 2026-03-13 — --setup preserves existing souls, warns on --from-file conflict.
 # Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
 # Updated: 2026-03-02 — Removed dashboard/open commands (replaced by rich TUI in inspect/status).
 #   Enhanced `soul inspect` with OCEAN bars, memory stats, core memory, self-model panels.
@@ -233,6 +230,11 @@ def init(name, archetype, values, from_file, soul_dir, setup_targets):
 
         if existing and setup_targets is not None:
             # Soul already exists, --setup just configures platforms around it
+            if from_file:
+                console.print(
+                    "[yellow]Warning:[/yellow] --from-file ignored; existing soul "
+                    f"found at {soul_path}/. Remove the existing soul to replace it."
+                )
             soul = await Soul.awaken(str(soul_path))
             console.print(
                 f"\n[green]Found[/green] existing soul [bold]{soul.name}[/bold] "

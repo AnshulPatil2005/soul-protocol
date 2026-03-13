@@ -1,11 +1,9 @@
 # test_cli.py — Tests for the CLI interface using click.testing.CliRunner.
-# Updated: 2026-03-13 — Added test for --setup with existing soul (no overwrite).
-# Updated: 2026-03-10 — Added tests for `soul remember` and `soul recall` commands.
-# Updated: v0.2.2 — Version test now checks package version dynamically.
-# Created: 2026-02-22 — Covers --version, birth, inspect, and status commands.
+# Updated: 2026-03-13 — Strengthened --setup test with DID identity assertion.
 
 from __future__ import annotations
 
+import json
 import os
 
 from click.testing import CliRunner
@@ -161,11 +159,15 @@ def test_init_setup_preserves_existing_soul(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()
     soul_dir = str(tmp_path / ".soul" / "testbot")
+    soul_json_path = tmp_path / ".soul" / "testbot" / "soul.json"
 
     # First, create a soul via init
     result = runner.invoke(cli, ["init", "TestBot", "-d", soul_dir])
     assert result.exit_code == 0
-    assert (tmp_path / ".soul" / "testbot" / "soul.json").exists()
+    assert soul_json_path.exists()
+
+    # Capture the DID before re-running
+    before = json.loads(soul_json_path.read_text())
 
     # Now run init --setup on the same dir — should NOT overwrite
     result2 = runner.invoke(
@@ -173,6 +175,11 @@ def test_init_setup_preserves_existing_soul(tmp_path, monkeypatch):
     )
     assert result2.exit_code == 0
     assert "Found" in result2.output and "TestBot" in result2.output
+
+    # Verify soul identity was preserved (same DID, same name)
+    after = json.loads(soul_json_path.read_text())
+    assert before["identity"]["did"] == after["identity"]["did"]
+    assert before["identity"]["name"] == after["identity"]["name"]
 
     # Verify .mcp.json was created (setup worked)
     assert (tmp_path / ".mcp.json").exists()

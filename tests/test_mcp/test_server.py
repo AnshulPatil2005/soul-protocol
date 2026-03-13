@@ -1,5 +1,6 @@
 # tests.test_mcp.test_server — MCP server integration tests
 # Tests all 10 tools, 3 resources, 2 prompts using FastMCP in-memory Client
+# Updated: 2026-03-13 — Auto-save on shutdown, directory SOUL_PATH tests.
 # Updated: Enum validation, core memory guard, export validation,
 #          birth replacement warning, resource guards, lifespan
 
@@ -460,3 +461,116 @@ async def test_lifespan_handles_bad_path(tmp_path):
             os.environ["SOUL_PATH"] = old_env
         server_module._soul = None
         server_module._soul_path = None
+
+
+# --- Auto-save Tests ---
+
+
+async def test_autosave_to_soul_file(tmp_path):
+    """Memories persist after MCP server shutdown (ZIP format)."""
+    from soul_protocol import Soul
+
+    soul = await Soul.birth("AutoSaveZip", values=["testing"])
+    soul_file = tmp_path / "autosave.soul"
+    await soul.export(str(soul_file))
+
+    old_env = os.environ.get("SOUL_PATH")
+    os.environ["SOUL_PATH"] = str(soul_file)
+    server_module._soul = None
+    server_module._soul_path = None
+    try:
+        async with Client(mcp) as client:
+            await client.call_tool(
+                "soul_remember",
+                {"content": "Auto-save test memory", "importance": 9},
+            )
+        # Client context exited — lifespan teardown ran, auto-saved
+
+        # Reload and verify memory persisted
+        reloaded = await Soul.awaken(str(soul_file))
+        memories = await reloaded.recall("Auto-save test", limit=5)
+        assert any("Auto-save test memory" in m.content for m in memories)
+    finally:
+        if old_env is None:
+            os.environ.pop("SOUL_PATH", None)
+        else:
+            os.environ["SOUL_PATH"] = old_env
+        server_module._soul = None
+        server_module._soul_path = None
+
+
+async def test_autosave_to_directory(tmp_path):
+    """Memories persist after MCP server shutdown (directory format)."""
+    from soul_protocol import Soul
+
+    soul = await Soul.birth("AutoSaveDir", values=["testing"])
+    soul_dir = tmp_path / "guardian"
+    await soul.save_local(str(soul_dir))
+
+    old_env = os.environ.get("SOUL_PATH")
+    os.environ["SOUL_PATH"] = str(soul_dir)
+    server_module._soul = None
+    server_module._soul_path = None
+    try:
+        async with Client(mcp) as client:
+            await client.call_tool(
+                "soul_remember",
+                {"content": "Directory auto-save test", "importance": 8},
+            )
+        # Client context exited — lifespan teardown ran, auto-saved via save_local
+
+        # Reload from directory and verify
+        reloaded = await Soul.awaken(str(soul_dir))
+        memories = await reloaded.recall("Directory auto-save", limit=5)
+        assert any("Directory auto-save test" in m.content for m in memories)
+    finally:
+        if old_env is None:
+            os.environ.pop("SOUL_PATH", None)
+        else:
+            os.environ["SOUL_PATH"] = old_env
+        server_module._soul = None
+        server_module._soul_path = None
+
+
+async def test_lifespan_loads_from_directory(tmp_path):
+    """SOUL_PATH pointing to a directory loads correctly."""
+    from soul_protocol import Soul
+
+    soul = await Soul.birth("DirLoad", values=["testing"])
+    await soul.remember("pre-existing memory", importance=7)
+    soul_dir = tmp_path / "dir_soul"
+    await soul.save_local(str(soul_dir))
+
+    old_env = os.environ.get("SOUL_PATH")
+    os.environ["SOUL_PATH"] = str(soul_dir)
+    server_module._soul = None
+    server_module._soul_path = None
+    try:
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_state", {})
+            data = json.loads(result.data)
+            assert data["lifecycle"] == "active"
+
+            # Verify pre-existing memory is accessible
+            result = await client.call_tool(
+                "soul_recall", {"query": "pre-existing memory", "limit": 5}
+            )
+            data = json.loads(result.data)
+            assert data["count"] >= 1
+    finally:
+        if old_env is None:
+            os.environ.pop("SOUL_PATH", None)
+        else:
+            os.environ["SOUL_PATH"] = old_env
+        server_module._soul = None
+        server_module._soul_path = None
+
+
+async def test_soul_save_updates_path(tmp_path):
+    """soul_save with a path updates _soul_path for auto-save."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        save_dir = tmp_path / "saved"
+        save_dir.mkdir()
+        await client.call_tool("soul_save", {"path": str(save_dir)})
+        assert server_module._soul_path == str(save_dir)

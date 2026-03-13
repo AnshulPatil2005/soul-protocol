@@ -1,6 +1,7 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 10 tools, 3 resources, 2 prompts for AI agent integration
 #
+# Updated: 2026-03-13 — Auto-save on shutdown, directory SOUL_PATH support.
 # Updated: Lifespan-based startup, enum validation, core memory guard,
 #          export path validation, single-client documentation
 #
@@ -54,6 +55,34 @@ async def _lifespan(server: FastMCP):
             _soul = None
             _soul_path = None
     yield
+    # Auto-save on shutdown
+    if _soul is not None:
+        try:
+            if _soul_path:
+                p = Path(_soul_path)
+                if p.is_dir():
+                    await _soul.save_local(str(p))
+                elif p.suffix == ".soul":
+                    await _soul.export(str(p))
+                else:
+                    await _soul.save(_soul_path)
+            else:
+                await _soul.save()
+            import sys
+
+            print(
+                f"soul-mcp: auto-saved to {_soul_path or '~/.soul/'}",
+                file=sys.stderr,
+                flush=True,
+            )
+        except Exception as e:
+            import sys
+
+            print(
+                f"soul-mcp: auto-save failed: {e}",
+                file=sys.stderr,
+                flush=True,
+            )
     _soul = None
     _soul_path = None
 
@@ -313,9 +342,20 @@ async def soul_save(path: str | None = None) -> str:
         path: Base directory to save into. If omitted, saves to
               the original SOUL_PATH or ~/.soul/<soul_id>/.
     """
+    global _soul_path
     soul = await _get_soul()
     save_path = path or _soul_path
-    await soul.save(save_path)
+    if save_path:
+        p = Path(save_path)
+        if p.is_dir():
+            await soul.save_local(str(p))
+        elif p.suffix == ".soul":
+            await soul.export(str(p))
+        else:
+            await soul.save(save_path)
+        _soul_path = save_path
+    else:
+        await soul.save()
     default_path = str(Path.home() / ".soul" / soul.did)
     return json.dumps(
         {

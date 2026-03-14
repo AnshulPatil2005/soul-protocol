@@ -1,10 +1,9 @@
-<!-- Updated: 2026-03-12 — Added Soul Health Score (SHS) evaluation framework as Tier 6,
-     updated abstract, implementation stats (996 tests, 9,693 lines runtime),
-     and conclusion with SHS and LLM judge validation data. -->
+<!-- Updated: 2026-03-13 — Merged dev: SHS Tier 6, multi-soul MCP, soul inject CLI,
+     memory v2, updated stats (1189 tests, 12 MCP tools, 15 CLI commands). -->
 
 # Soul Protocol: A Portable Standard for AI Companion Identity, Memory, Cognition, and Emotion
 
-**Version 0.5.0**
+**Version 0.2.3**
 **March 2026**
 
 ---
@@ -155,15 +154,15 @@ User input + Agent output
 
 This pipeline is the EQ layer. It decides not just *what* to store, but *whether* to store, *how* to feel about it, and *what it means* for the soul's sense of self. Retrieval-only systems skip all of this.
 
-### Bond, skills, reincarnation
+### Bond, encryption, evolution
 
 A soul isn't static. It has dynamics that change over time:
 
-**Bond.** Emotional attachment to a bonded entity. Strength ranges 0 to 100, increases through positive interactions, weakens through neglect. Interaction count and last-contact timestamps track the relationship.
+**Bond.** Emotional attachment to a bonded entity. Strength ranges 0 to 100, increases through positive interactions (logarithmic growth — deep trust is hard-earned), weakens through neglect (linear decay — sharp). Interaction count and last-contact timestamps track the relationship.
 
-**Skills and XP.** Souls accumulate experience in domains. Each skill has an XP counter and level (1 to 10, 1.5x scaling per level). A soul that helps with Python for months develops a visible, queryable, portable Python skill.
+**Encryption at rest.** `.soul` files can be password-encrypted with AES-256-GCM. Key derivation uses scrypt with OWASP-recommended parameters (n=2^17, r=8, p=1). The manifest stays readable for detection; all other files are encrypted. Wrong password raises a clear error, not silent corruption.
 
-**Reincarnation.** A soul can be reborn. `reincarnate()` creates a new soul that preserves memories, personality, and bonds while incrementing the incarnation counter. Previous lives are recorded. The soul carries its history forward.
+**GDPR-compliant deletion.** Three methods: `forget(query)` for targeted deletion, `forget_entity(entity)` for cascading entity removal, and `forget_before(timestamp)` for time-based erasure. Deletions cascade across all memory tiers with an audit trail.
 
 **Evolution.** Personality traits shift over time through supervised or autonomous mutation, within configurable bounds. A soul bonded to an introverted user might drift lower in extraversion over months. Changes require approval by default.
 
@@ -211,12 +210,13 @@ A memory recalled twice this morning outranks an "important" memory from last we
 Not everything deserves to become a memory. The LIDA model proposes an attention bottleneck: most input is discarded, only significant events enter long-term storage.
 
 ```
-significance = 0.4 × novelty
-             + 0.35 × emotional_intensity
-             + 0.25 × goal_relevance
+significance = 0.3 × novelty
+             + 0.2 × emotional_intensity
+             + 0.2 × goal_relevance
+             + 0.3 × content_richness
 ```
 
-Threshold: 0.3. Below this, fact extraction still runs, but the interaction doesn't enter episodic memory. "Hello" doesn't clutter the store. "I just got promoted" does.
+Threshold: 0.35. Below this, fact extraction still runs, but the interaction doesn't enter episodic memory. "Hello" doesn't clutter the store. "I just got promoted" does.
 
 This gate is the primary defense against memory bloat in long-running companions. It's also the clearest example of EQ over IQ: the system decides what matters based on emotional and contextual signals, not text similarity.
 
@@ -382,9 +382,9 @@ Soul Protocol is not a retrieval replacement. It's a layer that sits alongside r
 Python 3.12. Open source. MIT license.
 
 - 10,300+ lines across 80+ modules
-- 996 tests, six-tier validation (including Soul Health Score framework)
-- 11-command CLI with rich TUI
-- MCP server (10 tools, 3 resources)
+- 1,189 tests, six-tier validation (including Soul Health Score framework)
+- 15-command CLI with rich TUI
+- MCP server (12 tools, 3 resources)
 - JSON Schemas for cross-language validation
 - Two-layer architecture: `spec/` (695 lines, portable) + `runtime/` (9,693 lines, opinionated)
 - Zero required cloud dependencies
@@ -397,20 +397,27 @@ Python 3.12. Open source. MIT license.
 - ACT-R activation scoring with power-law decay
 - Klein emergent self-model (67+ self-discovered domains in testing)
 - `.soul` file roundtrip (pack, unpack, verify)
+- AES-256-GCM encryption at rest with scrypt key derivation
+- GDPR-compliant memory deletion (targeted, entity, time-based) with audit trail
 - CognitiveEngine with HeuristicEngine fallback
-- Pluggable SearchStrategy and EmbeddingProvider
+- Optional DSPy integration for learnable/optimizable memory pipeline
+- Pluggable SearchStrategy (BM25 default) and EmbeddingProvider
 - Vector search (HashEmbedder, TFIDFEmbedder, VectorSearchStrategy)
+- Structured logging across all 13 runtime modules (PII-safe)
+- Personality-modulated recall (OCEAN traits influence retrieval ranking)
 - Eternal storage protocol with mock providers
-- Bond system (0 to 100 strength, interaction tracking)
-- Skills/XP (10 levels, 1.5x scaling)
-- Reincarnation with lineage
+- Bond system (0 to 100 strength, logarithmic growth, interaction tracking)
 - Temporal knowledge graph (point-in-time queries, relationship evolution)
-- Memory compression (dedup, pruning, export optimization)
-- Archival memory (keyword search, date-range queries)
 - Fact conflict detection (superseded_by chain)
 - Evolution (supervised mutations, approval workflow)
 
 ### Not working yet
+
+**Skills/XP system.** The data models exist but the full leveling system (domain expertise with XP tracking and portable skill history) is not wired into the runtime. Planned.
+
+**Reincarnation.** The lifecycle state exists in the type system but `reincarnate()` is not implemented. Planned.
+
+**Archival memory.** The vision describes compressed conversation transcripts with keyword and date-range search. Not implemented. The five working tiers (core, episodic, semantic, procedural, graph) handle current needs.
 
 **Learning events.** The system records what happened, not what was *learned*. No formalized feedback loop from experience to procedural knowledge. A soul that fails at a task and a soul that succeeds store the same kind of memory. They shouldn't.
 
@@ -422,7 +429,7 @@ Python 3.12. Open source. MIT license.
 
 **Production eternal storage.** Providers are mocks. Real IPFS/Arweave integration needs network dependencies that aren't in place.
 
-**Semantic precision.** Heuristic keyword recall hits ~13%. "Where does Jordan live?" fails when the stored memory says "I live in Austin Texas" because there's no keyword overlap. The LLM engine layer closes this gap, but without an LLM, retrieval is limited.
+**Semantic precision.** Heuristic keyword recall hits ~13%. "Where does Jordan live?" fails when the stored memory says "I live in Austin Texas" because there's no keyword overlap. The LLM engine layer and BM25 search close this gap significantly, but without an LLM, retrieval is limited.
 
 ---
 

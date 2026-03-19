@@ -1,5 +1,7 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 12 tools, 3 resources, 2 prompts for AI agent integration
+# 13 tools, 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-03-18 — Auto-reload: detect external .soul file changes via mtime check.
+# Updated: 2026-03-15 — Added soul_reload tool to pick up external .soul file changes.
 # Updated: 2026-03-13 — Multi-soul support via SoulRegistry + SOUL_DIR scanning.
 #
 # Usage:
@@ -9,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -33,8 +36,24 @@ class SoulRegistry:
         self._souls: dict[str, Soul] = {}  # lowercase name -> Soul
         self._paths: dict[str, str] = {}  # lowercase name -> source path
         self._formats: dict[str, str] = {}  # lowercase name -> "directory" | "zip"
+        self._mtimes: dict[str, float] = {}  # lowercase name -> last known mtime
+        self._reload_locks: dict[str, asyncio.Lock] = {}  # per-key reload lock
         self._active: str | None = None
         self._modified: set[str] = set()
+
+    def _get_mtime(self, path: str) -> float:
+        """Get the modification time for a soul path (file or directory)."""
+        p = Path(path)
+        try:
+            if p.is_file():
+                return p.stat().st_mtime
+            elif p.is_dir():
+                soul_json = p / "soul.json"
+                if soul_json.exists():
+                    return soul_json.stat().st_mtime
+            return 0.0
+        except OSError:
+            return 0.0
 
     def register(self, soul: Soul, path: str, fmt: str) -> None:
         """Register a soul. First registered becomes active."""
@@ -42,6 +61,8 @@ class SoulRegistry:
         self._souls[key] = soul
         self._paths[key] = path
         self._formats[key] = fmt
+        self._mtimes[key] = self._get_mtime(path)
+        self._reload_locks[key] = asyncio.Lock()
         if self._active is None:
             self._active = key
 
@@ -112,11 +133,46 @@ class SoulRegistry:
             if n in self._souls and self._paths.get(n)
         ]
 
+    async def check_and_reload(self, key: str) -> None:
+        """Reload a soul from disk if its file was modified externally.
+
+        Uses a per-key lock to prevent concurrent reloads of the same soul
+        (e.g. background watcher and tool call racing).
+        """
+        path = self._paths.get(key)
+        if not path:
+            return
+        lock = self._reload_locks.get(key)
+        if not lock:
+            return
+        async with lock:
+            current_mtime = self._get_mtime(path)
+            if current_mtime <= self._mtimes.get(key, 0.0):
+                return  # already up-to-date (or reloaded by another caller)
+            try:
+                reloaded = await Soul.awaken(path)
+                self._souls[key] = reloaded
+                self._mtimes[key] = current_mtime
+                self._modified.discard(key)
+                print(
+                    f"soul-mcp: auto-reloaded {reloaded.name} (file changed on disk)",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            except (FileNotFoundError, ValueError, SoulProtocolError) as e:
+                print(
+                    f"soul-mcp: auto-reload failed for {key}: {e}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
     def clear(self) -> None:
         """Reset all state."""
         self._souls.clear()
         self._paths.clear()
         self._formats.clear()
+        self._mtimes.clear()
+        self._reload_locks.clear()
         self._active = None
         self._modified.clear()
 
@@ -164,6 +220,32 @@ async def _scan_soul_dir(directory: str) -> list[tuple[Soul, str, str]]:
                 flush=True,
             )
     return entries
+
+
+# ── Background File Watcher ──
+
+async def _file_watcher() -> None:
+    """Background task: poll soul file mtimes and auto-reload on change.
+
+    Runs every SOUL_POLL_INTERVAL seconds (default 2s, min 0.5s). When an
+    external process (e.g. Claude Desktop) modifies the .soul file, the
+    in-memory soul is replaced before the next tool call even happens.
+    """
+    while True:
+        try:
+            interval = max(0.5, float(os.environ.get("SOUL_POLL_INTERVAL", "2.0")))
+        except (ValueError, TypeError):
+            interval = 2.0
+        await asyncio.sleep(interval)
+        try:
+            for key in list(_registry._souls):
+                await _registry.check_and_reload(key)
+        except Exception as e:
+            print(
+                f"soul-mcp: file watcher error: {e}",
+                file=sys.stderr,
+                flush=True,
+            )
 
 
 # ── Lifespan ──
@@ -214,7 +296,17 @@ async def _lifespan(server: FastMCP):
                 flush=True,
             )
 
+    # Start background file watcher
+    watcher_task = asyncio.create_task(_file_watcher())
+
     yield
+
+    # Stop file watcher
+    watcher_task.cancel()
+    try:
+        await watcher_task
+    except asyncio.CancelledError:
+        pass
 
     # Auto-save modified souls on shutdown
     for soul, path, fmt in _registry.modified_entries:
@@ -244,8 +336,12 @@ mcp = FastMCP(
 )
 
 
-def _resolve_soul(soul: str | None = None) -> Soul:
-    """Resolve a soul by name, or return the active soul."""
+async def _resolve_soul(soul: str | None = None) -> Soul:
+    """Resolve a soul by name, or return the active soul. Auto-reloads if file changed."""
+    s = _registry.get(soul)
+    key = s.name.lower()
+    await _registry.check_and_reload(key)
+    # Re-fetch in case reload replaced the instance
     return _registry.get(soul)
 
 
@@ -358,7 +454,7 @@ async def soul_observe(
         channel: Source channel identifier
         soul: Target soul name (uses active soul if omitted)
     """
-    s = _resolve_soul(soul)
+    s = await _resolve_soul(soul)
     await s.observe(
         Interaction(
             user_input=user_input,
@@ -395,7 +491,7 @@ async def soul_remember(
         emotion: Optional emotion label
         soul: Target soul name (uses active soul if omitted)
     """
-    s = _resolve_soul(soul)
+    s = await _resolve_soul(soul)
     mt = _validate_memory_type(memory_type)
     importance = max(1, min(10, importance))
     memory_id = await s.remember(
@@ -428,7 +524,7 @@ async def soul_recall(
         limit: Maximum results to return
         soul: Target soul name (uses active soul if omitted)
     """
-    s = _resolve_soul(soul)
+    s = await _resolve_soul(soul)
     results = await s.recall(query, limit=limit)
     memories = [
         {
@@ -452,7 +548,7 @@ async def soul_reflect(soul: str | None = None) -> str:
     Args:
         soul: Target soul name (uses active soul if omitted)
     """
-    s = _resolve_soul(soul)
+    s = await _resolve_soul(soul)
     result = await s.reflect()
     if result is None:
         return json.dumps(
@@ -480,7 +576,7 @@ async def soul_state(soul: str | None = None) -> str:
     Args:
         soul: Target soul name (uses active soul if omitted)
     """
-    s = _resolve_soul(soul)
+    s = await _resolve_soul(soul)
     st = s.state
     return json.dumps(
         {
@@ -509,7 +605,7 @@ async def soul_feel(
                 negative decreases. Clamped to 0-100.
         soul: Target soul name (uses active soul if omitted)
     """
-    s = _resolve_soul(soul)
+    s = await _resolve_soul(soul)
     kwargs: dict[str, Any] = {}
     if mood is not None:
         kwargs["mood"] = _validate_mood(mood)
@@ -536,7 +632,7 @@ async def soul_prompt(soul: str | None = None) -> str:
     Args:
         soul: Target soul name (uses active soul if omitted)
     """
-    s = _resolve_soul(soul)
+    s = await _resolve_soul(soul)
     return s.to_system_prompt()
 
 
@@ -552,7 +648,7 @@ async def soul_save(
               original SOUL_PATH or ~/.soul/<soul_id>/.
         soul: Target soul name (uses active soul if omitted)
     """
-    s = _resolve_soul(soul)
+    s = await _resolve_soul(soul)
     key = (soul or "").lower() if soul else _registry._active
     save_path = path or (key and _registry._paths.get(key, "")) or None
     fmt = (key and _registry._formats.get(key, "directory")) or "directory"
@@ -561,6 +657,8 @@ async def soul_save(
         await _auto_save_one(s, save_path, fmt)
         if key and key in _registry._paths:
             _registry._paths[key] = save_path
+        if key:
+            _registry._mtimes[key] = _registry._get_mtime(save_path)
     else:
         await s.save()
         save_path = str(Path.home() / ".soul" / s.did)
@@ -586,7 +684,7 @@ async def soul_export(
         path: Output file path (must end in .soul)
         soul: Target soul name (uses active soul if omitted)
     """
-    s = _resolve_soul(soul)
+    s = await _resolve_soul(soul)
     resolved = Path(path).resolve()
     if resolved.suffix != ".soul":
         raise ValueError(f"Export path must end in .soul, got: {path!r}")
@@ -602,13 +700,53 @@ async def soul_export(
     )
 
 
+@mcp.tool
+async def soul_reload(
+    soul: str | None = None,
+) -> str:
+    """Reload a soul from disk, picking up any changes made externally.
+
+    Use this when the .soul file has been updated outside the MCP server
+    (e.g. by another process, a different session, or manual editing).
+    The in-memory soul is replaced with the freshly loaded version.
+
+    Args:
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    key = s.name.lower()
+    source_path = _registry._paths.get(key)
+    if not source_path:
+        raise RuntimeError(
+            f"No source path for soul '{s.name}'. "
+            "Cannot reload a soul that was created at runtime (not loaded from disk)."
+        )
+    fmt = _registry._formats.get(key, "directory")
+
+    reloaded = await Soul.awaken(source_path)
+    _registry._souls[key] = reloaded
+    _registry._mtimes[key] = _registry._get_mtime(source_path)
+    # Preserve active status and path — just swap the Soul instance
+    _registry._modified.discard(key)
+
+    return json.dumps(
+        {
+            "status": "reloaded",
+            "name": reloaded.name,
+            "path": source_path,
+            "format": fmt,
+            "memories": reloaded.memory_count,
+        }
+    )
+
+
 # --- Resources (3) ---
 
 
 @mcp.resource("soul://identity")
 async def soul_identity_resource() -> str:
     """Full identity JSON (DID, name, archetype, values, origin)."""
-    s = _resolve_soul()
+    s = await _resolve_soul()
     identity = s.identity
     return json.dumps(
         {
@@ -626,7 +764,7 @@ async def soul_identity_resource() -> str:
 @mcp.resource("soul://memory/core")
 async def soul_core_memory_resource() -> str:
     """Core memory: persona definition and human knowledge."""
-    s = _resolve_soul()
+    s = await _resolve_soul()
     core = s.get_core_memory()
     return json.dumps(
         {
@@ -639,7 +777,7 @@ async def soul_core_memory_resource() -> str:
 @mcp.resource("soul://state")
 async def soul_state_resource() -> str:
     """Current soul state: mood, energy, focus, social battery."""
-    s = _resolve_soul()
+    s = await _resolve_soul()
     st = s.state
     return json.dumps(
         {

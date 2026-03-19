@@ -1,4 +1,6 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: v0.3.5 — Added RubricCriterion, Rubric, CriterionResult, RubricResult
+#   models for rubric-based self-evaluation system.
 # Updated: v0.3.4 — Added MemoryCategory for structured extraction taxonomy,
 #   category + abstract + overview fields on MemoryEntry for progressive content
 #   loading (L0/L1/L2 layers), salience field for retrieval weighting.
@@ -11,7 +13,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
@@ -61,11 +63,29 @@ class CommunicationStyle(BaseModel):
 
 
 class Biorhythms(BaseModel):
-    """Simulated vitality and energy patterns."""
+    """Simulated vitality and energy patterns.
+
+    All fields have sensible defaults matching the original hardcoded behavior.
+    Set drain rates to 0 for "always-on" agents that never get tired.
+    """
 
     chronotype: str = "neutral"
+    # Note: initial social battery at birth. StateManager reads SoulState.social_battery
+    # at runtime, not this field. Soul.birth() syncs this into SoulState at creation time.
     social_battery: float = Field(default=100.0, ge=0.0, le=100.0)
-    energy_regen_rate: float = 5.0
+
+    # Energy dynamics
+    energy_regen_rate: float = Field(default=10.0, ge=0.0, description="Energy recovered per hour of elapsed time")
+    energy_drain_rate: float = Field(default=2.0, ge=0.0, description="Energy lost per interaction (0 = no drain)")
+    social_drain_rate: float = Field(default=5.0, ge=0.0, description="Social battery lost per interaction (0 = no drain)")
+
+    # Mood dynamics
+    tired_threshold: float = Field(default=20.0, ge=0.0, le=100.0, description="Energy below this forces TIRED mood (0 = disabled)")
+    mood_inertia: float = Field(default=0.4, ge=0.0, le=1.0, description="EMA alpha for mood shifts (0 = max inertia, 1 = instant)")
+    mood_sensitivity: float = Field(default=0.25, ge=0.0, le=1.0, description="Valence threshold to trigger mood change (0 = always shift)")
+
+    # Auto-regeneration
+    auto_regen: bool = Field(default=True, description="Recover energy automatically based on elapsed time between interactions")
 
 
 class DNA(BaseModel):
@@ -272,6 +292,49 @@ class Mutation(BaseModel):
     proposed_at: datetime = Field(default_factory=datetime.now)
     approved: bool | None = None
     approved_at: datetime | None = None
+
+
+# ============ Rubric-based Self-Evaluation ============
+
+
+class RubricCriterion(BaseModel):
+    """A single pass/fail evaluation criterion."""
+
+    name: str
+    description: str
+    weight: float = Field(default=1.0, gt=0.0)
+
+
+class Rubric(BaseModel):
+    """A named collection of evaluation criteria for a domain."""
+
+    id: str = ""
+    name: str
+    domain: str = ""
+    criteria: list[RubricCriterion]
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.id:
+            self.id = self.name.lower().replace(" ", "_")
+
+
+class CriterionResult(BaseModel):
+    """Result of evaluating one criterion."""
+
+    criterion: str
+    passed: bool
+    score: float  # 0.0-1.0
+    reasoning: str = ""
+
+
+class RubricResult(BaseModel):
+    """Complete evaluation result against a rubric."""
+
+    rubric_id: str
+    overall_score: float  # weighted average, 0.0-1.0
+    criterion_results: list[CriterionResult]
+    learning: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class EvolutionConfig(BaseModel):

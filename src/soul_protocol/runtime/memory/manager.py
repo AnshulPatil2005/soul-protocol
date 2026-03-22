@@ -1,4 +1,7 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: v0.4.0 — Pass KnowledgeGraph to RecallEngine for graph-augmented recall.
+#   Set ingested_at on memories during storage. Wire ContradictionDetector into
+#   observe() pipeline with detect_contradictions param.
 # Updated: 2026-03-13 — Replaced direct _memories dict access with
 #   EpisodicStore.update_entry() public API. Deduplicated cognitive engine
 #   imports in __init__ and observe().
@@ -52,6 +55,7 @@ from soul_protocol.runtime.memory.attention import (
     overall_significance,
 )
 from soul_protocol.runtime.memory.core import CoreMemoryManager
+from soul_protocol.runtime.memory.contradiction import ContradictionDetector
 from soul_protocol.runtime.memory.dedup import reconcile_fact
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
@@ -329,9 +333,11 @@ class MemoryManager:
             procedural=self._procedural,
             strategy=search_strategy,
             personality=personality,
+            graph=self._graph,
         )
 
         self._self_model = SelfModelManager(seed_domains=seed_domains)
+        self._contradiction_detector = ContradictionDetector(engine=engine)
         self._general_events: dict[str, GeneralEvent] = {}
 
         # v0.3.0 — GDPR deletion audit trail
@@ -375,6 +381,9 @@ class MemoryManager:
     # ---- Memory operations ----
 
     async def add(self, entry: MemoryEntry) -> str:
+        # Bi-temporal: stamp ingestion time if not already set
+        if entry.ingested_at is None:
+            entry.ingested_at = datetime.now()
         if entry.type == MemoryType.EPISODIC:
             interaction = Interaction(
                 user_input=entry.content,
@@ -399,6 +408,7 @@ class MemoryManager:
         self,
         interaction: Interaction,
         core_values: list[str] | None = None,
+        detect_contradictions: bool = True,
     ) -> dict:
         """Process an interaction through the psychology-informed pipeline."""
         from soul_protocol.runtime.cognitive.engine import (
@@ -506,6 +516,33 @@ class MemoryManager:
                 sig_value,
             )
 
+        # --- 4c. Contradiction detection on stored facts ---
+        contradictions: list[dict] = []
+        if detect_contradictions and stored_facts:
+            all_semantic = self._semantic.facts(include_superseded=False)
+            for fact in stored_facts:
+                cresults = await self._contradiction_detector.detect(
+                    fact.content, all_semantic
+                )
+                for cr in cresults:
+                    if cr.is_contradiction and cr.old_memory_id:
+                        # Mark old memory as superseded
+                        for existing_fact in all_semantic:
+                            if existing_fact.id == cr.old_memory_id:
+                                existing_fact.superseded = True
+                                existing_fact.superseded_by = fact.id
+                                logger.debug(
+                                    "Contradiction: old_id=%s superseded by new_id=%s reason=%s",
+                                    cr.old_memory_id, fact.id, cr.reason,
+                                )
+                                break
+                        contradictions.append({
+                            "old_id": cr.old_memory_id,
+                            "new_id": fact.id,
+                            "reason": cr.reason,
+                            "confidence": cr.confidence,
+                        })
+
         # --- 5. Extract entities (with provenance metadata) ---
         entities = await self._cognitive.extract_entities(
             interaction, source_memory_id=episodic_id,
@@ -527,6 +564,7 @@ class MemoryManager:
             "episodic_id": episodic_id,
             "facts": facts,
             "entities": entities,
+            "contradictions": contradictions,
         }
 
     async def recall(
@@ -965,6 +1003,7 @@ class MemoryManager:
             procedural=self._procedural,
             strategy=self._search_strategy,
             personality=self._personality,
+            graph=self._graph,
         )
         logger.debug("Memory stores cleared")
 

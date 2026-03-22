@@ -1,4 +1,6 @@
 # memory.py — Memory primitives for the core layer.
+# Updated: v0.4.0 — Added ingested_at and superseded fields to MemoryEntry
+#   for bi-temporal timestamps and contradiction detection support.
 # Created: v0.4.0 — MemoryEntry (atomic unit), MemoryStore (protocol),
 # and DictMemoryStore (in-memory reference implementation).
 # Layers are free-form strings, NOT enums — runtimes define their own namespaces.
@@ -25,6 +27,8 @@ class MemoryEntry(BaseModel):
     source: str = ""
     layer: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+    ingested_at: datetime | None = None  # When memory entered the pipeline
+    superseded: bool = False  # True when a newer memory contradicts this one
 
 
 @runtime_checkable

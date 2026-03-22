@@ -1,4 +1,5 @@
 # memory/__init__.py — Memory subsystem package for the Digital Soul Protocol.
+# Updated: v0.4.0 — Added ContradictionDetector export.
 # Updated: Phase 2 memory-runtime-v2 — Added reconcile_fact export from dedup module.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Updated: v0.2.2 — Added SearchStrategy protocol and TokenOverlapStrategy exports.
@@ -11,6 +12,7 @@ from soul_protocol.runtime.memory.activation import compute_activation
 from soul_protocol.runtime.memory.archival import ArchivalMemoryStore, ConversationArchive
 from soul_protocol.runtime.memory.attention import compute_significance, is_significant
 from soul_protocol.runtime.memory.compression import MemoryCompressor
+from soul_protocol.runtime.memory.contradiction import ContradictionDetector
 from soul_protocol.runtime.memory.core import CoreMemoryManager
 from soul_protocol.runtime.memory.dedup import reconcile_fact
 from soul_protocol.runtime.memory.episodic import EpisodicStore
@@ -46,4 +48,6 @@ __all__ = [
     "TokenOverlapStrategy",
     # Phase 2 — dedup pipeline
     "reconcile_fact",
+    # v0.4.0 — contradiction detection
+    "ContradictionDetector",
 ]

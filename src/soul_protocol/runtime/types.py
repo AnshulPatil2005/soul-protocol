@@ -1,4 +1,7 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: v0.4.0 — Added ingested_at (bi-temporal) and superseded (contradiction detection)
+#   fields to MemoryEntry. ingested_at tracks when a memory entered the pipeline,
+#   superseded marks memories replaced by newer contradicting information.
 # Updated: v0.3.5 — Added RubricCriterion, Rubric, CriterionResult, RubricResult
 #   models for rubric-based self-evaluation system.
 # Updated: v0.3.4 — Added MemoryCategory for structured extraction taxonomy,
@@ -228,6 +231,10 @@ class MemoryEntry(BaseModel):
     abstract: str | None = None  # L0: ~100 token semantic fingerprint
     overview: str | None = None  # L1: ~1K token structured summary
     salience: float = Field(default=0.5, ge=0.0, le=1.0)  # Retrieval weight
+    # v0.4.0 — Bi-temporal ingestion timestamp
+    ingested_at: datetime | None = None  # When memory entered the pipeline
+    # v0.4.0 — Contradiction detection
+    superseded: bool = False  # True when a newer memory contradicts this one
 
 
 class CoreMemory(BaseModel):

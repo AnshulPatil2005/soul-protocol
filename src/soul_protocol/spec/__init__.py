@@ -16,7 +16,9 @@ from .embeddings import (
 from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
 from .identity import Identity
 from .manifest import Manifest
-from .memory import DictMemoryStore, MemoryEntry, MemoryStore
+from .memory import DictMemoryStore, MemoryEntry, MemoryStore, MemoryVisibility
+from .template import SoulTemplate
+from .learning import LearningEvent
 from .soul_file import pack_soul, unpack_soul, unpack_to_container
 
 __all__ = [
@@ -27,7 +29,11 @@ __all__ = [
     # Memory
     "MemoryEntry",
     "MemoryStore",
+    "MemoryVisibility",
     "DictMemoryStore",
+    # Learning
+    "LearningEvent",
+    "SoulTemplate",
     # Soul file format
     "pack_soul",
     "unpack_soul",

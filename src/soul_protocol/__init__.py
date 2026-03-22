@@ -30,6 +30,7 @@ from .runtime.exceptions import (
 from .runtime.memory.strategy import SearchStrategy, TokenOverlapStrategy
 from .runtime.skills import Skill, SkillRegistry
 from .runtime.soul import Soul
+from .runtime.templates import SoulFactory
 from .runtime.types import (
     DNA,
     Biorhythms,
@@ -45,6 +46,7 @@ from .runtime.types import (
     MemoryEntry,
     MemorySettings,
     MemoryType,
+    MemoryVisibility,
     Mood,
     Mutation,
     Personality,
@@ -63,6 +65,7 @@ from .spec.identity import Identity as CoreIdentity
 from .spec.manifest import Manifest as CoreManifest
 from .spec.memory import DictMemoryStore, MemoryStore
 from .spec.memory import MemoryEntry as CoreMemoryEntry
+from .spec.template import SoulTemplate
 
 __all__ = [
     "Bond",
@@ -103,6 +106,9 @@ __all__ = [
     "MemoryEntry",
     "MemorySettings",
     "MemoryType",
+    "MemoryVisibility",
+    "SoulFactory",
+    "SoulTemplate",
     "Mood",
     "Mutation",
     "Personality",

@@ -160,6 +160,14 @@ class SelfImage(BaseModel):
 # ============ Memory ============
 
 
+
+class MemoryVisibility(StrEnum):
+    """Visibility tier for memory entries in public channel contexts."""
+    PUBLIC = "public"
+    BONDED = "bonded"
+    PRIVATE = "private"
+
+
 class MemoryType(StrEnum):
     CORE = "core"
     EPISODIC = "episodic"
@@ -228,6 +236,7 @@ class MemoryEntry(BaseModel):
     abstract: str | None = None  # L0: ~100 token semantic fingerprint
     overview: str | None = None  # L1: ~1K token structured summary
     salience: float = Field(default=0.5, ge=0.0, le=1.0)  # Retrieval weight
+    visibility: MemoryVisibility = MemoryVisibility.BONDED
 
 
 class CoreMemory(BaseModel):

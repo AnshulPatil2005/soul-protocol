@@ -1,4 +1,5 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: 2026-03-22 — Added learn() and learning_events.
 # Updated: Wired Evaluator into Soul.__init__() and added evaluate() method.
 #   evaluate() scores interactions via rubric, stores learning as procedural
 #   memory, adjusts skill XP, and checks evolution triggers. Added evaluator
@@ -52,6 +53,8 @@ from datetime import datetime
 import logging
 from pathlib import Path
 from typing import Any
+
+from soul_protocol.spec.learning import LearningEvent
 
 from .bond import Bond
 from .cognitive.engine import CognitiveEngine
@@ -136,6 +139,7 @@ class Soul:
         self._evolution = EvolutionManager(config.evolution)
         self._skills = SkillRegistry()
         self._evaluator = Evaluator()
+        self._learning_events: list[LearningEvent] = []
 
     # ============ Lifecycle ============
 
@@ -880,6 +884,43 @@ class Soul:
         # Calling evaluate() + observe() in sequence would double-trigger otherwise.
 
         return result
+
+    async def learn(
+        self,
+        interaction: Interaction,
+        domain: str | None = None,
+    ) -> LearningEvent | None:
+        """Evaluate an interaction and create a LearningEvent if notable."""
+        result = await self.evaluate(interaction, domain=domain)
+        effective_domain = domain
+        if effective_domain is None:
+            active_images = self._memory.self_model.get_active_self_images(limit=1)
+            if active_images:
+                effective_domain = active_images[0].domain
+        skill_id = effective_domain.lower().replace(" ", "_") if effective_domain else None
+        event = self._evaluator.create_learning_event(
+            result,
+            interaction_id=interaction.metadata.get("interaction_id"),
+            domain=effective_domain,
+            skill_id=skill_id,
+        )
+        if event is None:
+            return None
+        await self.remember(
+            event.lesson,
+            type=MemoryType.PROCEDURAL,
+            importance=max(3, int((event.evaluation_score or 0.5) * 8)),
+        )
+        self._skills.grant_xp_from_learning(event)
+        self._learning_events.append(event)
+        logger.debug("Learning event created: domain=%s, score=%.2f",
+                      event.domain, event.evaluation_score or 0.0)
+        return event
+
+    @property
+    def learning_events(self) -> list[LearningEvent]:
+        """Access the soul's accumulated learning events."""
+        return list(self._learning_events)
 
     # ============ State / Feelings ============
 

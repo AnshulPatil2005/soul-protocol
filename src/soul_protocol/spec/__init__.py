@@ -14,18 +14,21 @@ from .embeddings import (
     euclidean_distance,
 )
 from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
-from .identity import Identity
+from .identity import BondTarget, Identity
 from .manifest import Manifest
-from .memory import DictMemoryStore, MemoryEntry, MemoryStore
+from .memory import DictMemoryStore, Interaction, MemoryEntry, MemoryStore, Participant
 from .soul_file import pack_soul, unpack_soul, unpack_to_container
 
 __all__ = [
     # Container
     "SoulContainer",
     # Identity
+    "BondTarget",
     "Identity",
     # Memory
+    "Interaction",
     "MemoryEntry",
+    "Participant",
     "MemoryStore",
     "DictMemoryStore",
     # Soul file format

@@ -1,4 +1,9 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: feat/spec-multi-participant — Generalized Interaction to multi-participant
+#   model with Participant list. Added backward-compatible user_input/agent_output
+#   properties and from_pair() factory. Added BondTarget model and bonds list to
+#   Identity for multi-bond support. Legacy bonded_to field preserved. Auto-migration
+#   populates bonds from bonded_to if bonds is empty.
 # Updated: v0.3.5 — Added RubricCriterion, Rubric, CriterionResult, RubricResult
 #   models for rubric-based self-evaluation system.
 # Updated: v0.3.4 — Added MemoryCategory for structured extraction taxonomy,
@@ -17,27 +22,53 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .bond import Bond
 
 # ============ Identity ============
 
 
+class BondTarget(BaseModel):
+    """An entity this soul is bonded to.
+
+    Bond targets are portable — they travel with the soul across platforms.
+    The bond_type field classifies the relationship kind.
+    """
+
+    id: str  # DID or identifier
+    label: str = ""  # Human-readable name
+    bond_type: str = "human"  # "human", "soul", "agent", "group", "service"
+
+
 class Identity(BaseModel):
-    """A soul's unique identity with cryptographic DID."""
+    """A soul's unique identity with cryptographic DID.
+
+    Multi-bond support: ``bonds`` holds a list of BondTarget entities.
+    The legacy ``bonded_to`` field is preserved for backward compatibility.
+    On model_post_init, if bonded_to is set and bonds is empty, bonds is
+    auto-populated from bonded_to (migration path).
+    """
 
     did: str = ""
     name: str
     archetype: str = ""
     born: datetime = Field(default_factory=datetime.now)
-    bonded_to: str | None = None
+    bonded_to: str | None = None  # DEPRECATED — use bonds instead
+    bonds: list[BondTarget] = Field(default_factory=list)
     origin_story: str = ""
     prime_directive: str = ""
     core_values: list[str] = Field(default_factory=list)
     bond: Bond = Field(default_factory=Bond)
     incarnation: int = 1
     previous_lives: list[str] = Field(default_factory=list)
+
+    def model_post_init(self, __context: Any) -> None:
+        """Auto-migrate bonded_to to bonds if bonds is empty."""
+        if self.bonded_to and not self.bonds:
+            self.bonds.append(
+                BondTarget(id=self.bonded_to, bond_type="human")
+            )
 
 
 # ============ DNA / Personality ============
@@ -377,14 +408,93 @@ class SoulConfig(BaseModel):
 # ============ Interaction (input to observe()) ============
 
 
-class Interaction(BaseModel):
-    """A single user-agent interaction for the soul to observe."""
+class Participant(BaseModel):
+    """A participant in an interaction.
 
-    user_input: str
-    agent_output: str
+    Role is a free-form string — runtimes define their own roles.
+    Common roles: "user", "agent", "soul", "system", "observer".
+    """
+
+    role: str  # "user", "agent", "soul", "system", etc.
+    id: str | None = None  # DID or identifier
+    content: str
+
+
+class Interaction(BaseModel):
+    """A multi-participant interaction for the soul to observe.
+
+    Generalized from the original 2-party model. Supports N participants.
+    Backward compatible: ``user_input`` and ``agent_output`` properties
+    return the first "user" and "agent" participant content. The legacy
+    constructor ``Interaction(user_input=..., agent_output=...)`` still
+    works via the model_validator that auto-converts to participants.
+
+    Use ``from_pair()`` for the common 2-party case.
+    """
+
+    participants: list[Participant] = Field(default_factory=list)
     channel: str = "unknown"
     timestamp: datetime = Field(default_factory=datetime.now)
     metadata: dict = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_fields(cls, data: Any) -> Any:
+        """Auto-convert legacy user_input/agent_output to participants."""
+        if isinstance(data, dict):
+            user_input = data.pop("user_input", None)
+            agent_output = data.pop("agent_output", None)
+            if user_input is not None or agent_output is not None:
+                participants = data.get("participants", [])
+                if not participants:
+                    new_participants = []
+                    if user_input is not None:
+                        new_participants.append(
+                            {"role": "user", "content": user_input}
+                        )
+                    if agent_output is not None:
+                        new_participants.append(
+                            {"role": "agent", "content": agent_output}
+                        )
+                    data["participants"] = new_participants
+        return data
+
+    @property
+    def user_input(self) -> str:
+        """Content from the first 'user' participant (backward compat)."""
+        for p in self.participants:
+            if p.role == "user":
+                return p.content
+        return ""
+
+    @property
+    def agent_output(self) -> str:
+        """Content from the first 'agent' participant (backward compat)."""
+        for p in self.participants:
+            if p.role == "agent":
+                return p.content
+        return ""
+
+    @classmethod
+    def from_pair(
+        cls,
+        user_input: str,
+        agent_output: str,
+        *,
+        channel: str = "unknown",
+        timestamp: datetime | None = None,
+        metadata: dict | None = None,
+    ) -> "Interaction":
+        """Create a 2-party interaction from user input and agent output."""
+        return cls(
+            participants=[
+                Participant(role="user", content=user_input),
+                Participant(role="agent", content=agent_output),
+            ],
+            channel=channel,
+            timestamp=timestamp or datetime.now(),
+            metadata=metadata or {},
+        )
 
 
 # ============ Manifest (for .soul archives) ============

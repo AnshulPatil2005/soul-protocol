@@ -1,4 +1,7 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-23 — Added `soul export-a2a` and `soul import-a2a` commands
+#   for A2A Agent Card ↔ Soul Protocol interop. Export generates Agent Card JSON
+#   from a soul; import creates a soul from an Agent Card file.
 # Updated: 2026-03-13 — Added `soul inject <target>` command for fast CLI-based
 #   soul context injection into agent config files (claude-code, cursor, vscode,
 #   windsurf, cline, continue). Idempotent with marker-based replacement.
@@ -1041,6 +1044,67 @@ def inject_cmd(target, soul_name, soul_dir, memories, quiet):
             )
 
     asyncio.run(_inject())
+
+
+# ============ A2A Agent Card Commands ============
+
+
+@cli.command("export-a2a")
+@click.argument("source", type=click.Path(exists=True))
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output JSON path")
+@click.option("--url", "-u", default="", help="Agent endpoint URL for the card")
+def export_a2a_cmd(source, output, url):
+    """Generate an A2A Agent Card from a soul.
+
+    Reads a .soul file or directory and outputs a JSON Agent Card
+    compatible with Google's Agent-to-Agent protocol.
+
+    \b
+    Examples:
+      soul export-a2a .soul/               # → <name>-agent-card.json
+      soul export-a2a aria.soul -o card.json --url https://aria.example.com
+    """
+
+    async def _export():
+        from soul_protocol.runtime.bridges.a2a import A2AAgentCardBridge
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(source)
+        card = A2AAgentCardBridge.soul_to_agent_card(soul, url=url)
+        out = output or f"{_safe_name(soul.name)}-agent-card.json"
+        Path(out).write_text(json.dumps(card, indent=2, default=str))
+        console.print(f"[green]Exported[/green] A2A Agent Card for {soul.name} → {out}")
+
+    asyncio.run(_export())
+
+
+@cli.command("import-a2a")
+@click.argument("file", type=click.Path(exists=True))
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output .soul path")
+def import_a2a_cmd(file, output):
+    """Create a soul from an A2A Agent Card JSON file.
+
+    Reads an Agent Card and creates a new soul with the card's
+    identity, personality (from extensions.soul), and skills.
+
+    \b
+    Examples:
+      soul import-a2a agent-card.json              # → <name>.soul
+      soul import-a2a card.json -o my-agent.soul
+    """
+
+    async def _import():
+        from soul_protocol.runtime.bridges.a2a import A2AAgentCardBridge
+
+        card_data = json.loads(Path(file).read_text())
+        soul = A2AAgentCardBridge.agent_card_to_soul(card_data)
+        out = output or f"{_safe_name(soul.name)}.soul"
+        await soul.export(out)
+        console.print(
+            f"[green]Imported[/green] soul [bold]{soul.name}[/bold] from Agent Card → {out}"
+        )
+
+    asyncio.run(_import())
 
 
 if __name__ == "__main__":

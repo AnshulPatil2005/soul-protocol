@@ -4,6 +4,7 @@
 # modules (memory/, cognitive/, evolution/, state/, dna/).
 # Updated: Added EternalStorageProvider, EmbeddingProvider, similarity functions.
 # Updated: Added ContextEngine protocol and LCM models for Lossless Context Management.
+# Updated: 2026-03-23 — Added A2A Agent Card models (A2AAgentCard, A2ASkill, SoulExtension).
 
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ from .embeddings import (
     euclidean_distance,
 )
 from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
+from .a2a import A2AAgentCard, A2ASkill, SoulExtension
 from .identity import BondTarget, Identity
 from .manifest import Manifest
 from .memory import DictMemoryStore, Interaction, MemoryEntry, MemoryStore, MemoryVisibility, Participant
@@ -33,6 +35,10 @@ from .learning import LearningEvent
 from .soul_file import pack_soul, unpack_soul, unpack_to_container
 
 __all__ = [
+    # A2A Agent Card
+    "A2AAgentCard",
+    "A2ASkill",
+    "SoulExtension",
     # Container
     "SoulContainer",
     # Context (LCM)

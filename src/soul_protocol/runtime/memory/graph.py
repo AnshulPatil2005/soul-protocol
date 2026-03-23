@@ -1,6 +1,9 @@
 # memory/graph.py — KnowledgeGraph for entity relationships.
 # Updated: v0.4.0 — Added progressive_context() for multi-hop graph traversal.
 #   Returns entity relationships at configurable depth levels for recall augmentation.
+# Updated: fix/graph-progressive-context-conflict — Renamed duplicate progressive_context()
+#   (string-returning, LLM-formatted) to format_context() to avoid method override.
+#   progressive_context() now unambiguously returns list[dict] for programmatic use.
 # Created: 2026-02-22
 # Updated: 2026-03-22 — Added graph traversal methods (traverse, shortest_path,
 #   get_neighborhood, subgraph) and progressive_context() for L0/L1/L2 loading.
@@ -311,10 +314,14 @@ class KnowledgeGraph:
                 edges.append(edge_dict)
         return {"nodes": nodes, "edges": edges}
 
-    # ============ Progressive Context Loading ============
+    # ============ Progressive Context Loading (string formatter) ============
 
-    def progressive_context(self, entity: str, level: int = 1) -> str:
-        """Return context at L0/L1/L2 depth."""
+    def format_context(self, entity: str, level: int = 1) -> str:
+        """Return human-readable context string at L0/L1/L2 depth.
+
+        Use for LLM prompt injection. For programmatic graph traversal
+        (e.g. in RecallEngine), use progressive_context() which returns list[dict].
+        """
         if entity not in self._entities:
             return ""
         entity_type = self._entities[entity]

@@ -1,4 +1,9 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-03-23 — Added _THIRD_PERSON_RELATION_PATTERNS constant and a
+#   second pass in extract_entities() to detect entity-to-entity edges from
+#   third-person text (e.g. "Sarah reports to Dave", "Alice and Bob are
+#   colleagues"). Each entity now carries a `relationships` list consumed by
+#   update_graph(). First-person `relation` field preserved for backward compat.
 # Updated: v0.4.0 — Pass KnowledgeGraph to RecallEngine for graph-augmented recall.
 #   Set ingested_at on memories during storage. Wire ContradictionDetector into
 #   observe() pipeline with detect_contradictions param.
@@ -264,6 +269,43 @@ ENTITY_RELATIONS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"i (?:prefer|like|love)\b", re.IGNORECASE), "prefers"),
     (re.compile(r"i (?:work at|work for)\b", re.IGNORECASE), "works_at"),
     (re.compile(r"i(?:'m| am) (?:learning|studying)\b", re.IGNORECASE), "learns"),
+]
+
+# ---------------------------------------------------------------------------
+# Third-person relationship patterns between two named entities.
+# Each tuple: (compiled_regex, relation_type)
+# Group 1 = subject entity, Group 2 = object entity.
+# ---------------------------------------------------------------------------
+_THIRD_PERSON_RELATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(\w+)'s\s+manager\s+is\s+(\w+)", re.IGNORECASE), "managed_by"),
+    (re.compile(r"(\w+)\s+reports?\s+to\s+(\w+)", re.IGNORECASE), "reports_to"),
+    (re.compile(r"(\w+)\s+manages?\s+(\w+)", re.IGNORECASE), "manages"),
+    (
+        re.compile(
+            r"(\w+)\s+is\s+(?:the\s+)?(?:ceo|cto|coo|cfo|vp|head|director|lead|manager)"
+            r"\s+of\s+(\w+)",
+            re.IGNORECASE,
+        ),
+        "leads",
+    ),
+    (
+        re.compile(
+            r"(\w+)\s+(?:works?\s+(?:at|for)|joined?)\s+(\w+)", re.IGNORECASE
+        ),
+        "works_at",
+    ),
+    (
+        re.compile(r"(\w+)\s+and\s+(\w+)\s+are\s+colleagues?", re.IGNORECASE),
+        "colleague",
+    ),
+    (
+        re.compile(
+            r"(\w+)\s+(?:is\s+)?(?:a\s+)?(?:friend|partner|colleague)\s+of\s+(\w+)",
+            re.IGNORECASE,
+        ),
+        "related_to",
+    ),
+    (re.compile(r"(\w+)\s+founded?\s+(\w+)", re.IGNORECASE), "founded"),
 ]
 
 _STOP_WORDS: set[str] = {
@@ -794,7 +836,15 @@ class MemoryManager:
         return extracted
 
     def extract_entities(self, interaction: Interaction) -> list[dict]:
-        """Extract named entities from an interaction using heuristics."""
+        """Extract named entities from an interaction using heuristics.
+
+        Each returned entity dict contains:
+        - name: str
+        - type: str  ("technology" | "person" | "project")
+        - relation: str | None  (first-person relation to the user, e.g. "uses")
+        - relationships: list[dict]  (edges to other named entities:
+              [{"target": str, "relation": str}, ...])
+        """
         combined = f"{interaction.user_input} {interaction.agent_output}"
         entities: dict[str, dict] = {}
 
@@ -805,6 +855,7 @@ class MemoryManager:
                     "name": word,
                     "type": "technology",
                     "relation": None,
+                    "relationships": [],
                 }
 
         sentences = re.split(r"[.!?]+", combined)
@@ -825,8 +876,10 @@ class MemoryManager:
                         "name": token,
                         "type": "person",
                         "relation": None,
+                        "relationships": [],
                     }
 
+        # --- First-person relation pass (existing behaviour, backward compat) ---
         for entity_info in entities.values():
             name = entity_info["name"]
             for rel_pattern, relation in ENTITY_RELATIONS:
@@ -839,6 +892,61 @@ class MemoryManager:
                     if relation == "builds":
                         entity_info["type"] = "project"
                     break
+
+        # --- Third-person relation pass: entity-to-entity edges ---
+        for pattern, relation_type in _THIRD_PERSON_RELATION_PATTERNS:
+            for match in pattern.finditer(combined):
+                subj_raw = match.group(1)
+                obj_raw = match.group(2)
+                subj_key = subj_raw.lower()
+                obj_key = obj_raw.lower()
+
+                # Skip self-referential matches and stop words
+                if subj_key == obj_key:
+                    continue
+                if subj_key in _STOP_WORDS or obj_key in _STOP_WORDS:
+                    continue
+
+                # Ensure subject entity exists (add if capitalised and not already present)
+                if subj_key not in entities:
+                    if subj_raw[0].isupper():
+                        entities[subj_key] = {
+                            "name": subj_raw,
+                            "type": "person",
+                            "relation": None,
+                            "relationships": [],
+                        }
+                    else:
+                        continue  # Not a named entity — skip
+
+                # Ensure object entity exists
+                if obj_key not in entities:
+                    if obj_raw[0].isupper():
+                        entities[obj_key] = {
+                            "name": obj_raw,
+                            "type": "person",
+                            "relation": None,
+                            "relationships": [],
+                        }
+                    else:
+                        continue  # Not a named entity — skip
+
+                # Add directed edge from subject to object
+                subj_rels = entities[subj_key]["relationships"]
+                if not any(
+                    r["target"] == obj_raw and r["relation"] == relation_type
+                    for r in subj_rels
+                ):
+                    subj_rels.append({"target": obj_raw, "relation": relation_type})
+
+                # Add reverse edge for symmetric relations
+                if relation_type == "colleague":
+                    obj_rels = entities[obj_key]["relationships"]
+                    if not any(
+                        r["target"] == subj_raw and r["relation"] == "colleague"
+                        for r in obj_rels
+                    ):
+                        obj_rels.append({"target": subj_raw, "relation": "colleague"})
 
         return list(entities.values())
 

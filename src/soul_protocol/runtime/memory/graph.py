@@ -174,6 +174,7 @@ class KnowledgeGraph:
         return results
 
     def entities(self) -> list[str]:
+        """Return a list of all entity names."""
         return list(self._entities.keys())
 
     def expire_relationship(self, source: str, target: str, relation: str,

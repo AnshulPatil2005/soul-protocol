@@ -1,4 +1,9 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: fix/contradiction-pipeline — Added step 4d (raw-text contradiction scan)
+#   to observe() pipeline. When FACT_PATTERNS misses a location/employer/role update
+#   (e.g. "I moved to Amsterdam"), stored_facts is empty and step 4c never fires.
+#   Step 4d runs detect_heuristic() on raw user_input against the full semantic store
+#   so verb-fact contradictions are caught even when no new fact was extracted.
 # Updated: feat/mcp-sampling-engine — Added set_engine() method to swap the CognitiveEngine
 #   at runtime without re-initializing the full MemoryManager. Used by MCPSamplingEngine
 #   lazy wiring in server.py: engine is injected on the first MCP tool call when a
@@ -131,6 +136,24 @@ FACT_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
         8,
         "User works at {0}",
     ),
+    # --- Location / employer update verbs (fix/contradiction-pipeline) ---
+    # These patterns catch updates like "I moved to X" or "I joined Y" that
+    # the verb-fact ContradictionDetector needs a stored fact to supersede.
+    (
+        re.compile(r"i (?:moved?|relocated?) to (\w[\w\s]{2,30})", re.IGNORECASE),
+        8,
+        "User lives in {0}",
+    ),
+    (
+        re.compile(
+            r"i (?:\w+ )?(?:joined?|started? at|started? working at)"
+            r" (\w[\w\s]{2,20}?)(?:\s+(?:last|next|this)\s+\w+|[!.,]|$)",
+            re.IGNORECASE,
+        ),
+        8,
+        "User works at {0}",
+    ),
+    # ---
     (
         re.compile(r"i(?:'m| am) from (\w[\w\s]{2,30})", re.IGNORECASE),
         7,
@@ -592,6 +615,10 @@ class MemoryManager:
             )
 
         # --- 4c. Contradiction detection on stored facts ---
+        # Checks each newly-extracted fact against the full semantic store.
+        # Catches negation patterns and entity-attribute conflicts where the
+        # new content was extracted as a fact (e.g. "User lives in NYC" →
+        # overridden by a new "User lives in Amsterdam" fact).
         contradictions: list[dict] = []
         if detect_contradictions and stored_facts:
             all_semantic = self._semantic.facts(include_superseded=False)
@@ -617,6 +644,44 @@ class MemoryManager:
                             "reason": cr.reason,
                             "confidence": cr.confidence,
                         })
+
+        # --- 4d. Raw-text contradiction scan (verb-fact fallback) ---
+        # When the heuristic extractor misses a fact update (e.g. "I moved to
+        # Amsterdam" doesn't match any FACT_PATTERNS), the new semantic fact is
+        # never stored, so step 4c has nothing to check. This second pass runs
+        # verb-fact contradiction detection directly on the raw user input
+        # against the existing semantic store, catching location / employer /
+        # role changes that slip through the extraction gate.
+        if detect_contradictions:
+            raw_text = interaction.user_input
+            all_semantic_raw = self._semantic.facts(include_superseded=False)
+            # IDs already superseded in 4c — avoid double-reporting.
+            already_superseded = {c["old_id"] for c in contradictions}
+            raw_cresults = await self._contradiction_detector.detect_heuristic(
+                raw_text, all_semantic_raw
+            )
+            for cr in raw_cresults:
+                if not cr.is_contradiction or not cr.old_memory_id:
+                    continue
+                if cr.old_memory_id in already_superseded:
+                    continue
+                for existing_fact in all_semantic_raw:
+                    if existing_fact.id == cr.old_memory_id:
+                        existing_fact.superseded = True
+                        existing_fact.superseded_by = "raw-text-contradiction"
+                        logger.debug(
+                            "Raw-text contradiction: old_id=%s superseded, reason=%s",
+                            cr.old_memory_id, cr.reason,
+                        )
+                        break
+                already_superseded.add(cr.old_memory_id)
+                contradictions.append({
+                    "old_id": cr.old_memory_id,
+                    "new_id": "raw-text-contradiction",
+                    "reason": cr.reason,
+                    "confidence": cr.confidence,
+                })
+
 
         # --- 5. Extract entities (with provenance metadata) ---
         entities = await self._cognitive.extract_entities(

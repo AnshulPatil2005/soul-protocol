@@ -1,6 +1,6 @@
 # test_graph_traversal.py — Tests for graph traversal methods and progressive context.
 # Created: 2026-03-22 — Covers traverse(), shortest_path(), get_neighborhood(),
-#   subgraph(), progressive_context(), and _active_neighbors() on KnowledgeGraph.
+#   subgraph(), format_context(), and _active_neighbors() on KnowledgeGraph.
 
 from __future__ import annotations
 
@@ -338,58 +338,58 @@ class TestSubgraph:
         assert types["Python"] == "technology"
 
 
-# ============ progressive_context ============
+# ============ format_context ============
 
 
 class TestProgressiveContext:
     def test_missing_entity(self, graph: KnowledgeGraph):
-        assert graph.progressive_context("nonexistent") == ""
+        assert graph.format_context("nonexistent") == ""
 
     def test_level_0(self, rich_graph: KnowledgeGraph):
-        ctx = rich_graph.progressive_context("Alice", level=0)
+        ctx = rich_graph.format_context("Alice", level=0)
         assert ctx == "Alice (person)"
 
     def test_level_0_negative(self, rich_graph: KnowledgeGraph):
-        ctx = rich_graph.progressive_context("Alice", level=-1)
+        ctx = rich_graph.format_context("Alice", level=-1)
         assert ctx == "Alice (person)"
 
     def test_level_1_with_relationships(self, rich_graph: KnowledgeGraph):
-        ctx = rich_graph.progressive_context("Alice", level=1)
+        ctx = rich_graph.format_context("Alice", level=1)
         assert "Alice (person)" in ctx
         assert "uses" in ctx
         assert "works_at" in ctx
 
     def test_level_1_no_relationships(self, graph: KnowledgeGraph):
         graph.add_entity("Lonely", "node")
-        ctx = graph.progressive_context("Lonely", level=1)
+        ctx = graph.format_context("Lonely", level=1)
         assert "no known relationships" in ctx
 
     def test_level_1_default(self, rich_graph: KnowledgeGraph):
         # Default level is 1
-        ctx = rich_graph.progressive_context("Alice")
+        ctx = rich_graph.format_context("Alice")
         assert "uses" in ctx
 
     def test_level_2_includes_metadata(self, rich_graph: KnowledgeGraph):
-        ctx = rich_graph.progressive_context("Alice", level=2)
+        ctx = rich_graph.format_context("Alice", level=2)
         assert "Primary language" in ctx
         assert "confidence: 0.9" in ctx
 
     def test_level_2_includes_neighbors(self, rich_graph: KnowledgeGraph):
-        ctx = rich_graph.progressive_context("Alice", level=2)
+        ctx = rich_graph.format_context("Alice", level=2)
         assert "Neighbors:" in ctx
         assert "Python" in ctx
 
     def test_level_2_multiline(self, rich_graph: KnowledgeGraph):
-        ctx = rich_graph.progressive_context("Alice", level=2)
+        ctx = rich_graph.format_context("Alice", level=2)
         lines = ctx.split("\n")
         assert len(lines) >= 3  # At least header, relationships, neighbors
 
     def test_level_2_includes_relationship_section(self, rich_graph: KnowledgeGraph):
-        ctx = rich_graph.progressive_context("Alice", level=2)
+        ctx = rich_graph.format_context("Alice", level=2)
         assert "Relationships:" in ctx
 
     def test_level_2_includes_neighbor_type(self, rich_graph: KnowledgeGraph):
-        ctx = rich_graph.progressive_context("Alice", level=2)
+        ctx = rich_graph.format_context("Alice", level=2)
         assert "technology" in ctx
 
     def test_level_2_neighbor_cap(self, graph: KnowledgeGraph):
@@ -399,7 +399,7 @@ class TestProgressiveContext:
             name = f"N{i}"
             graph.add_entity(name, "leaf")
             graph.add_relationship("Center", name, "links")
-        ctx = graph.progressive_context("Center", level=2)
+        ctx = graph.format_context("Center", level=2)
         # Count lines starting with "  N" in the Neighbors section
         lines = ctx.split("\n")
         neighbor_lines = [l for l in lines if l.strip().startswith("N") and "relationships" in l]

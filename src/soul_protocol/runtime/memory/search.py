@@ -86,7 +86,7 @@ def _expand_synonyms(tokens: set[str]) -> set[str]:
     return expanded
 
 
-def tokenize(text: str) -> set[str]:
+def tokenize(text: str, *, min_length: int = 3) -> set[str]:
     """Split text into lowercase alphabetic tokens, removing short words.
 
     Splits on whitespace **and** common separators (``/``, ``_``, ``-``,
@@ -95,17 +95,18 @@ def tokenize(text: str) -> set[str]:
     tokens.
 
     Strips all non-alphabetic characters (punctuation, digits, code syntax)
-    and discards any resulting token shorter than 3 characters.
+    and discards any resulting token shorter than *min_length* characters.
 
     Args:
         text: The input string to tokenize.
+        min_length: Minimum token length to keep (default 3).
 
     Returns:
-        A set of cleaned, lowercased alpha-only tokens with len >= 3.
+        A set of cleaned, lowercased alpha-only tokens with len >= *min_length*.
     """
     # Split on whitespace + path/identifier separators, then strip non-alpha
     words = (_ALPHA_RE.sub("", w) for w in _SPLIT_RE.split(text.lower()))
-    return {w for w in words if len(w) >= 3}
+    return {w for w in words if len(w) >= min_length}
 
 
 def relevance_score(query: str, content: str) -> float:

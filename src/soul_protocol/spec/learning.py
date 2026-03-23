@@ -2,6 +2,9 @@
 # Created: 2026-03-22 — Thin spec model (Pydantic only). Captures lessons extracted
 #   from success/failure during evaluation. Links to interactions, domains, and skills.
 #   Tracks confidence and applied_count for reinforcement learning patterns.
+# Added to dev: fix/add-learning-spec-module — module was referenced by spec/__init__.py
+#   (introduced in feat/memory-visibility-templates) but the file itself lives in
+#   feat/graph-learning-events (PR #115). Adding it here to unblock the import.
 
 from __future__ import annotations
 

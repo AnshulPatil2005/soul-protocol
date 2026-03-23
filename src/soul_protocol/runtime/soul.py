@@ -1,5 +1,5 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
-# Updated: 2026-03-22 — Added learn() and learning_events.
+# Updated: 2026-03-22 — Added learn() and learning_events for LearningEvent pipeline.
 # Updated: Wired Evaluator into Soul.__init__() and added evaluate() method.
 #   evaluate() scores interactions via rubric, stores learning as procedural
 #   memory, adjusts skill XP, and checks evolution triggers. Added evaluator
@@ -79,6 +79,7 @@ from .types import (
     LifecycleState,
     MemoryEntry,
     MemoryType,
+    MemoryVisibility,
     Mutation,
     Personality,
     ReflectionResult,
@@ -620,6 +621,7 @@ class Soul:
         importance: int = 5,
         emotion: str | None = None,
         entities: list[str] | None = None,
+        visibility: MemoryVisibility = MemoryVisibility.BONDED,
     ) -> str:
         """Soul remembers something. Returns memory ID."""
         return await self._memory.add(
@@ -629,6 +631,7 @@ class Soul:
                 importance=importance,
                 emotion=emotion,
                 entities=entities or [],
+                visibility=visibility,
             )
         )
 
@@ -639,13 +642,20 @@ class Soul:
         limit: int = 10,
         types: list[MemoryType] | None = None,
         min_importance: int = 0,
+        requester_id: str | None = None,
+        bond_strength: float | None = None,
+        bond_threshold: float = 30.0,
     ) -> list[MemoryEntry]:
-        """Soul recalls relevant memories."""
+        """Soul recalls relevant memories with visibility filtering."""
+        effective_bond = bond_strength if bond_strength is not None else self._identity.bond.bond_strength
         results = await self._memory.recall(
             query=query,
             limit=limit,
             types=types,
             min_importance=min_importance,
+            requester_id=requester_id,
+            bond_strength=effective_bond,
+            bond_threshold=bond_threshold,
         )
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))

@@ -10,9 +10,18 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
+
+
+
+class MemoryVisibility(StrEnum):
+    """Visibility tier for memory entries in public channel contexts."""
+    PUBLIC = "public"
+    BONDED = "bonded"
+    PRIVATE = "private"
 
 
 class Participant(BaseModel):
@@ -92,6 +101,7 @@ class MemoryEntry(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     source: str = ""
     layer: str = ""
+    visibility: MemoryVisibility = MemoryVisibility.BONDED
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

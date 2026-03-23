@@ -1,4 +1,8 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
+# Updated: feat/memory-visibility-templates — Added visibility filtering to recall
+#   pipeline. Accept requester_id and bond_strength params to gate BONDED/PRIVATE
+#   memories. PUBLIC memories always pass. BONDED requires bond_strength >= threshold.
+#   PRIVATE only passes for system/soul requesters (requester_id=None).
 # Updated: v0.3.3 — Accept optional Personality for OCEAN trait-modulated recall.
 #   Personality influences which memories surface: high-Neuroticism boosts emotional
 #   memories, high-Openness boosts knowledge, etc. Backwards compatible.
@@ -28,7 +32,7 @@ from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.semantic import SemanticStore
 from soul_protocol.runtime.memory.strategy import BM25SearchStrategy
-from soul_protocol.runtime.types import MemoryEntry, MemoryType, Personality
+from soul_protocol.runtime.types import MemoryEntry, MemoryType, MemoryVisibility, Personality
 
 if TYPE_CHECKING:
     from soul_protocol.runtime.memory.strategy import SearchStrategy
@@ -36,6 +40,43 @@ if TYPE_CHECKING:
 # Cap access_timestamps to prevent unbounded memory growth in long-running sessions.
 # 100 timestamps is sufficient for ACT-R power-law decay calculations.
 MAX_ACCESS_TIMESTAMPS: int = 100
+
+# Default bond strength threshold for BONDED memory access.
+# Souls start at bond_strength=50, so 30 means even new bonds get some access.
+DEFAULT_BOND_THRESHOLD: float = 30.0
+
+
+def filter_by_visibility(
+    entries: list[MemoryEntry],
+    requester_id: str | None,
+    bond_strength: float,
+    bond_threshold: float = DEFAULT_BOND_THRESHOLD,
+) -> list[MemoryEntry]:
+    """Filter memories by visibility tier based on requester context.
+
+    Args:
+        entries: Candidate memories to filter.
+        requester_id: ID of the entity requesting recall.
+            None means the soul itself or system (full access).
+        bond_strength: Current bond strength with the requester (0-100).
+        bond_threshold: Minimum bond strength for BONDED memory access.
+
+    Returns:
+        Filtered list containing only memories the requester can see.
+    """
+    if requester_id is None:
+        # Soul/system context — full access to everything
+        return entries
+
+    filtered: list[MemoryEntry] = []
+    for entry in entries:
+        if entry.visibility == MemoryVisibility.PUBLIC:
+            filtered.append(entry)
+        elif entry.visibility == MemoryVisibility.BONDED:
+            if bond_strength >= bond_threshold:
+                filtered.append(entry)
+        # PRIVATE memories are never returned to external requesters
+    return filtered
 
 
 class RecallEngine:
@@ -66,6 +107,9 @@ class RecallEngine:
         limit: int = 10,
         types: list[MemoryType] | None = None,
         min_importance: int = 0,
+        requester_id: str | None = None,
+        bond_strength: float = 100.0,
+        bond_threshold: float = DEFAULT_BOND_THRESHOLD,
     ) -> list[MemoryEntry]:
         """Search across memory stores and return activation-ranked results.
 
@@ -75,6 +119,11 @@ class RecallEngine:
             types: If provided, only search these memory types.
                    If None, search all stores.
             min_importance: Minimum importance score (1-10) for results.
+            requester_id: ID of the requesting entity. None means
+                the soul itself (system context, full access).
+            bond_strength: Bond strength with the requester (0-100).
+                Only used when requester_id is not None.
+            bond_threshold: Minimum bond strength for BONDED memory access.
 
         Returns:
             List of MemoryEntry sorted by activation score descending.
@@ -100,6 +149,14 @@ class RecallEngine:
         # Apply importance filter to non-semantic results (semantic already filtered)
         if min_importance > 0:
             results = [r for r in results if r.importance >= min_importance]
+
+        # Apply visibility filtering based on requester context
+        results = filter_by_visibility(
+            results,
+            requester_id=requester_id,
+            bond_strength=bond_strength,
+            bond_threshold=bond_threshold,
+        )
 
         now = datetime.now()
 

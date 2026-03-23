@@ -1,4 +1,21 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: fix/contradiction-pipeline — Added step 4d (raw-text contradiction scan)
+#   to observe() pipeline. When FACT_PATTERNS misses a location/employer/role update
+#   (e.g. "I moved to Amsterdam"), stored_facts is empty and step 4c never fires.
+#   Step 4d runs detect_heuristic() on raw user_input against the full semantic store
+#   so verb-fact contradictions are caught even when no new fact was extracted.
+# Updated: feat/mcp-sampling-engine — Added set_engine() method to swap the CognitiveEngine
+#   at runtime without re-initializing the full MemoryManager. Used by MCPSamplingEngine
+#   lazy wiring in server.py: engine is injected on the first MCP tool call when a
+#   FastMCP Context becomes available.
+# Updated: 2026-03-23 — Added _THIRD_PERSON_RELATION_PATTERNS constant and a
+#   second pass in extract_entities() to detect entity-to-entity edges from
+#   third-person text (e.g. "Sarah reports to Dave", "Alice and Bob are
+#   colleagues"). Each entity now carries a `relationships` list consumed by
+#   update_graph(). First-person `relation` field preserved for backward compat.
+# Updated: v0.4.0 — Pass KnowledgeGraph to RecallEngine for graph-augmented recall.
+#   Set ingested_at on memories during storage. Wire ContradictionDetector into
+#   observe() pipeline with detect_contradictions param.
 # Updated: 2026-03-13 — Replaced direct _memories dict access with
 #   EpisodicStore.update_entry() public API. Deduplicated cognitive engine
 #   imports in __init__ and observe().
@@ -52,6 +69,7 @@ from soul_protocol.runtime.memory.attention import (
     overall_significance,
 )
 from soul_protocol.runtime.memory.core import CoreMemoryManager
+from soul_protocol.runtime.memory.contradiction import ContradictionDetector
 from soul_protocol.runtime.memory.dedup import reconcile_fact
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
@@ -118,6 +136,24 @@ FACT_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
         8,
         "User works at {0}",
     ),
+    # --- Location / employer update verbs (fix/contradiction-pipeline) ---
+    # These patterns catch updates like "I moved to X" or "I joined Y" that
+    # the verb-fact ContradictionDetector needs a stored fact to supersede.
+    (
+        re.compile(r"i (?:moved?|relocated?) to (\w[\w\s]{2,30})", re.IGNORECASE),
+        8,
+        "User lives in {0}",
+    ),
+    (
+        re.compile(
+            r"i (?:\w+ )?(?:joined?|started? at|started? working at)"
+            r" (\w[\w\s]{2,20}?)(?:\s+(?:last|next|this)\s+\w+|[!.,]|$)",
+            re.IGNORECASE,
+        ),
+        8,
+        "User works at {0}",
+    ),
+    # ---
     (
         re.compile(r"i(?:'m| am) from (\w[\w\s]{2,30})", re.IGNORECASE),
         7,
@@ -262,6 +298,43 @@ ENTITY_RELATIONS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"i(?:'m| am) (?:learning|studying)\b", re.IGNORECASE), "learns"),
 ]
 
+# ---------------------------------------------------------------------------
+# Third-person relationship patterns between two named entities.
+# Each tuple: (compiled_regex, relation_type)
+# Group 1 = subject entity, Group 2 = object entity.
+# ---------------------------------------------------------------------------
+_THIRD_PERSON_RELATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(\w+)'s\s+manager\s+is\s+(\w+)", re.IGNORECASE), "managed_by"),
+    (re.compile(r"(\w+)\s+reports?\s+to\s+(\w+)", re.IGNORECASE), "reports_to"),
+    (re.compile(r"(\w+)\s+manages?\s+(\w+)", re.IGNORECASE), "manages"),
+    (
+        re.compile(
+            r"(\w+)\s+is\s+(?:the\s+)?(?:ceo|cto|coo|cfo|vp|head|director|lead|manager)"
+            r"\s+of\s+(\w+)",
+            re.IGNORECASE,
+        ),
+        "leads",
+    ),
+    (
+        re.compile(
+            r"(\w+)\s+(?:works?\s+(?:at|for)|joined?)\s+(\w+)", re.IGNORECASE
+        ),
+        "works_at",
+    ),
+    (
+        re.compile(r"(\w+)\s+and\s+(\w+)\s+are\s+colleagues?", re.IGNORECASE),
+        "colleague",
+    ),
+    (
+        re.compile(
+            r"(\w+)\s+(?:is\s+)?(?:a\s+)?(?:friend|partner|colleague)\s+of\s+(\w+)",
+            re.IGNORECASE,
+        ),
+        "related_to",
+    ),
+    (re.compile(r"(\w+)\s+founded?\s+(\w+)", re.IGNORECASE), "founded"),
+]
+
 _STOP_WORDS: set[str] = {
     "i", "the", "a", "an", "is", "are", "was", "were", "be", "been",
     "it", "its", "my", "we", "our", "you", "your", "he", "she", "they",
@@ -329,9 +402,11 @@ class MemoryManager:
             procedural=self._procedural,
             strategy=search_strategy,
             personality=personality,
+            graph=self._graph,
         )
 
         self._self_model = SelfModelManager(seed_domains=seed_domains)
+        self._contradiction_detector = ContradictionDetector(engine=engine)
         self._general_events: dict[str, GeneralEvent] = {}
 
         # v0.3.0 — GDPR deletion audit trail
@@ -358,6 +433,35 @@ class MemoryManager:
                 entity_extractor=self.extract_entities,
             )
 
+    def set_engine(self, engine: "CognitiveEngine") -> None:
+        """Swap the CognitiveEngine at runtime without re-initializing the MemoryManager.
+
+        Called by Soul.set_engine() when a new engine becomes available after
+        initialization — typically when MCPSamplingEngine is lazily wired on the
+        first MCP tool call that carries a FastMCP Context.
+
+        Replaces the internal CognitiveProcessor with a new one backed by the
+        provided engine (with HeuristicEngine as fallback). The ContradictionDetector
+        is also updated because it holds its own engine reference.
+
+        Args:
+            engine: A CognitiveEngine instance to use going forward.
+        """
+        from soul_protocol.runtime.cognitive.engine import CognitiveProcessor, HeuristicEngine
+
+        heuristic = HeuristicEngine()
+        self._engine = engine
+        self._cognitive = CognitiveProcessor(
+            engine,
+            fallback=heuristic,
+            fact_extractor=self.extract_facts,
+            entity_extractor=self.extract_entities,
+        )
+        # ContradictionDetector also holds an engine ref — update it too
+        from soul_protocol.runtime.memory.contradiction import ContradictionDetector
+
+        self._contradiction_detector = ContradictionDetector(engine=engine)
+
     # ---- Core memory ----
 
     def get_core(self) -> CoreMemory:
@@ -375,6 +479,9 @@ class MemoryManager:
     # ---- Memory operations ----
 
     async def add(self, entry: MemoryEntry) -> str:
+        # Bi-temporal: stamp ingestion time if not already set
+        if entry.ingested_at is None:
+            entry.ingested_at = datetime.now()
         if entry.type == MemoryType.EPISODIC:
             interaction = Interaction(
                 user_input=entry.content,
@@ -399,6 +506,7 @@ class MemoryManager:
         self,
         interaction: Interaction,
         core_values: list[str] | None = None,
+        detect_contradictions: bool = True,
     ) -> dict:
         """Process an interaction through the psychology-informed pipeline."""
         from soul_protocol.runtime.cognitive.engine import (
@@ -506,6 +614,75 @@ class MemoryManager:
                 sig_value,
             )
 
+        # --- 4c. Contradiction detection on stored facts ---
+        # Checks each newly-extracted fact against the full semantic store.
+        # Catches negation patterns and entity-attribute conflicts where the
+        # new content was extracted as a fact (e.g. "User lives in NYC" →
+        # overridden by a new "User lives in Amsterdam" fact).
+        contradictions: list[dict] = []
+        if detect_contradictions and stored_facts:
+            all_semantic = self._semantic.facts(include_superseded=False)
+            for fact in stored_facts:
+                cresults = await self._contradiction_detector.detect(
+                    fact.content, all_semantic
+                )
+                for cr in cresults:
+                    if cr.is_contradiction and cr.old_memory_id:
+                        # Mark old memory as superseded
+                        for existing_fact in all_semantic:
+                            if existing_fact.id == cr.old_memory_id:
+                                existing_fact.superseded = True
+                                existing_fact.superseded_by = fact.id
+                                logger.debug(
+                                    "Contradiction: old_id=%s superseded by new_id=%s reason=%s",
+                                    cr.old_memory_id, fact.id, cr.reason,
+                                )
+                                break
+                        contradictions.append({
+                            "old_id": cr.old_memory_id,
+                            "new_id": fact.id,
+                            "reason": cr.reason,
+                            "confidence": cr.confidence,
+                        })
+
+        # --- 4d. Raw-text contradiction scan (verb-fact fallback) ---
+        # When the heuristic extractor misses a fact update (e.g. "I moved to
+        # Amsterdam" doesn't match any FACT_PATTERNS), the new semantic fact is
+        # never stored, so step 4c has nothing to check. This second pass runs
+        # verb-fact contradiction detection directly on the raw user input
+        # against the existing semantic store, catching location / employer /
+        # role changes that slip through the extraction gate.
+        if detect_contradictions:
+            raw_text = interaction.user_input
+            all_semantic_raw = self._semantic.facts(include_superseded=False)
+            # IDs already superseded in 4c — avoid double-reporting.
+            already_superseded = {c["old_id"] for c in contradictions}
+            raw_cresults = await self._contradiction_detector.detect_heuristic(
+                raw_text, all_semantic_raw
+            )
+            for cr in raw_cresults:
+                if not cr.is_contradiction or not cr.old_memory_id:
+                    continue
+                if cr.old_memory_id in already_superseded:
+                    continue
+                for existing_fact in all_semantic_raw:
+                    if existing_fact.id == cr.old_memory_id:
+                        existing_fact.superseded = True
+                        existing_fact.superseded_by = "raw-text-contradiction"
+                        logger.debug(
+                            "Raw-text contradiction: old_id=%s superseded, reason=%s",
+                            cr.old_memory_id, cr.reason,
+                        )
+                        break
+                already_superseded.add(cr.old_memory_id)
+                contradictions.append({
+                    "old_id": cr.old_memory_id,
+                    "new_id": "raw-text-contradiction",
+                    "reason": cr.reason,
+                    "confidence": cr.confidence,
+                })
+
+
         # --- 5. Extract entities (with provenance metadata) ---
         entities = await self._cognitive.extract_entities(
             interaction, source_memory_id=episodic_id,
@@ -527,6 +704,7 @@ class MemoryManager:
             "episodic_id": episodic_id,
             "facts": facts,
             "entities": entities,
+            "contradictions": contradictions,
         }
 
     async def recall(
@@ -535,12 +713,18 @@ class MemoryManager:
         limit: int = 10,
         types: list[MemoryType] | None = None,
         min_importance: int = 0,
+        requester_id: str | None = None,
+        bond_strength: float = 100.0,
+        bond_threshold: float = 30.0,
     ) -> list[MemoryEntry]:
         results = await self._recall_engine.recall(
             query=query,
             limit=limit,
             types=types,
             min_importance=min_importance,
+            requester_id=requester_id,
+            bond_strength=bond_strength,
+            bond_threshold=bond_threshold,
         )
         logger.debug("Recall query_len=%d returned %d results", len(query), len(results))
         return results
@@ -756,7 +940,15 @@ class MemoryManager:
         return extracted
 
     def extract_entities(self, interaction: Interaction) -> list[dict]:
-        """Extract named entities from an interaction using heuristics."""
+        """Extract named entities from an interaction using heuristics.
+
+        Each returned entity dict contains:
+        - name: str
+        - type: str  ("technology" | "person" | "project")
+        - relation: str | None  (first-person relation to the user, e.g. "uses")
+        - relationships: list[dict]  (edges to other named entities:
+              [{"target": str, "relation": str}, ...])
+        """
         combined = f"{interaction.user_input} {interaction.agent_output}"
         entities: dict[str, dict] = {}
 
@@ -767,6 +959,7 @@ class MemoryManager:
                     "name": word,
                     "type": "technology",
                     "relation": None,
+                    "relationships": [],
                 }
 
         sentences = re.split(r"[.!?]+", combined)
@@ -787,8 +980,10 @@ class MemoryManager:
                         "name": token,
                         "type": "person",
                         "relation": None,
+                        "relationships": [],
                     }
 
+        # --- First-person relation pass (existing behaviour, backward compat) ---
         for entity_info in entities.values():
             name = entity_info["name"]
             for rel_pattern, relation in ENTITY_RELATIONS:
@@ -801,6 +996,61 @@ class MemoryManager:
                     if relation == "builds":
                         entity_info["type"] = "project"
                     break
+
+        # --- Third-person relation pass: entity-to-entity edges ---
+        for pattern, relation_type in _THIRD_PERSON_RELATION_PATTERNS:
+            for match in pattern.finditer(combined):
+                subj_raw = match.group(1)
+                obj_raw = match.group(2)
+                subj_key = subj_raw.lower()
+                obj_key = obj_raw.lower()
+
+                # Skip self-referential matches and stop words
+                if subj_key == obj_key:
+                    continue
+                if subj_key in _STOP_WORDS or obj_key in _STOP_WORDS:
+                    continue
+
+                # Ensure subject entity exists (add if capitalised and not already present)
+                if subj_key not in entities:
+                    if subj_raw[0].isupper():
+                        entities[subj_key] = {
+                            "name": subj_raw,
+                            "type": "person",
+                            "relation": None,
+                            "relationships": [],
+                        }
+                    else:
+                        continue  # Not a named entity — skip
+
+                # Ensure object entity exists
+                if obj_key not in entities:
+                    if obj_raw[0].isupper():
+                        entities[obj_key] = {
+                            "name": obj_raw,
+                            "type": "person",
+                            "relation": None,
+                            "relationships": [],
+                        }
+                    else:
+                        continue  # Not a named entity — skip
+
+                # Add directed edge from subject to object
+                subj_rels = entities[subj_key]["relationships"]
+                if not any(
+                    r["target"] == obj_raw and r["relation"] == relation_type
+                    for r in subj_rels
+                ):
+                    subj_rels.append({"target": obj_raw, "relation": relation_type})
+
+                # Add reverse edge for symmetric relations
+                if relation_type == "colleague":
+                    obj_rels = entities[obj_key]["relationships"]
+                    if not any(
+                        r["target"] == subj_raw and r["relation"] == "colleague"
+                        for r in obj_rels
+                    ):
+                        obj_rels.append({"target": subj_raw, "relation": "colleague"})
 
         return list(entities.values())
 
@@ -965,6 +1215,7 @@ class MemoryManager:
             procedural=self._procedural,
             strategy=self._search_strategy,
             personality=self._personality,
+            graph=self._graph,
         )
         logger.debug("Memory stores cleared")
 

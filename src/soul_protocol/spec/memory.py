@@ -1,4 +1,6 @@
 # memory.py — Memory primitives for the core layer.
+# Updated: v0.4.0 — Added ingested_at and superseded fields to MemoryEntry
+#   for bi-temporal timestamps and contradiction detection support.
 # Updated: feat/spec-multi-participant — Added Participant model and Interaction model
 #   for multi-participant interactions. Interaction supports N participants with
 #   backward-compatible user_input/agent_output properties and from_pair() factory.
@@ -103,6 +105,8 @@ class MemoryEntry(BaseModel):
     layer: str = ""
     visibility: MemoryVisibility = MemoryVisibility.BONDED
     metadata: dict[str, Any] = Field(default_factory=dict)
+    ingested_at: datetime | None = None  # When memory entered the pipeline
+    superseded: bool = False  # True when a newer memory contradicts this one
 
 
 @runtime_checkable

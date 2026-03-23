@@ -1,4 +1,7 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: v0.4.0 — Added ingested_at (bi-temporal) and superseded (contradiction detection)
+#   fields to MemoryEntry. ingested_at tracks when a memory entered the pipeline,
+#   superseded marks memories replaced by newer contradicting information.
 # Updated: feat/spec-multi-participant — Generalized Interaction to multi-participant
 #   model with Participant list. Added backward-compatible user_input/agent_output
 #   properties and from_pair() factory. Added BondTarget model and bonds list to
@@ -267,6 +270,10 @@ class MemoryEntry(BaseModel):
     abstract: str | None = None  # L0: ~100 token semantic fingerprint
     overview: str | None = None  # L1: ~1K token structured summary
     salience: float = Field(default=0.5, ge=0.0, le=1.0)  # Retrieval weight
+    # v0.4.0 — Bi-temporal ingestion timestamp
+    ingested_at: datetime | None = None  # When memory entered the pipeline
+    # v0.4.0 — Contradiction detection
+    superseded: bool = False  # True when a newer memory contradicts this one
     visibility: MemoryVisibility = MemoryVisibility.BONDED
 
 

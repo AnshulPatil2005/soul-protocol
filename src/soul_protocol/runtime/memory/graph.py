@@ -1,4 +1,6 @@
 # memory/graph.py — KnowledgeGraph for entity relationships.
+# Updated: v0.4.0 — Added progressive_context() for multi-hop graph traversal.
+#   Returns entity relationships at configurable depth levels for recall augmentation.
 # Created: 2026-02-22
 # Updated: 2026-03-22 — Added graph traversal methods (traverse, shortest_path,
 #   get_neighborhood, subgraph) and progressive_context() for L0/L1/L2 loading.
@@ -122,6 +124,50 @@ class KnowledgeGraph:
                 if edge.metadata is not None:
                     result["metadata"] = edge.metadata
                 results.append(result)
+        return results
+
+    def progressive_context(self, entity: str, level: int = 1) -> list[dict]:
+        """Get progressively wider context around an entity via graph traversal.
+
+        Level 0: Just the entity's direct relationships (same as get_related).
+        Level 1: Direct relationships + one-hop neighbors' relationships.
+        Level 2+: Continue expanding (capped at level to prevent explosion).
+
+        Each result dict includes a 'depth' key indicating the hop distance.
+
+        Args:
+            entity: Starting entity name.
+            level: How many hops to traverse (0=direct only, 1=one-hop, etc.).
+
+        Returns:
+            List of relationship dicts with added 'depth' field.
+        """
+        if entity not in self._entities:
+            return []
+
+        visited: set[str] = set()
+        results: list[dict] = []
+        frontier: set[str] = {entity}
+
+        for depth in range(level + 1):
+            next_frontier: set[str] = set()
+            for current_entity in frontier:
+                if current_entity in visited:
+                    continue
+                visited.add(current_entity)
+                related = self.get_related(current_entity)
+                for rel in related:
+                    rel_with_depth = dict(rel)
+                    rel_with_depth["depth"] = depth
+                    results.append(rel_with_depth)
+                    # Collect neighbors for next hop
+                    neighbor = (
+                        rel["target"] if rel["source"] == current_entity else rel["source"]
+                    )
+                    if neighbor not in visited:
+                        next_frontier.add(neighbor)
+            frontier = next_frontier
+
         return results
 
     def entities(self) -> list[str]:

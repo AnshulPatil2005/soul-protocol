@@ -1,4 +1,6 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: feat/mcp-sampling-engine — Added set_engine() to swap CognitiveEngine at runtime.
+#   MCPSamplingEngine uses this for lazy wiring on first MCP tool call.
 # Updated: Wired Evaluator into Soul.__init__() and added evaluate() method.
 #   evaluate() scores interactions via rubric, stores learning as procedural
 #   memory, adjusts skill XP, and checks evolution triggers. Added evaluator
@@ -45,9 +47,13 @@
 #   pipeline internals, WARNING for degraded paths, ERROR for failures.
 # Updated: Removed PII from debug logs — observe() now logs input length
 #   instead of raw user input. Recall logs query length, not query text.
+# Updated: feat/cognitive-adapters — _resolve_engine() helper normalises the engine
+#   parameter in birth(), birth_from_config(), and awaken(). Accepts
+#   CognitiveEngine | Callable | "auto" | None so app builders can skip boilerplate.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 import logging
 from pathlib import Path
@@ -87,13 +93,46 @@ from .types import (
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Engine resolution helper
+# ---------------------------------------------------------------------------
+
+
+def _resolve_engine(engine: Any) -> CognitiveEngine | None:
+    """Normalise the engine parameter accepted by Soul factory methods.
+
+    Accepts:
+    - ``None``             → returns None (MemoryManager uses HeuristicEngine)
+    - ``"auto"``           → calls engine_from_env() to pick best available engine
+    - a plain callable     → wraps in CallableEngine
+    - a CognitiveEngine    → returned as-is
+
+    This lets app builders pass a plain lambda, an async function, or the
+    string ``"auto"`` instead of implementing the full CognitiveEngine protocol.
+    """
+    if engine is None:
+        return None
+
+    if engine == "auto":
+        from soul_protocol.runtime.cognitive.adapters._auto import engine_from_env
+        return engine_from_env()
+
+    # Plain callable that doesn't implement the CognitiveEngine protocol
+    if callable(engine) and not isinstance(engine, CognitiveEngine):
+        from soul_protocol.runtime.cognitive.adapters._callable import CallableEngine
+        return CallableEngine(engine)
+
+    # Already a CognitiveEngine — pass through
+    return engine
+
+
 class Soul:
     """A Digital Soul — persistent identity, memory, and state for an AI agent."""
 
     def __init__(
         self,
         config: SoulConfig,
-        engine: CognitiveEngine | None = None,
+        engine: CognitiveEngine | Callable | str | None = None,
         search_strategy: SearchStrategy | None = None,
         seed_domains: dict[str, list[str]] | None = None,
         use_dspy: bool = False,
@@ -104,7 +143,8 @@ class Soul:
         self._identity = config.identity
         self._dna = config.dna
         self._lifecycle = config.lifecycle
-        self._engine = engine
+        resolved = _resolve_engine(engine)
+        self._engine = resolved
         self._search_strategy = search_strategy
 
         # Optional DSPy-optimized cognitive processor
@@ -126,7 +166,7 @@ class Soul:
             core=config.core_memory,
             settings=config.memory,
             core_values=config.identity.core_values,
-            engine=engine,
+            engine=resolved,
             search_strategy=search_strategy,
             seed_domains=seed_domains,
             personality=config.dna.personality,
@@ -148,7 +188,7 @@ class Soul:
         values: list[str] | None = None,
         communication_style: str | None = None,
         bonded_to: str | None = None,
-        engine: CognitiveEngine | None = None,
+        engine: CognitiveEngine | Callable | str | None = None,
         search_strategy: SearchStrategy | None = None,
         # v0.3.0 — Flexible configuration parameters
         ocean: dict[str, float] | None = None,
@@ -171,7 +211,10 @@ class Soul:
             values: Core values for significance scoring.
             communication_style: Communication style description (legacy).
             bonded_to: Entity this soul is bonded to.
-            engine: Optional CognitiveEngine for LLM-enhanced cognition.
+            engine: CognitiveEngine for LLM-enhanced cognition. Also accepts:
+                - ``"auto"`` — auto-detect from env vars (ANTHROPIC_API_KEY, etc.)
+                - a plain callable (sync or async) wrapping any LLM
+                - None — falls back to HeuristicEngine (zero-dependency)
             search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
             ocean: OCEAN personality traits, e.g. {"openness": 0.8, ...}.
                    Unspecified traits default to 0.5.
@@ -257,7 +300,7 @@ class Soul:
     async def birth_from_config(
         cls,
         config_path: str | Path,
-        engine: CognitiveEngine | None = None,
+        engine: CognitiveEngine | Callable | str | None = None,
     ) -> Soul:
         """Birth a soul from a YAML/JSON config file.
 
@@ -374,7 +417,7 @@ class Soul:
     async def awaken(
         cls,
         source: str | Path | bytes,
-        engine: CognitiveEngine | None = None,
+        engine: CognitiveEngine | Callable | str | None = None,
         search_strategy: SearchStrategy | None = None,
         password: str | None = None,
     ) -> Soul:
@@ -445,7 +488,8 @@ class Soul:
             except PermissionError as e:
                 raise SoulFileNotFoundError(str(path)) from e
 
-        soul = cls(config, engine=engine, search_strategy=search_strategy)
+        resolved_engine = _resolve_engine(engine)
+        soul = cls(config, engine=resolved_engine, search_strategy=search_strategy)
         soul._lifecycle = LifecycleState.ACTIVE
 
         # If full memory data was included, replace the default memory manager
@@ -454,7 +498,7 @@ class Soul:
                 memory_data,
                 config.memory,
                 core_values=config.identity.core_values,
-                engine=engine,
+                engine=resolved_engine,
                 search_strategy=search_strategy,
                 personality=config.dna.personality,
             )
@@ -791,6 +835,29 @@ class Soul:
     ):
         """Edit core memory."""
         await self._memory.edit_core(persona=persona, human=human)
+
+    def set_engine(self, engine: CognitiveEngine) -> None:
+        """Swap the CognitiveEngine at runtime without reloading the soul.
+
+        Used by the MCP server's lazy engine wiring: when the server starts,
+        no engine is available (FastMCP Context is only injected inside tool
+        handlers). On the first tool call, ``MCPSamplingEngine(ctx)`` is
+        constructed and wired into all loaded souls via this method.
+
+        Safe to call at any point after construction — no memory data is lost.
+        The new engine takes effect on the next ``observe()``, ``reflect()``,
+        or any other operation that delegates to the CognitiveProcessor.
+
+        Args:
+            engine: The new CognitiveEngine to use for cognitive processing.
+        """
+        self._engine = engine
+        self._memory.set_engine(engine)
+        logger.debug(
+            "Soul engine swapped: soul=%s, engine=%s",
+            self.name,
+            type(engine).__name__,
+        )
 
     async def reflect(self, *, apply: bool = True) -> ReflectionResult | None:
         """Trigger a reflection pass with optional auto-apply.

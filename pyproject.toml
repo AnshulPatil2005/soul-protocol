@@ -6,6 +6,7 @@
 #   Added [all] composite extra. Dev extra now depends on engine.
 #   v0.2.2 — Added MCP server (fastmcp), soul-mcp entry point, mcp optional dep
 #   v0.2.2 — Pluggable retrieval, memory consolidation, fact conflict resolution
+# Updated: feat/cognitive-adapters — Added LLM adapter extras: anthropic, openai, litellm, llm.
 
 [build-system]
 requires = ["hatchling"]
@@ -54,6 +55,11 @@ mcp = [
 dspy = ["dspy>=3.1.3"]
 graph = ["networkx>=3.0"]
 vector = ["numpy>=1.24"]
+anthropic = ["anthropic>=0.40.0"]
+openai = ["openai>=1.0.0"]
+ollama = []  # uses httpx which is already in engine deps
+litellm = ["litellm>=1.0.0"]
+llm = ["anthropic>=0.40.0", "openai>=1.0.0", "litellm>=1.0.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -61,7 +67,7 @@ dev = [
     "mypy>=1.8",
     "soul-protocol[engine]",
 ]
-all = ["soul-protocol[engine,mcp,graph,vector,dspy]"]
+all = ["soul-protocol[engine,mcp,graph,vector,dspy,llm]"]
 
 [project.scripts]
 soul = "soul_protocol.cli.main:cli"

@@ -1,4 +1,8 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: feat/mcp-sampling-engine — Added set_engine() method to swap the CognitiveEngine
+#   at runtime without re-initializing the full MemoryManager. Used by MCPSamplingEngine
+#   lazy wiring in server.py: engine is injected on the first MCP tool call when a
+#   FastMCP Context becomes available.
 # Updated: 2026-03-23 — Added _THIRD_PERSON_RELATION_PATTERNS constant and a
 #   second pass in extract_entities() to detect entity-to-entity edges from
 #   third-person text (e.g. "Sarah reports to Dave", "Alice and Bob are
@@ -405,6 +409,35 @@ class MemoryManager:
                 fact_extractor=self.extract_facts,
                 entity_extractor=self.extract_entities,
             )
+
+    def set_engine(self, engine: "CognitiveEngine") -> None:
+        """Swap the CognitiveEngine at runtime without re-initializing the MemoryManager.
+
+        Called by Soul.set_engine() when a new engine becomes available after
+        initialization — typically when MCPSamplingEngine is lazily wired on the
+        first MCP tool call that carries a FastMCP Context.
+
+        Replaces the internal CognitiveProcessor with a new one backed by the
+        provided engine (with HeuristicEngine as fallback). The ContradictionDetector
+        is also updated because it holds its own engine reference.
+
+        Args:
+            engine: A CognitiveEngine instance to use going forward.
+        """
+        from soul_protocol.runtime.cognitive.engine import CognitiveProcessor, HeuristicEngine
+
+        heuristic = HeuristicEngine()
+        self._engine = engine
+        self._cognitive = CognitiveProcessor(
+            engine,
+            fallback=heuristic,
+            fact_extractor=self.extract_facts,
+            entity_extractor=self.extract_entities,
+        )
+        # ContradictionDetector also holds an engine ref — update it too
+        from soul_protocol.runtime.memory.contradiction import ContradictionDetector
+
+        self._contradiction_detector = ContradictionDetector(engine=engine)
 
     # ---- Core memory ----
 

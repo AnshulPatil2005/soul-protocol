@@ -1,4 +1,5 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: 2026-03-22 — Added learn() and learning_events for LearningEvent pipeline.
 # Updated: Wired Evaluator into Soul.__init__() and added evaluate() method.
 #   evaluate() scores interactions via rubric, stores learning as procedural
 #   memory, adjusts skill XP, and checks evolution triggers. Added evaluator
@@ -53,6 +54,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from soul_protocol.spec.learning import LearningEvent
+
 from .bond import Bond
 from .cognitive.engine import CognitiveEngine
 from .dna.prompt import dna_to_system_prompt
@@ -76,6 +79,7 @@ from .types import (
     LifecycleState,
     MemoryEntry,
     MemoryType,
+    MemoryVisibility,
     Mutation,
     Personality,
     ReflectionResult,
@@ -136,6 +140,7 @@ class Soul:
         self._evolution = EvolutionManager(config.evolution)
         self._skills = SkillRegistry()
         self._evaluator = Evaluator()
+        self._learning_events: list[LearningEvent] = []
 
     # ============ Lifecycle ============
 
@@ -616,6 +621,7 @@ class Soul:
         importance: int = 5,
         emotion: str | None = None,
         entities: list[str] | None = None,
+        visibility: MemoryVisibility = MemoryVisibility.BONDED,
     ) -> str:
         """Soul remembers something. Returns memory ID."""
         return await self._memory.add(
@@ -625,6 +631,7 @@ class Soul:
                 importance=importance,
                 emotion=emotion,
                 entities=entities or [],
+                visibility=visibility,
             )
         )
 
@@ -635,13 +642,20 @@ class Soul:
         limit: int = 10,
         types: list[MemoryType] | None = None,
         min_importance: int = 0,
+        requester_id: str | None = None,
+        bond_strength: float | None = None,
+        bond_threshold: float = 30.0,
     ) -> list[MemoryEntry]:
-        """Soul recalls relevant memories."""
+        """Soul recalls relevant memories with visibility filtering."""
+        effective_bond = bond_strength if bond_strength is not None else self._identity.bond.bond_strength
         results = await self._memory.recall(
             query=query,
             limit=limit,
             types=types,
             min_importance=min_importance,
+            requester_id=requester_id,
+            bond_strength=effective_bond,
+            bond_threshold=bond_threshold,
         )
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
@@ -880,6 +894,43 @@ class Soul:
         # Calling evaluate() + observe() in sequence would double-trigger otherwise.
 
         return result
+
+    async def learn(
+        self,
+        interaction: Interaction,
+        domain: str | None = None,
+    ) -> LearningEvent | None:
+        """Evaluate an interaction and create a LearningEvent if notable."""
+        result = await self.evaluate(interaction, domain=domain)
+        effective_domain = domain
+        if effective_domain is None:
+            active_images = self._memory.self_model.get_active_self_images(limit=1)
+            if active_images:
+                effective_domain = active_images[0].domain
+        skill_id = effective_domain.lower().replace(" ", "_") if effective_domain else None
+        event = self._evaluator.create_learning_event(
+            result,
+            interaction_id=interaction.metadata.get("interaction_id"),
+            domain=effective_domain,
+            skill_id=skill_id,
+        )
+        if event is None:
+            return None
+        await self.remember(
+            event.lesson,
+            type=MemoryType.PROCEDURAL,
+            importance=max(3, int((event.evaluation_score or 0.5) * 8)),
+        )
+        self._skills.grant_xp_from_learning(event)
+        self._learning_events.append(event)
+        logger.debug("Learning event created: domain=%s, score=%.2f",
+                      event.domain, event.evaluation_score or 0.0)
+        return event
+
+    @property
+    def learning_events(self) -> list[LearningEvent]:
+        """Access the soul's accumulated learning events."""
+        return list(self._learning_events)
 
     # ============ State / Feelings ============
 

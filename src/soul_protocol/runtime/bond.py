@@ -1,4 +1,7 @@
 # bond.py — Human-Soul Bond model for tracking relationship strength
+# Updated: feat/spec-multi-participant — No structural changes. Bond model is
+#   per-relationship; multi-bond tracking is managed at the Identity level
+#   via BondTarget list.
 # Updated: phase1-ablation-fixes — Changed strengthen() to logarithmic growth curve.
 #   At bond=50 effective gain is 0.5 per interaction; at bond=90 gain is 0.1.
 #   Reaching 99 from 50 takes ~460 interactions. Weaken stays linear (sharp).

@@ -3,7 +3,6 @@
 #   and batch_spawn(). from_template() creates one soul from a SoulTemplate with
 #   optional overrides. batch_spawn() creates N souls with controlled personality
 #   variance. Each spawned soul gets a unique DID and slightly varied OCEAN traits.
-# Created: Stub to fix missing module on dev branch.
 
 from __future__ import annotations
 

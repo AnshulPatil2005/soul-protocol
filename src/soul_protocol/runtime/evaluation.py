@@ -1,7 +1,10 @@
 # runtime/evaluation.py — Rubric-based self-evaluation for soul interactions.
 # Created: 2026-03-18 — MVP: heuristic evaluator, default rubrics, domain stats.
+# Updated: 2026-03-22 — Added create_learning_event() to Evaluator.
 
 from __future__ import annotations
+
+from soul_protocol.spec.learning import LearningEvent
 
 from .types import (
     CriterionResult,
@@ -10,6 +13,10 @@ from .types import (
     RubricCriterion,
     RubricResult,
 )
+
+# Score thresholds for generating learning events.
+HIGH_SCORE_THRESHOLD: float = 0.8
+LOW_SCORE_THRESHOLD: float = 0.3
 
 # ============ Stop Words ============
 # Small set for relevance calculation. Intentionally self-contained to avoid
@@ -339,6 +346,32 @@ class Evaluator:
                     ),
                 })
         return triggers
+
+    def create_learning_event(
+        self,
+        result: RubricResult,
+        interaction_id: str | None = None,
+        domain: str | None = None,
+        skill_id: str | None = None,
+    ) -> LearningEvent | None:
+        """Create a LearningEvent from a notably high or low evaluation result."""
+        score = result.overall_score
+        if score >= HIGH_SCORE_THRESHOLD:
+            confidence = min(1.0, 0.5 + (score - HIGH_SCORE_THRESHOLD) * 2.5)
+            lesson = f"Success pattern: {result.learning}"
+        elif score <= LOW_SCORE_THRESHOLD:
+            confidence = min(1.0, 0.5 + (LOW_SCORE_THRESHOLD - score) * 2.5)
+            lesson = f"Failure pattern: {result.learning}"
+        else:
+            return None
+        return LearningEvent(
+            trigger_interaction_id=interaction_id,
+            lesson=lesson,
+            domain=domain or result.rubric_id,
+            confidence=confidence,
+            skill_id=skill_id,
+            evaluation_score=score,
+        )
 
     def to_dict(self) -> dict:
         """Serialize evaluator state for persistence."""

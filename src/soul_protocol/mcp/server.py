@@ -1,5 +1,10 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 13 tools, 3 resources, 2 prompts for AI agent integration
+# Updated: feat/mcp-sampling-engine — Lazy MCPSamplingEngine wiring. On the first tool
+#   call that carries a FastMCP Context, MCPSamplingEngine is constructed and pushed to
+#   all loaded souls via Soul.set_engine(). Subsequent calls reuse the same engine.
+#   Tools that do cognitive work (soul_observe, soul_reflect, soul_birth, soul_state)
+#   accept ctx: Context so the engine can be lazily wired.
 # Updated: 2026-03-18 — Auto-reload: detect external .soul file changes via mtime check.
 # Updated: 2026-03-15 — Added soul_reload tool to pick up external .soul file changes.
 # Updated: 2026-03-13 — Multi-soul support via SoulRegistry + SOUL_DIR scanning.
@@ -19,8 +24,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastmcp import FastMCP  # optional dep: pip install soul-protocol[mcp]
+from fastmcp import Context, FastMCP  # optional dep: pip install soul-protocol[mcp]
 
+from ..runtime.cognitive.adapters.mcp_sampling import MCPSamplingEngine
 from ..runtime.exceptions import SoulProtocolError
 from ..runtime.soul import Soul
 from ..runtime.types import Interaction, MemoryType, Mood
@@ -185,6 +191,39 @@ class SoulRegistry:
 
 _registry = SoulRegistry()
 
+# ── MCPSamplingEngine cache ──
+# Lazily constructed on the first tool call that carries a FastMCP Context.
+# Reused across all subsequent calls within the session.
+_engine: MCPSamplingEngine | None = None
+
+
+def _get_or_create_engine(ctx: Context) -> MCPSamplingEngine:
+    """Return (or create) the session-scoped MCPSamplingEngine.
+
+    Called from tool handlers that receive a FastMCP ``ctx``. Creates the engine
+    once on first use and caches it at module level. All loaded souls are updated
+    via ``Soul.set_engine()`` when the engine is first created so that cognitive
+    operations (observe, reflect) benefit from host LLM sampling going forward.
+
+    Args:
+        ctx: FastMCP Context injected into the tool handler.
+
+    Returns:
+        The cached MCPSamplingEngine instance.
+    """
+    global _engine
+    if _engine is None:
+        _engine = MCPSamplingEngine(ctx)
+        # Wire the engine into every loaded soul
+        for soul in _registry._souls.values():
+            soul.set_engine(_engine)
+        print(
+            "soul-mcp: MCPSamplingEngine wired — cognitive tasks routed to host LLM",
+            file=sys.stderr,
+            flush=True,
+        )
+    return _engine
+
 
 # ── Helpers ──
 
@@ -254,8 +293,9 @@ async def _file_watcher() -> None:
 @asynccontextmanager
 async def _lifespan(server: FastMCP):
     """Load souls from SOUL_DIR or SOUL_PATH on startup, auto-save on shutdown."""
-    global _registry
+    global _registry, _engine
     _registry.clear()
+    _engine = None  # reset engine cache so new sessions get a fresh MCPSamplingEngine
 
     soul_dir = os.environ.get("SOUL_DIR")
     soul_path = os.environ.get("SOUL_PATH")
@@ -324,6 +364,7 @@ async def _lifespan(server: FastMCP):
                 flush=True,
             )
     _registry.clear()
+    _engine = None
 
 
 mcp = FastMCP(
@@ -378,6 +419,7 @@ async def soul_birth(
     name: str,
     archetype: str = "",
     values: list[str] | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """Create a new soul with persistent identity and memory.
 
@@ -393,6 +435,10 @@ async def soul_birth(
     )
     _registry.register(soul, "", "directory")
     _registry.switch(name)
+    # Wire MCPSamplingEngine if a host context is available
+    if ctx is not None:
+        engine = _get_or_create_engine(ctx)
+        soul.set_engine(engine)
     result: dict[str, Any] = {
         "name": soul.name,
         "did": soul.did,
@@ -444,9 +490,12 @@ async def soul_observe(
     agent_output: str,
     channel: str = "mcp",
     soul: str | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """Process an interaction through the psychology pipeline.
     Extracts facts, detects sentiment, updates self-model.
+    When called from Claude Code / Claude Desktop, uses the host LLM for
+    richer cognitive processing via MCP sampling (no extra API key needed).
 
     Args:
         user_input: What the user said
@@ -454,6 +503,8 @@ async def soul_observe(
         channel: Source channel identifier
         soul: Target soul name (uses active soul if omitted)
     """
+    if ctx is not None:
+        _get_or_create_engine(ctx)
     s = await _resolve_soul(soul)
     await s.observe(
         Interaction(
@@ -540,14 +591,20 @@ async def soul_recall(
 
 
 @mcp.tool
-async def soul_reflect(soul: str | None = None) -> str:
+async def soul_reflect(
+    soul: str | None = None,
+    ctx: Context | None = None,
+) -> str:
     """Trigger memory reflection and consolidation.
     Identifies themes, summarizes patterns, generates self-insights.
-    Requires CognitiveEngine for full power; skips without one.
+    Uses the host LLM via MCP sampling when running inside Claude Code /
+    Claude Desktop — no extra API key needed.
 
     Args:
         soul: Target soul name (uses active soul if omitted)
     """
+    if ctx is not None:
+        _get_or_create_engine(ctx)
     s = await _resolve_soul(soul)
     result = await s.reflect()
     if result is None:

@@ -1,4 +1,11 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-23 — Added `soul import-soulspec`, `soul import-tavernai`,
+#   `soul export-soulspec`, `soul export-tavernai` commands for cross-format
+#   import/export (SoulSpec directories and TavernAI Character Card V2 JSON/PNG).
+# Updated: 2026-03-23 — Added `soul export-a2a` and `soul import-a2a` commands
+#   for A2A Agent Card ↔ Soul Protocol interop. Export generates Agent Card JSON
+#   from a soul; import creates a soul from an Agent Card file.
+# Updated: 2026-03-13 — Added --traits/-t compact OCEAN shorthand to `soul birth`.
 # Updated: 2026-03-13 — Added `soul inject <target>` command for fast CLI-based
 #   soul context injection into agent config files (claude-code, cursor, vscode,
 #   windsurf, cline, continue). Idempotent with marker-based replacement.
@@ -1041,6 +1048,203 @@ def inject_cmd(target, soul_name, soul_dir, memories, quiet):
             )
 
     asyncio.run(_inject())
+
+
+# ============ SoulSpec Import/Export Commands ============
+
+
+@cli.command("import-soulspec")
+@click.argument("source", type=click.Path(exists=True))
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output .soul path")
+def import_soulspec_cmd(source, output):
+    """Import a soul from a SoulSpec directory.
+
+    Reads SOUL.md, IDENTITY.md, STYLE.md, and soul.json from the given
+    directory and creates a new Soul with the mapped data.
+
+    \b
+    Examples:
+      soul import-soulspec ./my-character/          # -> <name>.soul
+      soul import-soulspec ./specs/ -o aria.soul
+    """
+
+    async def _import():
+        from soul_protocol.runtime.importers.soulspec import SoulSpecImporter
+
+        soul = await SoulSpecImporter.from_directory(source)
+        out = output or f"{_safe_name(soul.name)}.soul"
+        await soul.export(out)
+        console.print(
+            f"[green]Imported[/green] SoulSpec [bold]{soul.name}[/bold] from {source} -> {out}"
+        )
+
+    asyncio.run(_import())
+
+
+@cli.command("export-soulspec")
+@click.argument("source", type=click.Path(exists=True))
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output directory")
+def export_soulspec_cmd(source, output):
+    """Export a soul to SoulSpec directory format.
+
+    Creates a directory with SOUL.md, IDENTITY.md, STYLE.md, and soul.json
+    files compatible with the SoulSpec format (soulspec.org).
+
+    \b
+    Examples:
+      soul export-soulspec aria.soul              # -> aria-soulspec/
+      soul export-soulspec .soul/ -o ./output/
+    """
+
+    async def _export():
+        from soul_protocol.runtime.importers.soulspec import SoulSpecImporter
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(source)
+        out = output or f"{_safe_name(soul.name)}-soulspec"
+        result = await SoulSpecImporter.to_soulspec(soul, out)
+        console.print(
+            f"[green]Exported[/green] {soul.name} to SoulSpec directory -> {result}/"
+        )
+
+    asyncio.run(_export())
+
+
+# ============ TavernAI Import/Export Commands ============
+
+
+@cli.command("import-tavernai")
+@click.argument("source", type=click.Path(exists=True))
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output .soul path")
+def import_tavernai_cmd(source, output):
+    """Import a soul from a TavernAI Character Card V2.
+
+    Reads a Character Card V2 JSON file or PNG with embedded character data.
+    Automatically detects whether the source is JSON or PNG.
+
+    \b
+    Examples:
+      soul import-tavernai character.json          # -> <name>.soul
+      soul import-tavernai avatar.png -o aria.soul
+    """
+
+    async def _import():
+        from soul_protocol.runtime.importers.tavernai import TavernAIImporter
+
+        source_path = Path(source)
+        if source_path.suffix.lower() == ".png":
+            soul = await TavernAIImporter.from_png(source)
+        else:
+            data = json.loads(source_path.read_text())
+            soul = await TavernAIImporter.from_json(data)
+
+        out = output or f"{_safe_name(soul.name)}.soul"
+        await soul.export(out)
+        console.print(
+            f"[green]Imported[/green] TavernAI card [bold]{soul.name}[/bold] from {source} -> {out}"
+        )
+
+    asyncio.run(_import())
+
+
+@cli.command("export-tavernai")
+@click.argument("source", type=click.Path(exists=True))
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output JSON path")
+@click.option("--png", type=click.Path(), default=None, help="Also export as PNG with embedded card")
+def export_tavernai_cmd(source, output, png):
+    """Export a soul to TavernAI Character Card V2 format.
+
+    Creates a Character Card V2 JSON. Optionally embeds the card in a
+    PNG file with --png.
+
+    \b
+    Examples:
+      soul export-tavernai aria.soul                      # -> aria-card.json
+      soul export-tavernai .soul/ -o card.json --png avatar.png
+    """
+
+    async def _export():
+        from soul_protocol.runtime.importers.tavernai import TavernAIImporter
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(source)
+        card = await TavernAIImporter.to_character_card(soul)
+
+        out = output or f"{_safe_name(soul.name)}-card.json"
+        Path(out).write_text(json.dumps(card, indent=2, ensure_ascii=False))
+        console.print(
+            f"[green]Exported[/green] {soul.name} to TavernAI Card V2 -> {out}"
+        )
+
+        if png:
+            png_path = await TavernAIImporter.to_png(soul, png)
+            console.print(
+                f"[green]Exported[/green] TavernAI PNG with embedded card -> {png_path}"
+            )
+
+    asyncio.run(_export())
+
+
+# ============ A2A Agent Card Commands ============
+
+
+@cli.command("export-a2a")
+@click.argument("source", type=click.Path(exists=True))
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output JSON path")
+@click.option("--url", "-u", default="", help="Agent endpoint URL for the card")
+def export_a2a_cmd(source, output, url):
+    """Generate an A2A Agent Card from a soul.
+
+    Reads a .soul file or directory and outputs a JSON Agent Card
+    compatible with Google's Agent-to-Agent protocol.
+
+    \b
+    Examples:
+      soul export-a2a .soul/               # → <name>-agent-card.json
+      soul export-a2a aria.soul -o card.json --url https://aria.example.com
+    """
+
+    async def _export():
+        from soul_protocol.runtime.bridges.a2a import A2AAgentCardBridge
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(source)
+        card = A2AAgentCardBridge.soul_to_agent_card(soul, url=url)
+        out = output or f"{_safe_name(soul.name)}-agent-card.json"
+        Path(out).write_text(json.dumps(card, indent=2, default=str))
+        console.print(f"[green]Exported[/green] A2A Agent Card for {soul.name} → {out}")
+
+    asyncio.run(_export())
+
+
+
+@cli.command("import-a2a")
+@click.argument("file", type=click.Path(exists=True))
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output .soul path")
+def import_a2a_cmd(file, output):
+    """Create a soul from an A2A Agent Card JSON file.
+
+    Reads an Agent Card and creates a new soul with the card's
+    identity, personality (from extensions.soul), and skills.
+
+    \b
+    Examples:
+      soul import-a2a agent-card.json              # → <name>.soul
+      soul import-a2a card.json -o my-agent.soul
+    """
+
+    async def _import():
+        from soul_protocol.runtime.bridges.a2a import A2AAgentCardBridge
+
+        card_data = json.loads(Path(file).read_text())
+        soul = A2AAgentCardBridge.agent_card_to_soul(card_data)
+        out = output or f"{_safe_name(soul.name)}.soul"
+        await soul.export(out)
+        console.print(
+            f"[green]Imported[/green] soul [bold]{soul.name}[/bold] from Agent Card → {out}"
+        )
+
+    asyncio.run(_import())
 
 
 if __name__ == "__main__":

@@ -1,12 +1,15 @@
 # Engine-level module — opinionated XP/leveling system. Not part of the core protocol.
 # skills.py — Skills/XP progression system for souls
 # Created: 2026-03-06 — Implements Skill and SkillRegistry with XP/leveling
+# Updated: 2026-03-22 — Added grant_xp_from_learning().
 
 from __future__ import annotations
 
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+
+from soul_protocol.spec.learning import LearningEvent
 
 
 class Skill(BaseModel):
@@ -49,3 +52,17 @@ class SkillRegistry(BaseModel):
         if skill:
             return skill.add_xp(amount)
         return False
+
+    def grant_xp_from_learning(self, event: LearningEvent) -> bool:
+        """Grant XP to a skill based on a LearningEvent."""
+        skill_id = event.skill_id
+        if not skill_id:
+            skill_id = event.domain.lower().replace(" ", "_")
+        skill = self.get(skill_id)
+        if not skill:
+            skill = Skill(id=skill_id, name=event.domain)
+            self.add(skill)
+        score = event.evaluation_score if event.evaluation_score is not None else 0.5
+        xp_amount = int(20 * (0.5 + score) * event.confidence)
+        xp_amount = max(1, xp_amount)
+        return skill.add_xp(xp_amount)

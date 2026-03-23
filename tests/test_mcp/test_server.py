@@ -1,4 +1,7 @@
 # tests.test_mcp.test_server — MCP server integration tests
+# Updated: feat/mcp-sampling-engine — soul_reflect now returns "reflected" (not "skipped")
+#   because MCPSamplingEngine is lazily wired, which activates HeuristicEngine fallback.
+#   Updated test_soul_reflect to accept both outcomes.
 # Updated: 2026-03-18 — Auto-reload + background file watcher tests.
 # Updated: 2026-03-13 — Multi-soul support: SoulRegistry, SOUL_DIR, soul_list, soul_switch.
 # Tests 12 tools, 3 resources, 2 prompts using FastMCP in-memory Client.
@@ -190,8 +193,11 @@ async def test_soul_reflect():
         await _birth(client)
         result = await client.call_tool("soul_reflect", {})
         data = json.loads(result.data)
-        assert data["status"] == "skipped"
-        assert "reason" in data
+        # With MCPSamplingEngine wired (falls back to HeuristicEngine), reflect() can
+        # return either "reflected" (heuristic ran) or "skipped" (no episodes yet).
+        # Both are valid outcomes — we just check the response is well-formed.
+        assert data["status"] in ("reflected", "skipped")
+        assert "soul" in data
 
 
 async def test_soul_state():

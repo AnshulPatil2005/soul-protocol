@@ -3,10 +3,21 @@
 # primitives that any runtime can implement. Zero imports from opinionated
 # modules (memory/, cognitive/, evolution/, state/, dna/).
 # Updated: Added EternalStorageProvider, EmbeddingProvider, similarity functions.
+# Updated: Added ContextEngine protocol and LCM models for Lossless Context Management.
 
 from __future__ import annotations
 
 from .container import SoulContainer
+from .context import (
+    AssembleResult,
+    CompactionLevel,
+    ContextEngine,
+    ContextMessage,
+    ContextNode,
+    DescribeResult,
+    ExpandResult,
+    GrepResult,
+)
 from .embeddings import (
     EmbeddingProvider,
     cosine_similarity,
@@ -24,6 +35,15 @@ from .soul_file import pack_soul, unpack_soul, unpack_to_container
 __all__ = [
     # Container
     "SoulContainer",
+    # Context (LCM)
+    "AssembleResult",
+    "CompactionLevel",
+    "ContextEngine",
+    "ContextMessage",
+    "ContextNode",
+    "DescribeResult",
+    "ExpandResult",
+    "GrepResult",
     # Identity
     "BondTarget",
     "Identity",

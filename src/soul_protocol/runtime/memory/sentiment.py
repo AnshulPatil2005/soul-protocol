@@ -1,5 +1,8 @@
 # memory/sentiment.py — Heuristic emotion detection from text (no LLM).
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
+# Updated: 2026-03-12 — Decoupled arousal from valence scores via AROUSAL_HINTS,
+#   expanded vocabulary (~200 words), widened sadness/gratitude label map boundaries,
+#   added neutral floor threshold for mild signals. Fixes joy/excitement and
+#   sadness/frustration misclassification.
 # Created: v0.2.0 — Implements Damasio's Somatic Marker Hypothesis.
 # Word-list approach: positive/negative words, intensity modifiers.
 # Returns SomaticMarker with valence, arousal, and emotion label.
@@ -9,7 +12,7 @@ from __future__ import annotations
 from soul_protocol.runtime.types import SomaticMarker
 
 # ---------------------------------------------------------------------------
-# Curated word lists (~150 words total)
+# Curated word lists (~200 words total)
 # ---------------------------------------------------------------------------
 
 POSITIVE_WORDS: dict[str, float] = {
@@ -30,6 +33,13 @@ POSITIVE_WORDS: dict[str, float] = {
     "pleased": 0.6,
     "glad": 0.6,
     "cheerful": 0.7,
+    "lovely": 0.7,
+    "warm": 0.5,
+    "peaceful": 0.5,
+    "calm": 0.4,
+    "content": 0.5,
+    "bliss": 0.8,
+    "comfort": 0.5,
     # Gratitude
     "thanks": 0.5,
     "thank": 0.5,
@@ -43,11 +53,28 @@ POSITIVE_WORDS: dict[str, float] = {
     "enthusiastic": 0.8,
     "pumped": 0.7,
     "stoked": 0.8,
-    # Curiosity / interest
-    "curious": 0.5,
-    "interesting": 0.5,
-    "fascinated": 0.7,
-    "intrigued": 0.6,
+    # Life events (high positive valence)
+    "promoted": 0.9,
+    "won": 0.8,
+    "married": 0.8,
+    "graduated": 0.8,
+    "accepted": 0.7,
+    "passed": 0.6,
+    "best": 0.8,
+    "dream": 0.7,
+    "championship": 0.7,
+    "celebrate": 0.8,
+    "adopted": 0.6,
+    "born": 0.7,
+    "alive": 0.6,
+    "blessed": 0.7,
+    "incredible": 0.8,
+    "extraordinary": 0.8,
+    # Curiosity / interest (moderate valence — keeps them in curiosity zone)
+    "curious": 0.35,
+    "interesting": 0.35,
+    "fascinated": 0.55,
+    "intrigued": 0.45,
     "wonder": 0.5,
     "explore": 0.4,
     # Satisfaction
@@ -62,12 +89,15 @@ POSITIVE_WORDS: dict[str, float] = {
     "working": 0.3,
     "done": 0.3,
     "completed": 0.5,
-    # General positive
-    "good": 0.5,
-    "nice": 0.5,
-    "cool": 0.5,
-    "fine": 0.3,
-    "okay": 0.2,
+    "relief": 0.6,
+    "hope": 0.6,
+    "trust": 0.5,
+    # General positive (mild — low signal)
+    "good": 0.4,
+    "nice": 0.15,
+    "cool": 0.35,
+    "fine": 0.15,
+    "okay": 0.1,
     "helpful": 0.6,
     "useful": 0.5,
     "impressive": 0.7,
@@ -75,7 +105,7 @@ POSITIVE_WORDS: dict[str, float] = {
 }
 
 NEGATIVE_WORDS: dict[str, float] = {
-    # Frustration / anger
+    # Frustration / anger (high arousal)
     "frustrated": 0.7,
     "annoyed": 0.6,
     "angry": 0.8,
@@ -87,6 +117,10 @@ NEGATIVE_WORDS: dict[str, float] = {
     "awful": 0.8,
     "horrible": 0.8,
     "worst": 0.9,
+    "infuriating": 0.8,
+    "livid": 0.9,
+    "outraged": 0.9,
+    "resentful": 0.6,
     # Confusion
     "confused": 0.5,
     "confusing": 0.5,
@@ -95,7 +129,7 @@ NEGATIVE_WORDS: dict[str, float] = {
     "stuck": 0.5,
     "puzzled": 0.4,
     "baffled": 0.6,
-    # Sadness
+    # Sadness (low arousal — grief, loss, melancholy)
     "sad": 0.6,
     "disappointed": 0.6,
     "unhappy": 0.7,
@@ -104,6 +138,21 @@ NEGATIVE_WORDS: dict[str, float] = {
     "heartbroken": 0.9,
     "lonely": 0.6,
     "hopeless": 0.8,
+    "grief": 0.8,
+    "mourning": 0.7,
+    "mourn": 0.7,
+    "sorrow": 0.7,
+    "empty": 0.5,
+    "numb": 0.5,
+    "crushed": 0.8,
+    "devastating": 0.8,
+    "betrayed": 0.8,
+    "miss": 0.5,
+    "regret": 0.6,
+    "defeated": 0.6,
+    "helpless": 0.7,
+    "worthless": 0.7,
+    "crying": 0.7,
     # Fear / anxiety
     "afraid": 0.6,
     "scared": 0.7,
@@ -112,6 +161,7 @@ NEGATIVE_WORDS: dict[str, float] = {
     "nervous": 0.5,
     "terrified": 0.9,
     "panic": 0.8,
+    "overwhelmed": 0.7,
     # Failure / problems
     "failed": 0.6,
     "broken": 0.6,
@@ -136,6 +186,109 @@ NEGATIVE_WORDS: dict[str, float] = {
     "pain": 0.6,
 }
 
+# ---------------------------------------------------------------------------
+# Arousal hints — decouple arousal from valence intensity
+# ---------------------------------------------------------------------------
+# By default, arousal = valence score (high-intensity word → high arousal).
+# But joy, gratitude, and sadness are high-intensity emotions with LOW energy.
+# This dict overrides the arousal contribution for specific words so that
+# "heartbroken" (high valence, low energy) lands in sadness, not frustration.
+
+AROUSAL_HINTS: dict[str, float] = {
+    # --- Low-arousal positive: joy, contentment, gratitude ---
+    "happy": 0.35,
+    "glad": 0.25,
+    "pleased": 0.25,
+    "cheerful": 0.30,
+    "enjoy": 0.30,
+    "delighted": 0.35,
+    "beautiful": 0.25,
+    "lovely": 0.25,
+    "wonderful": 0.40,
+    "perfect": 0.40,
+    "brilliant": 0.40,
+    "great": 0.35,
+    "content": 0.15,
+    "peaceful": 0.10,
+    "calm": 0.10,
+    "bliss": 0.30,
+    "comfort": 0.15,
+    "warm": 0.15,
+    "relief": 0.20,
+    "hope": 0.25,
+    "trust": 0.20,
+    "blessed": 0.25,
+    # Gratitude (very low arousal — warm, not energetic)
+    # Kept low enough that even with 1.3x intensifier, stays below joy's 0.20 floor
+    "grateful": 0.12,
+    "thankful": 0.12,
+    "appreciate": 0.12,
+    "thanks": 0.10,
+    "thank": 0.10,
+    # Satisfaction (moderate-low)
+    "satisfied": 0.25,
+    "accomplished": 0.35,
+    "proud": 0.35,
+    "success": 0.35,
+    "achieved": 0.35,
+    "solved": 0.25,
+    "completed": 0.25,
+    "done": 0.15,
+    "fixed": 0.20,
+    "works": 0.15,
+    "working": 0.10,
+    # Life events — moderate arousal (joyful but not frenzied)
+    "married": 0.45,
+    "adopted": 0.35,
+    "born": 0.40,
+    "graduated": 0.45,
+    "accepted": 0.40,
+    "passed": 0.30,
+    "best": 0.40,
+    "dream": 0.35,
+    # Mild positive (very low arousal)
+    "good": 0.15,
+    "nice": 0.10,
+    "cool": 0.15,
+    "fine": 0.05,
+    "okay": 0.05,
+    # --- Low-arousal negative: sadness, grief, melancholy ---
+    "sad": 0.25,
+    "disappointed": 0.30,
+    "unhappy": 0.30,
+    "depressed": 0.35,
+    "miserable": 0.35,
+    "heartbroken": 0.35,
+    "lonely": 0.20,
+    "hopeless": 0.30,
+    "grief": 0.30,
+    "mourning": 0.25,
+    "mourn": 0.25,
+    "sorrow": 0.25,
+    "empty": 0.15,
+    "numb": 0.10,
+    "crushed": 0.35,
+    "devastating": 0.35,
+    "miss": 0.15,
+    "regret": 0.25,
+    "defeated": 0.25,
+    "helpless": 0.30,
+    "worthless": 0.25,
+    "crying": 0.30,
+    # Curiosity (moderate arousal — engaged but not frantic)
+    "curious": 0.35,
+    "interesting": 0.30,
+    "intrigued": 0.35,
+    "wonder": 0.30,
+    "explore": 0.30,
+    # Confusion (moderate arousal)
+    "confused": 0.40,
+    "confusing": 0.40,
+    "unclear": 0.30,
+    "puzzled": 0.35,
+    "baffled": 0.45,
+}
+
 # Intensity modifiers scale the detected valence/arousal
 INTENSIFIERS: dict[str, float] = {
     "very": 1.3,
@@ -150,6 +303,7 @@ INTENSIFIERS: dict[str, float] = {
     "quite": 1.1,
     "pretty": 1.1,
     "fairly": 1.0,
+    "most": 1.2,
 }
 
 DIMINISHERS: dict[str, float] = {
@@ -194,15 +348,17 @@ NEGATIONS: set[str] = {
 # ---------------------------------------------------------------------------
 # Emotion label mapping from (valence, arousal) quadrants
 # ---------------------------------------------------------------------------
+# Boundaries widened for sadness (arousal up to 0.50) and gratitude (up to 0.45)
+# to accommodate high-intensity-but-low-energy emotions.
 
 _LABEL_MAP: list[tuple[str, float, float, float, float]] = [
     # (label, min_valence, max_valence, min_arousal, max_arousal)
-    ("excitement", 0.3, 1.0, 0.5, 1.0),
-    ("joy", 0.3, 1.0, 0.0, 0.5),
-    ("gratitude", 0.3, 0.7, 0.0, 0.3),
+    ("excitement", 0.3, 1.0, 0.50, 1.0),
+    ("joy", 0.3, 1.0, 0.20, 0.50),
+    ("gratitude", 0.1, 1.0, 0.0, 0.20),
     ("curiosity", 0.1, 0.5, 0.2, 0.6),
-    ("frustration", -1.0, -0.3, 0.5, 1.0),
-    ("sadness", -1.0, -0.3, 0.0, 0.4),
+    ("frustration", -1.0, -0.3, 0.50, 1.0),
+    ("sadness", -1.0, -0.3, 0.0, 0.50),
     ("confusion", -0.5, -0.1, 0.2, 0.6),
 ]
 
@@ -232,6 +388,10 @@ def detect_sentiment(text: str) -> SomaticMarker:
     negation detection. Returns a SomaticMarker with valence (-1 to 1),
     arousal (0 to 1), and an emotion label.
 
+    Arousal is computed separately from valence using AROUSAL_HINTS so that
+    high-intensity but low-energy emotions (joy, gratitude, sadness) are
+    correctly distinguished from high-energy emotions (excitement, frustration).
+
     Args:
         text: The text to analyze.
 
@@ -244,6 +404,7 @@ def detect_sentiment(text: str) -> SomaticMarker:
 
     pos_scores: list[float] = []
     neg_scores: list[float] = []
+    arousal_scores: list[float] = []
     intensity_modifier = 1.0
 
     # Check for intensifiers/diminishers that precede emotion words
@@ -263,16 +424,22 @@ def detect_sentiment(text: str) -> SomaticMarker:
 
         if clean in POSITIVE_WORDS:
             score = POSITIVE_WORDS[clean]
+            arousal = AROUSAL_HINTS.get(clean, score)  # default: arousal = valence score
             if is_negated:
                 neg_scores.append(score * 0.7)  # Negated positive → mild negative
+                arousal_scores.append(arousal * 0.5)
             else:
                 pos_scores.append(score)
+                arousal_scores.append(arousal)
         elif clean in NEGATIVE_WORDS:
             score = NEGATIVE_WORDS[clean]
+            arousal = AROUSAL_HINTS.get(clean, score)
             if is_negated:
                 pos_scores.append(score * 0.5)  # Negated negative → mild positive
+                arousal_scores.append(arousal * 0.5)
             else:
                 neg_scores.append(score)
+                arousal_scores.append(arousal)
 
     if not pos_scores and not neg_scores:
         return SomaticMarker(valence=0.0, arousal=0.0, label="neutral")
@@ -285,10 +452,14 @@ def detect_sentiment(text: str) -> SomaticMarker:
     raw_valence = (avg_pos - avg_neg) * intensity_modifier
     valence = max(-1.0, min(1.0, raw_valence))
 
-    # Arousal: overall emotional intensity (regardless of polarity)
-    all_scores = pos_scores + neg_scores
-    raw_arousal = (sum(all_scores) / len(all_scores)) * intensity_modifier
+    # Arousal: use arousal-specific scores (decoupled from valence intensity)
+    raw_arousal = (sum(arousal_scores) / len(arousal_scores)) * intensity_modifier
     arousal = max(0.0, min(1.0, raw_arousal))
+
+    # Neutral floor: if the emotional signal is too weak, classify as neutral.
+    # Catches mild words like "nice", "fine", "okay" in short phrases.
+    if abs(valence) < 0.2 and arousal < 0.15:
+        return SomaticMarker(valence=round(valence, 3), arousal=round(arousal, 3), label="neutral")
 
     label = _classify_label(valence, arousal)
 

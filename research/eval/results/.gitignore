@@ -1,0 +1,5 @@
+# Ignore generated run results
+*.json
+# But track committed baselines
+!heuristic_baseline.json
+!llm_judge_20260312_193724.json

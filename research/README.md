@@ -1,6 +1,6 @@
 # Soul Protocol Validation Study
 
-<!-- Created 2026-03-06. Documentation for the research simulation framework. -->
+<!-- Created 2026-03-06. Updated 2026-03-12: added Soul Health Score (SHS) evaluation framework section. -->
 
 ## What This Proves
 
@@ -90,3 +90,56 @@ Results are written to `research/results/` (configurable via `--output`). A full
 **Confidence intervals**: 95% CI using t-distribution approximation (t=1.96 for n > 30, t=2.0 otherwise).
 
 **Reproducibility**: All randomness is seeded. Default seed is 42. The same seed and configuration will produce identical results.
+
+---
+
+## Soul Health Score (SHS) Evaluation Framework
+
+A 7-dimension evaluation suite that produces a single 0-100 composite score measuring soul capability across memory, emotion, personality, bond, self-model, continuity, and portability. Where the simulation study above tests the protocol's design via ablation, SHS evaluates a live soul instance end-to-end: spin up a soul, run it through structured scenarios, and grade the results.
+
+### How to Run
+
+**Full heuristic eval** (no API key needed, roughly 2 minutes):
+
+```bash
+python -m research.eval.suite
+```
+
+**Quick mode** (roughly 30 seconds):
+
+```bash
+python -m research.eval.suite --quick
+```
+
+**Specific dimensions only:**
+
+```bash
+python -m research.eval.suite --dimensions 2 3 4
+```
+
+**LLM judge evaluation** (requires `ANTHROPIC_API_KEY`):
+
+```bash
+python -m research.eval.llm_judge --dimensions 2,3 --concurrent 15
+```
+
+### Architecture
+
+| File | Purpose |
+|------|---------|
+| `eval/suite.py` | Main runner, CLI, SHS computation |
+| `eval/report.py` | Dashboard renderer (terminal + markdown) |
+| `eval/llm_judge.py` | LLM-based evaluator agents (Haiku) |
+| `eval/dimensions/d1_memory.py` | D1: Memory Recall (wraps long_horizon runner) |
+| `eval/dimensions/d2_emotion.py` | D2: Emotional Intelligence (4 scenarios) |
+| `eval/dimensions/d3_personality.py` | D3: Personality Expression (4 scenarios) |
+| `eval/dimensions/d4_bond.py` | D4: Bond / Relationship (4 scenarios) |
+| `eval/dimensions/d5_self_model.py` | D5: Self-Model (4 scenarios) |
+| `eval/dimensions/d6_continuity.py` | D6: Identity Continuity (3 scenarios) |
+| `eval/dimensions/d7_portability.py` | D7: Portability (3 scenarios) |
+| `eval/corpus/` | Labeled sentiment corpus + topic turns |
+| `eval/results/` | Saved baseline and LLM judge results |
+
+### Current Scores
+
+SHS 90.2/100 (D2-D7, heuristic mode). See `eval/results/heuristic_baseline.json` for the full breakdown.

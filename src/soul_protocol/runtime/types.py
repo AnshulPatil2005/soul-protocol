@@ -1,4 +1,9 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: v0.3.5 — Added RubricCriterion, Rubric, CriterionResult, RubricResult
+#   models for rubric-based self-evaluation system.
+# Updated: v0.3.4 — Added MemoryCategory for structured extraction taxonomy,
+#   category + abstract + overview fields on MemoryEntry for progressive content
+#   loading (L0/L1/L2 layers), salience field for retrieval weighting.
 # Updated: Added Bond, incarnation, previous_lives, EternalLinks to Identity/SoulManifest.
 #   v0.2.2 — Added superseded_by field to MemoryEntry for fact conflict resolution.
 #   v0.2.1 — Added ReflectionResult for CognitiveEngine reflection output.
@@ -8,7 +13,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
@@ -58,11 +63,29 @@ class CommunicationStyle(BaseModel):
 
 
 class Biorhythms(BaseModel):
-    """Simulated vitality and energy patterns."""
+    """Simulated vitality and energy patterns.
+
+    All fields have sensible defaults matching the original hardcoded behavior.
+    Set drain rates to 0 for "always-on" agents that never get tired.
+    """
 
     chronotype: str = "neutral"
+    # Note: initial social battery at birth. StateManager reads SoulState.social_battery
+    # at runtime, not this field. Soul.birth() syncs this into SoulState at creation time.
     social_battery: float = Field(default=100.0, ge=0.0, le=100.0)
-    energy_regen_rate: float = 5.0
+
+    # Energy dynamics
+    energy_regen_rate: float = Field(default=10.0, ge=0.0, description="Energy recovered per hour of elapsed time")
+    energy_drain_rate: float = Field(default=2.0, ge=0.0, description="Energy lost per interaction (0 = no drain)")
+    social_drain_rate: float = Field(default=5.0, ge=0.0, description="Social battery lost per interaction (0 = no drain)")
+
+    # Mood dynamics
+    tired_threshold: float = Field(default=20.0, ge=0.0, le=100.0, description="Energy below this forces TIRED mood (0 = disabled)")
+    mood_inertia: float = Field(default=0.4, ge=0.0, le=1.0, description="EMA alpha for mood shifts (0 = max inertia, 1 = instant)")
+    mood_sensitivity: float = Field(default=0.25, ge=0.0, le=1.0, description="Valence threshold to trigger mood change (0 = always shift)")
+
+    # Auto-regeneration
+    auto_regen: bool = Field(default=True, description="Recover energy automatically based on elapsed time between interactions")
 
 
 class DNA(BaseModel):
@@ -144,8 +167,38 @@ class MemoryType(StrEnum):
     PROCEDURAL = "procedural"
 
 
+class MemoryCategory(StrEnum):
+    """Structured extraction taxonomy for memory classification.
+
+    User-facing categories (about the bonded entity):
+    - PROFILE: Static identity attributes (name, role, location)
+    - PREFERENCE: Choices and habits (one facet per memory)
+    - ENTITY: Named things with attributes (projects, people, tools)
+    - EVENT: Time-bound activities (always absolute timestamps)
+
+    Agent-facing categories (about what the soul learned):
+    - CASE: Problem + cause + solution + outcome
+    - PATTERN: Reusable processes across scenarios
+    - SKILL: Skill execution strategies and tool usage knowledge
+    """
+
+    # User-facing (feed the bond system / human profile)
+    PROFILE = "profile"
+    PREFERENCE = "preference"
+    ENTITY = "entity"
+    EVENT = "event"
+    # Agent-facing (feed the self-model)
+    CASE = "case"
+    PATTERN = "pattern"
+    SKILL = "skill"
+
+
 class MemoryEntry(BaseModel):
     """A single memory with metadata.
+
+    v0.3.4 additions: category (extraction taxonomy), abstract (L0 ~100 tokens),
+    overview (L1 ~1K tokens) for progressive content loading, salience (retrieval
+    weight). All new fields default to None for backwards compatibility.
 
     v0.2.0 additions: somatic markers (emotional context), access_timestamps
     (full history for ACT-R decay), significance score, and general_event_id
@@ -170,6 +223,11 @@ class MemoryEntry(BaseModel):
     general_event_id: str | None = None
     # v0.2.2 — Fact conflict resolution
     superseded_by: str | None = None
+    # v0.3.4 — Extraction taxonomy and progressive content loading
+    category: MemoryCategory | None = None
+    abstract: str | None = None  # L0: ~100 token semantic fingerprint
+    overview: str | None = None  # L1: ~1K token structured summary
+    salience: float = Field(default=0.5, ge=0.0, le=1.0)  # Retrieval weight
 
 
 class CoreMemory(BaseModel):
@@ -234,6 +292,49 @@ class Mutation(BaseModel):
     proposed_at: datetime = Field(default_factory=datetime.now)
     approved: bool | None = None
     approved_at: datetime | None = None
+
+
+# ============ Rubric-based Self-Evaluation ============
+
+
+class RubricCriterion(BaseModel):
+    """A single pass/fail evaluation criterion."""
+
+    name: str
+    description: str
+    weight: float = Field(default=1.0, gt=0.0)
+
+
+class Rubric(BaseModel):
+    """A named collection of evaluation criteria for a domain."""
+
+    id: str = ""
+    name: str
+    domain: str = ""
+    criteria: list[RubricCriterion]
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.id:
+            self.id = self.name.lower().replace(" ", "_")
+
+
+class CriterionResult(BaseModel):
+    """Result of evaluating one criterion."""
+
+    criterion: str
+    passed: bool
+    score: float  # 0.0-1.0
+    reasoning: str = ""
+
+
+class RubricResult(BaseModel):
+    """Complete evaluation result against a rubric."""
+
+    rubric_id: str
+    overall_score: float  # weighted average, 0.0-1.0
+    criterion_results: list[CriterionResult]
+    learning: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class EvolutionConfig(BaseModel):

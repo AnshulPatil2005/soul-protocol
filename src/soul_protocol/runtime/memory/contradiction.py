@@ -3,6 +3,12 @@
 #   Heuristic mode uses embedding similarity + negation patterns + entity-attribute
 #   conflict detection. LLM mode delegates to CognitiveEngine for top-5 similar
 #   memories. When contradiction detected, old memory is marked superseded=True.
+# Updated: v0.4.x — Added verb-based fact pattern detection (_VERB_FACT_PATTERNS,
+#   _extract_verb_facts, _check_verb_fact_conflict) to catch location/employer changes
+#   like "User lives in NYC" vs "User moved to Amsterdam" that Jaccard similarity
+#   alone misses due to low token overlap (~0.15 < 0.3 threshold). Second pass in
+#   detect_heuristic checks ALL existing memories for verb-fact conflicts, bypassing
+#   the Jaccard filter entirely for these structured fact assertions.
 
 from __future__ import annotations
 
@@ -38,6 +44,43 @@ _ENTITY_ATTR_RE = re.compile(
     r"(?:user(?:'s)?|their|the)\s+(\w[\w\s]{0,20}?)\s+is\s+(.+?)(?:\.|$)",
     re.IGNORECASE,
 )
+
+# Verb-based fact patterns for location/employer/role assertions that use action
+# verbs rather than "is". Each tuple: (compiled regex, attribute_name_for_conflict_key).
+# For single-value patterns, group 1 = value. For the role pattern, group 1 = role
+# and group 2 = employer — handled specially in _extract_verb_facts.
+_VERB_FACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:user|i)\s+(?:live?s?|resides?)\s+in\s+(.+?)(?:\.|,|$)", re.I), "location"),
+    (re.compile(r"(?:user|i)\s+(?:moved?|relocated?|moved? to)\s+(?:to\s+)?(.+?)(?:\.|,|$)", re.I), "location"),
+    (re.compile(r"(?:user|i)\s+(?:is\s+)?based\s+in\s+(.+?)(?:\.|,|$)", re.I), "location"),
+    (re.compile(r"(?:user|i)\s+(?:works?\s+(?:at|for)|joined?|started?\s+at)\s+(.+?)(?:\.|,|$)", re.I), "employer"),
+    (re.compile(r"(?:user|i)\s+(?:is\s+)?(?:a\s+)?(.+?)\s+(?:at|@)\s+(.+?)(?:\.|,|$)", re.I), "role"),
+]
+
+
+def _extract_verb_facts(content: str) -> dict[str, str]:
+    """Extract verb-based fact assertions from content.
+
+    Returns a dict mapping attribute key (e.g. "location", "employer") to the
+    normalised value found. For the role pattern, the key is "role" and the
+    value is "role_value @ employer_value".
+
+    Only the first match per attribute key is kept (earlier = more specific).
+    """
+    facts: dict[str, str] = {}
+    for pattern, attr_key in _VERB_FACT_PATTERNS:
+        match = pattern.search(content)
+        if match is None:
+            continue
+        if attr_key == "role" and match.lastindex is not None and match.lastindex >= 2:
+            # Two capture groups: role and employer
+            value = f"{match.group(1).strip().lower()} @ {match.group(2).strip().lower()}"
+        else:
+            value = match.group(1).strip().lower()
+        # Keep first match per key (don't overwrite with a later, weaker pattern)
+        if attr_key not in facts:
+            facts[attr_key] = value
+    return facts
 
 
 class ContradictionResult:
@@ -151,13 +194,38 @@ class ContradictionDetector:
                     )
         return False, ""
 
+    def _check_verb_fact_conflict(
+        self, content_a: str, content_b: str
+    ) -> tuple[bool, str]:
+        """Check if two contents assert different values for the same verb-based fact.
+
+        Handles location/employer/role patterns that _ENTITY_ATTR_RE misses, e.g.:
+        - "User lives in NYC" vs "User moved to Amsterdam" → location conflict
+        - "User works at Google" vs "User joined Stripe" → employer conflict
+
+        Returns (is_conflict, reason).
+        """
+        facts_a = _extract_verb_facts(content_a)
+        facts_b = _extract_verb_facts(content_b)
+
+        for key in facts_a:
+            if key in facts_b and facts_a[key] != facts_b[key]:
+                return True, (
+                    f"Verb-fact conflict: '{key}' "
+                    f"was '{facts_a[key]}', now '{facts_b[key]}'"
+                )
+        return False, ""
+
     async def detect_heuristic(
         self, new_content: str, existing: list[MemoryEntry]
     ) -> list[ContradictionResult]:
         """Detect contradictions using heuristic methods (no LLM).
 
         Finds similar memories and checks for negation patterns or
-        entity-attribute conflicts.
+        entity-attribute conflicts. Then performs a second pass over ALL
+        existing memories (bypassing the Jaccard threshold) to catch verb-based
+        fact conflicts (location, employer, role) where token overlap is too low
+        to reach the similarity threshold.
 
         Args:
             new_content: The content of the new memory to check.
@@ -168,6 +236,9 @@ class ContradictionDetector:
         """
         similar = self._find_similar(new_content, existing)
         results: list[ContradictionResult] = []
+
+        # Track IDs already flagged so the second pass doesn't double-report.
+        flagged_ids: set[str] = set()
 
         for sim_score, entry in similar:
             # Check negation
@@ -180,6 +251,7 @@ class ContradictionDetector:
                     reason=neg_reason,
                     confidence=min(sim_score + 0.2, 1.0),
                 ))
+                flagged_ids.add(entry.id)
                 continue
 
             # Check entity-attribute conflict
@@ -194,6 +266,32 @@ class ContradictionDetector:
                     reason=conflict_reason,
                     confidence=min(sim_score + 0.1, 1.0),
                 ))
+                flagged_ids.add(entry.id)
+
+        # Second pass: verb-fact conflict check over ALL non-superseded memories.
+        # This bypasses the Jaccard threshold so short location/employer phrases
+        # ("User lives in NYC" vs "User moved to Amsterdam", Jaccard ≈ 0.15) are
+        # still caught even though they share few tokens.
+        new_verb_facts = _extract_verb_facts(new_content)
+        if new_verb_facts:
+            for entry in existing:
+                if entry.superseded or entry.superseded_by is not None:
+                    continue
+                if entry.id in flagged_ids:
+                    continue
+                is_vf_conflict, vf_reason = self._check_verb_fact_conflict(
+                    new_content, entry.content
+                )
+                if is_vf_conflict:
+                    # Use a fixed baseline confidence since Jaccard wasn't used here.
+                    results.append(ContradictionResult(
+                        is_contradiction=True,
+                        old_memory_id=entry.id,
+                        new_content=new_content,
+                        reason=vf_reason,
+                        confidence=0.8,
+                    ))
+                    flagged_ids.add(entry.id)
 
         return results
 

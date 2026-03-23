@@ -2,6 +2,7 @@
 # Updated: 2026-03-23 — Added `soul export-a2a` and `soul import-a2a` commands
 #   for A2A Agent Card ↔ Soul Protocol interop. Export generates Agent Card JSON
 #   from a soul; import creates a soul from an Agent Card file.
+# Updated: 2026-03-13 — Added --traits/-t compact OCEAN shorthand to `soul birth`.
 # Updated: 2026-03-13 — Added `soul inject <target>` command for fast CLI-based
 #   soul context injection into agent config files (claude-code, cursor, vscode,
 #   windsurf, cline, continue). Idempotent with marker-based replacement.

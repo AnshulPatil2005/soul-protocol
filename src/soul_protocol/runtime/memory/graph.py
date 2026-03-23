@@ -1,36 +1,19 @@
 # memory/graph.py — KnowledgeGraph for entity relationships.
 # Created: 2026-02-22
-# Updated: v0.3.4 — Added metadata dict to TemporalEdge for reasoning context,
-#   sentiment, and confidence on graph edges. Backward-compatible: edges without
-#   metadata deserialize with metadata=None.
+# Updated: 2026-03-22 — Added graph traversal methods (traverse, shortest_path,
+#   get_neighborhood, subgraph) and progressive_context() for L0/L1/L2 loading.
+# Updated: v0.3.4 — Added metadata dict to TemporalEdge for reasoning context.
 # Updated: 2026-03-10 — Added remove_entity() for GDPR-compliant entity deletion.
-#   Removes entity and all connected edges (incoming + outgoing).
 # Updated: 2026-03-06 — Added temporal fields (valid_from, valid_to) to edges.
-#   New methods: as_of_date(), relationship_evolution(), expire_relationship().
-#   Backward-compatible: edges without temporal fields default to always-valid.
-# Simple in-memory knowledge graph using plain dicts (no networkx dependency).
-# Stores entities with types and directed relationships between them.
-# Supports serialization/deserialization for persistence.
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import datetime
 
 
 class TemporalEdge:
-    """A directed relationship with temporal validity.
-
-    Attributes:
-        source: The source entity name.
-        target: The target entity name.
-        relation: The relationship type/verb.
-        valid_from: When this relationship became active.
-        valid_to: When this relationship ended (None = still active).
-        metadata: Optional reasoning context, sentiment, and confidence.
-            Captures WHY this relationship exists, not just THAT it exists.
-            Example: {"context": "Switched jobs for better work culture",
-                      "sentiment": "positive", "confidence": 0.9}
-    """
+    """A directed relationship with temporal validity."""
 
     __slots__ = ("source", "target", "relation", "valid_from", "valid_to", "metadata")
 
@@ -51,7 +34,6 @@ class TemporalEdge:
         self.metadata = metadata
 
     def is_active_at(self, dt: datetime) -> bool:
-        """Check if this edge is active at a specific datetime."""
         if self.valid_from > dt:
             return False
         if self.valid_to is not None and self.valid_to < dt:
@@ -59,15 +41,12 @@ class TemporalEdge:
         return True
 
     def is_currently_active(self) -> bool:
-        """Check if this edge is currently active (no end date)."""
         return self.valid_to is None
 
     def as_tuple(self) -> tuple[str, str, str]:
-        """Return the (source, target, relation) triple for backward compat."""
         return (self.source, self.target, self.relation)
 
     def to_dict(self) -> dict:
-        """Serialize to a plain dict."""
         d: dict = {
             "source": self.source,
             "target": self.target,
@@ -82,7 +61,6 @@ class TemporalEdge:
 
     @classmethod
     def from_dict(cls, data: dict) -> TemporalEdge:
-        """Deserialize from a plain dict."""
         valid_from = None
         if "valid_from" in data:
             valid_from = datetime.fromisoformat(data["valid_from"])
@@ -100,228 +78,254 @@ class TemporalEdge:
 
 
 class KnowledgeGraph:
-    """Simple dict-based knowledge graph for entity relationships.
-
-    Tracks entities (people, places, concepts) and directed relationships
-    between them. No external dependencies — uses plain Python dicts.
-
-    Internal structure:
-      _entities: {name: entity_type}
-      _edges: [(source, target, relation)]
-    """
+    """Simple dict-based knowledge graph for entity relationships."""
 
     def __init__(self) -> None:
-        self._entities: dict[str, str] = {}  # name -> entity_type
+        self._entities: dict[str, str] = {}
         self._edges: list[TemporalEdge] = []
 
     def add_entity(self, name: str, entity_type: str = "unknown") -> None:
-        """Add or update an entity in the graph.
-
-        If the entity already exists, its type is updated.
-        """
         self._entities[name] = entity_type
 
     def add_relationship(
-        self,
-        source: str,
-        target: str,
-        relation: str,
-        valid_from: datetime | None = None,
-        valid_to: datetime | None = None,
+        self, source: str, target: str, relation: str,
+        valid_from: datetime | None = None, valid_to: datetime | None = None,
         metadata: dict | None = None,
     ) -> None:
-        """Add a directed relationship between two entities.
-
-        Both entities are auto-created if they don't exist yet.
-        Duplicate edges (same source, target, relation) are ignored
-        when checking currently active edges.
-
-        Args:
-            source: Source entity name.
-            target: Target entity name.
-            relation: Relationship type/verb.
-            valid_from: When this relationship started (defaults to now).
-            valid_to: When this relationship ended (None = still active).
-            metadata: Optional reasoning context, sentiment, confidence.
-        """
-        # Auto-create entities if missing
         if source not in self._entities:
             self._entities[source] = "unknown"
         if target not in self._entities:
             self._entities[target] = "unknown"
-
-        # Check for duplicate active edges with same (source, target, relation)
         for edge in self._edges:
-            if (
-                edge.source == source
-                and edge.target == target
-                and edge.relation == relation
-                and edge.is_currently_active()
-            ):
-                return  # Already exists and is active
-
-        self._edges.append(
-            TemporalEdge(
-                source=source,
-                target=target,
-                relation=relation,
-                valid_from=valid_from,
-                valid_to=valid_to,
-                metadata=metadata,
-            )
-        )
+            if (edge.source == source and edge.target == target
+                    and edge.relation == relation and edge.is_currently_active()):
+                return
+        self._edges.append(TemporalEdge(
+            source=source, target=target, relation=relation,
+            valid_from=valid_from, valid_to=valid_to, metadata=metadata,
+        ))
 
     def get_related(self, entity: str) -> list[dict]:
-        """Get all relationships involving an entity (as source or target).
-
-        Returns a list of dicts with keys: source, target, relation, direction.
-        direction is "outgoing" if entity is the source, "incoming" if target.
-        Only returns currently active relationships.
-        """
         results: list[dict] = []
         for edge in self._edges:
             if not edge.is_currently_active():
                 continue
             if edge.source == entity:
-                result: dict = {
-                    "source": edge.source,
-                    "target": edge.target,
-                    "relation": edge.relation,
-                    "direction": "outgoing",
-                }
+                result: dict = {"source": edge.source, "target": edge.target,
+                                "relation": edge.relation, "direction": "outgoing"}
                 if edge.metadata is not None:
                     result["metadata"] = edge.metadata
                 results.append(result)
             elif edge.target == entity:
-                result = {
-                    "source": edge.source,
-                    "target": edge.target,
-                    "relation": edge.relation,
-                    "direction": "incoming",
-                }
+                result = {"source": edge.source, "target": edge.target,
+                          "relation": edge.relation, "direction": "incoming"}
                 if edge.metadata is not None:
                     result["metadata"] = edge.metadata
                 results.append(result)
         return results
 
     def entities(self) -> list[str]:
-        """Return a list of all entity names."""
         return list(self._entities.keys())
 
-    def expire_relationship(
-        self, source: str, target: str, relation: str, expire_at: datetime | None = None
-    ) -> bool:
-        """Mark a relationship as expired (set valid_to).
-
-        Only affects the first matching active edge. Returns True if found.
-
-        Args:
-            source: Source entity name.
-            target: Target entity name.
-            relation: Relationship type.
-            expire_at: When the relationship ended (defaults to now).
-
-        Returns:
-            True if a matching active edge was found and expired.
-        """
+    def expire_relationship(self, source: str, target: str, relation: str,
+                            expire_at: datetime | None = None) -> bool:
         expire_at = expire_at or datetime.now()
         for edge in self._edges:
-            if (
-                edge.source == source
-                and edge.target == target
-                and edge.relation == relation
-                and edge.is_currently_active()
-            ):
+            if (edge.source == source and edge.target == target
+                    and edge.relation == relation and edge.is_currently_active()):
                 edge.valid_to = expire_at
                 return True
         return False
 
     def as_of_date(self, dt: datetime) -> list[dict]:
-        """Get all relationships that were active at a specific point in time.
-
-        Returns a list of dicts with keys: source, target, relation,
-        valid_from, valid_to.
-
-        Args:
-            dt: The point-in-time to query.
-
-        Returns:
-            List of relationship dicts active at the given datetime.
-        """
         results: list[dict] = []
         for edge in self._edges:
             if edge.is_active_at(dt):
-                result: dict = {
-                    "source": edge.source,
-                    "target": edge.target,
-                    "relation": edge.relation,
-                    "valid_from": edge.valid_from,
-                    "valid_to": edge.valid_to,
-                }
+                result: dict = {"source": edge.source, "target": edge.target,
+                                "relation": edge.relation, "valid_from": edge.valid_from,
+                                "valid_to": edge.valid_to}
                 if edge.metadata is not None:
                     result["metadata"] = edge.metadata
                 results.append(result)
         return results
 
     def relationship_evolution(self, source: str, target: str) -> list[dict]:
-        """Get the full history of relationships between two entities.
-
-        Returns all edges (active and expired) between source and target,
-        sorted chronologically by valid_from.
-
-        Args:
-            source: Source entity name.
-            target: Target entity name.
-
-        Returns:
-            List of relationship dicts sorted by valid_from.
-        """
         results: list[dict] = []
         for edge in self._edges:
             if edge.source == source and edge.target == target:
-                result: dict = {
-                    "source": edge.source,
-                    "target": edge.target,
-                    "relation": edge.relation,
-                    "valid_from": edge.valid_from,
-                    "valid_to": edge.valid_to,
-                }
+                result: dict = {"source": edge.source, "target": edge.target,
+                                "relation": edge.relation, "valid_from": edge.valid_from,
+                                "valid_to": edge.valid_to}
                 if edge.metadata is not None:
                     result["metadata"] = edge.metadata
                 results.append(result)
         results.sort(key=lambda r: r["valid_from"])
         return results
 
+    # ============ Graph Traversal ============
+
+    def _active_neighbors(self, entity: str) -> list[str]:
+        neighbors: list[str] = []
+        seen: set[str] = set()
+        for edge in self._edges:
+            if not edge.is_currently_active():
+                continue
+            if edge.source == entity and edge.target not in seen:
+                neighbors.append(edge.target)
+                seen.add(edge.target)
+            elif edge.target == entity and edge.source not in seen:
+                neighbors.append(edge.source)
+                seen.add(edge.source)
+        return neighbors
+
+    def traverse(self, start: str, max_depth: int = 2, max_nodes: int = 50) -> list[dict]:
+        """BFS traversal from an entity, returning connected subgraph."""
+        if start not in self._entities:
+            return []
+        visited: dict[str, int] = {start: 0}
+        queue: deque[tuple[str, int]] = deque([(start, 0)])
+        result: list[dict] = []
+        while queue and len(result) < max_nodes:
+            entity, depth = queue.popleft()
+            edges = self.get_related(entity)
+            result.append({"entity": entity, "entity_type": self._entities.get(entity, "unknown"),
+                           "depth": depth, "edges": edges})
+            if depth < max_depth:
+                for neighbor in self._active_neighbors(entity):
+                    if neighbor not in visited and len(visited) < max_nodes:
+                        visited[neighbor] = depth + 1
+                        queue.append((neighbor, depth + 1))
+        return result
+
+    def shortest_path(self, source: str, target: str) -> list[str] | None:
+        """Find shortest path between two entities using BFS."""
+        if source not in self._entities or target not in self._entities:
+            return None
+        if source == target:
+            return [source]
+        visited: set[str] = {source}
+        queue: deque[list[str]] = deque([[source]])
+        while queue:
+            path = queue.popleft()
+            current = path[-1]
+            for neighbor in self._active_neighbors(current):
+                if neighbor in visited:
+                    continue
+                new_path = path + [neighbor]
+                if neighbor == target:
+                    return new_path
+                visited.add(neighbor)
+                queue.append(new_path)
+        return None
+
+    def get_neighborhood(self, entity: str, radius: int = 1) -> dict:
+        """Get entity + all neighbors within radius hops. Returns nodes + edges."""
+        if entity not in self._entities:
+            return {"nodes": [], "edges": []}
+        visited: dict[str, int] = {entity: 0}
+        queue: deque[tuple[str, int]] = deque([(entity, 0)])
+        while queue:
+            current, depth = queue.popleft()
+            if depth < radius:
+                for neighbor in self._active_neighbors(current):
+                    if neighbor not in visited:
+                        visited[neighbor] = depth + 1
+                        queue.append((neighbor, depth + 1))
+        nodes: list[dict] = [
+            {"entity": name, "entity_type": self._entities.get(name, "unknown"), "depth": d}
+            for name, d in visited.items()
+        ]
+        neighborhood_set = set(visited.keys())
+        edges: list[dict] = []
+        for edge in self._edges:
+            if not edge.is_currently_active():
+                continue
+            if edge.source in neighborhood_set and edge.target in neighborhood_set:
+                edge_dict: dict = {"source": edge.source, "target": edge.target, "relation": edge.relation}
+                if edge.metadata is not None:
+                    edge_dict["metadata"] = edge.metadata
+                edges.append(edge_dict)
+        return {"nodes": nodes, "edges": edges}
+
+    def subgraph(self, entities: list[str]) -> dict:
+        """Extract subgraph containing only the given entities and edges between them."""
+        entity_set = set(entities)
+        nodes: list[dict] = [
+            {"entity": name, "entity_type": self._entities.get(name, "unknown")}
+            for name in entities if name in self._entities
+        ]
+        edges: list[dict] = []
+        for edge in self._edges:
+            if not edge.is_currently_active():
+                continue
+            if edge.source in entity_set and edge.target in entity_set:
+                edge_dict: dict = {"source": edge.source, "target": edge.target, "relation": edge.relation}
+                if edge.metadata is not None:
+                    edge_dict["metadata"] = edge.metadata
+                edges.append(edge_dict)
+        return {"nodes": nodes, "edges": edges}
+
+    # ============ Progressive Context Loading ============
+
+    def progressive_context(self, entity: str, level: int = 1) -> str:
+        """Return context at L0/L1/L2 depth."""
+        if entity not in self._entities:
+            return ""
+        entity_type = self._entities[entity]
+        if level <= 0:
+            return f"{entity} ({entity_type})"
+        related = self.get_related(entity)
+        if not related:
+            return f"{entity} ({entity_type}): no known relationships"
+        rel_parts: list[str] = []
+        for r in related:
+            if r["direction"] == "outgoing":
+                rel_parts.append(f"{r['relation']} -> {r['target']}")
+            else:
+                rel_parts.append(f"{r['source']} -> {r['relation']}")
+        summary = f"{entity} ({entity_type}): " + "; ".join(rel_parts)
+        if level <= 1:
+            return summary
+        lines: list[str] = [f"{entity} ({entity_type})"]
+        lines.append("Relationships:")
+        for r in related:
+            direction = r["direction"]
+            other = r["target"] if direction == "outgoing" else r["source"]
+            other_type = self._entities.get(other, "unknown")
+            if direction == "outgoing":
+                line = f"  {r['relation']} -> {other}"
+            else:
+                line = f"  {r['relation']} <- {other}"
+            line += f" ({other_type})"
+            meta = r.get("metadata")
+            if meta:
+                if "context" in meta:
+                    line += f" — {meta['context']}"
+                if "confidence" in meta:
+                    line += f" [confidence: {meta['confidence']}]"
+            lines.append(line)
+        neighbors = self._active_neighbors(entity)
+        if neighbors:
+            lines.append("Neighbors:")
+            for n in neighbors[:10]:
+                n_type = self._entities.get(n, "unknown")
+                n_rel_count = len(self.get_related(n))
+                lines.append(f"  {n} ({n_type}) — {n_rel_count} relationships")
+        return "\n".join(lines)
+
+    # ============ GDPR ============
+
     def remove_entity(self, entity: str) -> int:
-        """Remove an entity and all its connected edges.
-
-        Deletes the entity from the entity registry and removes all edges
-        where the entity appears as source or target.
-
-        Args:
-            entity: The entity name to remove.
-
-        Returns:
-            The number of edges removed.
-        """
         if entity in self._entities:
             del self._entities[entity]
-        # Remove all edges connected to this entity
         original_len = len(self._edges)
         self._edges = [
-            edge for edge in self._edges if edge.source != entity and edge.target != entity
+            edge for edge in self._edges
+            if edge.source != entity and edge.target != entity
         ]
         return original_len - len(self._edges)
 
     def to_dict(self) -> dict:
-        """Serialize the graph to a plain dict for persistence.
-
-        Returns:
-            {
-                "entities": {"name": "type", ...},
-                "edges": [{"source": ..., "target": ..., "relation": ..., ...}, ...]
-            }
-        """
         return {
             "entities": dict(self._entities),
             "edges": [edge.to_dict() for edge in self._edges],
@@ -329,29 +333,17 @@ class KnowledgeGraph:
 
     @classmethod
     def from_dict(cls, data: dict) -> KnowledgeGraph:
-        """Deserialize a graph from a plain dict.
-
-        Args:
-            data: Dict with "entities" and "edges" keys as produced by to_dict().
-                  Edges may include temporal fields (valid_from, valid_to).
-        """
         graph = cls()
         for name, entity_type in data.get("entities", {}).items():
             graph.add_entity(name, entity_type)
         for edge_data in data.get("edges", []):
-            # Support both old format (no temporal) and new format
             if "valid_from" in edge_data:
                 edge = TemporalEdge.from_dict(edge_data)
                 graph._edges.append(edge)
-                # Auto-create entities
                 if edge.source not in graph._entities:
                     graph._entities[edge.source] = "unknown"
                 if edge.target not in graph._entities:
                     graph._entities[edge.target] = "unknown"
             else:
-                graph.add_relationship(
-                    edge_data["source"],
-                    edge_data["target"],
-                    edge_data["relation"],
-                )
+                graph.add_relationship(edge_data["source"], edge_data["target"], edge_data["relation"])
         return graph

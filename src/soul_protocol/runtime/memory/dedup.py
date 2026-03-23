@@ -3,19 +3,40 @@
 #   - reconcile_fact() uses token overlap (Jaccard) to decide CREATE/SKIP/MERGE
 #   - SKIP: >0.85 similarity (near-duplicate), MERGE: 0.6-0.85 (update existing),
 #     CREATE: <0.6 (genuinely new fact)
-#   - Uses the same tokenize() function as search.py for consistency
+#   - Uses tokenize() from search.py with min_length=2 for dedup so that short
+#     but meaningful tokens (Go, JS, AI, ML, UI, etc.) are preserved.
 
 from __future__ import annotations
 
 from soul_protocol.runtime.memory.search import tokenize
 from soul_protocol.runtime.types import MemoryEntry
 
+# Common 2-letter English stopwords to filter when lowering the minimum token
+# length to 2.  These are function words / pronouns that add noise to Jaccard
+# similarity without carrying semantic meaning for memory deduplication.
+_STOP_WORDS_2: frozenset[str] = frozenset({
+    "am", "an", "as", "at", "be", "by", "do", "he", "if", "in",
+    "is", "it", "me", "my", "no", "of", "on", "or", "so", "to",
+    "up", "us", "we",
+})
+
+
+def _dedup_tokenize(text: str) -> set[str]:
+    """Tokenize for dedup, keeping 2-char tokens (minus stopwords).
+
+    Uses :func:`tokenize` with ``min_length=2`` so that short but
+    meaningful tokens like ``go``, ``js``, ``ai``, ``ml`` are preserved,
+    then removes common 2-letter English stopwords.
+    """
+    return tokenize(text, min_length=2) - _STOP_WORDS_2
+
 
 def _jaccard_similarity(a: str, b: str) -> float:
-    """Compute Jaccard similarity between two strings using tokenize().
+    """Compute Jaccard similarity between two strings.
 
-    Uses the same tokenizer as search.py (alpha-only tokens, len >= 3)
-    for consistency with the rest of the memory system.
+    Uses :func:`_dedup_tokenize` (alpha-only tokens, len >= 2 minus
+    stopwords) to preserve short but meaningful tokens that the default
+    ``tokenize()`` (len >= 3) would discard.
 
     Args:
         a: First string.
@@ -24,8 +45,8 @@ def _jaccard_similarity(a: str, b: str) -> float:
     Returns:
         Jaccard similarity coefficient (0.0 to 1.0).
     """
-    tokens_a = tokenize(a)
-    tokens_b = tokenize(b)
+    tokens_a = _dedup_tokenize(a)
+    tokens_b = _dedup_tokenize(b)
     if not tokens_a and not tokens_b:
         return 1.0  # Both empty = identical
     if not tokens_a or not tokens_b:

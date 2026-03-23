@@ -648,12 +648,18 @@ class MemoryManager:
         limit: int = 10,
         types: list[MemoryType] | None = None,
         min_importance: int = 0,
+        requester_id: str | None = None,
+        bond_strength: float = 100.0,
+        bond_threshold: float = 30.0,
     ) -> list[MemoryEntry]:
         results = await self._recall_engine.recall(
             query=query,
             limit=limit,
             types=types,
             min_importance=min_importance,
+            requester_id=requester_id,
+            bond_strength=bond_strength,
+            bond_threshold=bond_threshold,
         )
         logger.debug("Recall query_len=%d returned %d results", len(query), len(results))
         return results

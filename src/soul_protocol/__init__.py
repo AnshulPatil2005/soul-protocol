@@ -1,4 +1,6 @@
 # __init__.py — Public API for the soul-protocol package
+# Updated: feat/spec-multi-participant — Added Participant, BondTarget exports
+#   for multi-participant Interaction and multi-bond Identity support.
 # Updated: feat/soul-encryption — Added SoulEncryptedError and SoulDecryptionError
 #   to public imports and __all__ for encrypted .soul file support.
 # Updated: v0.2.3 — Version bump for first public release.
@@ -34,6 +36,7 @@ from .runtime.templates import SoulFactory
 from .runtime.types import (
     DNA,
     Biorhythms,
+    BondTarget,
     CommunicationStyle,
     CoreMemory,
     EternalLinks,
@@ -49,6 +52,7 @@ from .runtime.types import (
     MemoryVisibility,
     Mood,
     Mutation,
+    Participant,
     Personality,
     ReflectionResult,
     SelfImage,
@@ -61,11 +65,14 @@ from .runtime.types import (
 from .runtime.eternal import ArchiveResult, EternalStorageManager, EternalStorageProvider, RecoverySource
 
 # Core primitives from spec/ (always available — only requires pydantic)
+from .spec.identity import BondTarget as CoreBondTarget
 from .spec.identity import Identity as CoreIdentity
 from .spec.manifest import Manifest as CoreManifest
 from .spec.memory import DictMemoryStore, MemoryStore
+from .spec.memory import Interaction as CoreInteraction
 from .spec.memory import MemoryEntry as CoreMemoryEntry
 from .spec.template import SoulTemplate
+from .spec.memory import Participant as CoreParticipant
 
 __all__ = [
     "Bond",
@@ -94,6 +101,7 @@ __all__ = [
     "RecoverySource",
     # Types
     "Biorhythms",
+    "BondTarget",
     "CommunicationStyle",
     "CoreMemory",
     "DNA",
@@ -111,6 +119,7 @@ __all__ = [
     "SoulTemplate",
     "Mood",
     "Mutation",
+    "Participant",
     "Personality",
     "ReflectionResult",
     "SelfImage",
@@ -120,9 +129,12 @@ __all__ = [
     "SoulManifest",
     "SoulState",
     # Core primitives (v0.4.0)
+    "CoreBondTarget",
     "CoreIdentity",
+    "CoreInteraction",
     "CoreManifest",
     "CoreMemoryEntry",
+    "CoreParticipant",
     "DictMemoryStore",
     "MemoryStore",
 ]

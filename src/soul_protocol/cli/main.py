@@ -1,4 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-13 — Added --traits/-t compact OCEAN shorthand to `soul birth`.
 # Updated: 2026-03-13 — Added `soul inject <target>` command for fast CLI-based
 #   soul context injection into agent config files (claude-code, cursor, vscode,
 #   windsurf, cline, continue). Idempotent with marker-based replacement.

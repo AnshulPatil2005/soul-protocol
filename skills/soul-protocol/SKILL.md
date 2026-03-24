@@ -11,7 +11,7 @@ license: MIT
 compatibility: "Python 3.11+. CLI requires soul-protocol[engine]. MCP server requires soul-protocol[mcp]."
 metadata:
   author: OCEAN Foundation
-  version: 0.2.5
+  version: 0.2.6
   repository: https://github.com/qbtrix/soul-protocol
   pypi: https://pypi.org/project/soul-protocol/
 ---

@@ -1,5 +1,6 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 18 tools (13 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-03-24 — Auto-detect .soul/ in CWD or ~/.soul/ when no env var set.
 # Updated: feat/mcp-sampling-engine — Lazy MCPSamplingEngine wiring. On the first tool
 #   call that carries a FastMCP Context, MCPSamplingEngine is constructed and pushed to
 #   all loaded souls via Soul.set_engine(). Subsequent calls reuse the same engine.
@@ -318,6 +319,22 @@ async def _lifespan(server: FastMCP):
 
     soul_dir = os.environ.get("SOUL_DIR")
     soul_path = os.environ.get("SOUL_PATH")
+
+    # Auto-detect: if no env vars set, look for .soul/ in CWD then ~/.soul/
+    # Uses CWD (not __file__) so it works for all install modes (editable, wheel, uvx)
+    if not soul_dir and not soul_path:
+        _cwd_dir = Path.cwd() / ".soul"
+        if _cwd_dir.is_dir() and any(_cwd_dir.iterdir()):
+            soul_dir = str(_cwd_dir)
+        elif _cwd_dir.is_dir():
+            print(f"soul-mcp: .soul/ found at {_cwd_dir} but is empty, checking ~/.soul/", file=sys.stderr, flush=True)
+        # Fallback: ~/.soul/ as a user-level default
+        if not soul_dir:
+            _home_dir = Path.home() / ".soul"
+            if _home_dir.is_dir() and any(_home_dir.iterdir()):
+                soul_dir = str(_home_dir)
+
+    print(f"soul-mcp: env SOUL_DIR={soul_dir!r} SOUL_PATH={soul_path!r}", file=sys.stderr, flush=True)
 
     if soul_dir:
         # Multi-soul: scan directory

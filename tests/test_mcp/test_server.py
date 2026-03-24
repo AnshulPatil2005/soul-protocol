@@ -25,9 +25,16 @@ from soul_protocol.mcp.server import mcp  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _reset_registry():
-    """Reset soul registry between tests."""
+def _reset_registry(tmp_path, monkeypatch):
+    """Reset soul registry and isolate from real .soul/ directories."""
     server_module._registry.clear()
+    # Prevent auto-detect from finding real .soul/ in the repo or ~/.soul/
+    monkeypatch.delenv("SOUL_DIR", raising=False)
+    monkeypatch.delenv("SOUL_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    _fake_home = tmp_path / "fake_home"
+    _fake_home.mkdir(exist_ok=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: _fake_home))
     yield
     server_module._registry.clear()
 
@@ -777,3 +784,58 @@ async def test_background_watcher_reloads_on_change(tmp_path):
                 "Background watcher failed: memory count didn't increase. "
                 f"Before: {initial_count}, After: {reloaded_soul.memory_count}"
             )
+
+
+# --- Auto-detect .soul/ directory tests ---
+
+
+class TestAutoDetectSoulDir:
+    """Test that the lifespan auto-detects .soul/ in CWD and ~/.soul/ fallback."""
+
+    @pytest.mark.asyncio
+    async def test_autodetect_cwd_soul_dir(self, tmp_path, monkeypatch):
+        """With no env vars, .soul/ in CWD should be auto-detected."""
+        soul_dir = tmp_path / ".soul"
+        soul_dir.mkdir()
+
+        # Create a soul subdirectory (scanner expects .soul/SoulName/soul.json)
+        from soul_protocol.runtime.soul import Soul
+
+        soul_subdir = soul_dir / "AutoCWD"
+        soul_subdir.mkdir()
+        soul = await Soul.birth("AutoCWD", archetype="Test", values=["curiosity"])
+        await soul.save_local(str(soul_subdir))
+
+        # Clear env vars and set CWD
+        monkeypatch.delenv("SOUL_DIR", raising=False)
+        monkeypatch.delenv("SOUL_PATH", raising=False)
+        monkeypatch.chdir(tmp_path)
+
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_list", {})
+            data = json.loads(result.data)
+            names = [s["name"] for s in data["souls"]]
+            assert "AutoCWD" in names, f"Expected AutoCWD in {names}"
+
+    @pytest.mark.asyncio
+    async def test_autodetect_home_soul_dir(self, tmp_path, monkeypatch):
+        """With no CWD .soul/, falls back to ~/.soul/."""
+        # The autouse fixture already points Path.home() to tmp_path/fake_home
+        # and CWD to tmp_path (which has no .soul/ dir)
+        fake_home = tmp_path / "fake_home"
+        home_soul = fake_home / ".soul"
+        home_soul.mkdir(parents=True)
+
+        # Create a soul subdirectory in the fake home dir
+        from soul_protocol.runtime.soul import Soul
+
+        soul_subdir = home_soul / "AutoHome"
+        soul_subdir.mkdir()
+        soul = await Soul.birth("AutoHome", archetype="Test", values=["honesty"])
+        await soul.save_local(str(soul_subdir))
+
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_list", {})
+            data = json.loads(result.data)
+            names = [s["name"] for s in data["souls"]]
+            assert "AutoHome" in names, f"Expected AutoHome in {names}"

@@ -104,7 +104,7 @@ soul evolve .soul/ --approve abc123
 soul evaluate .soul/ --user-input "Explain recursion" --agent-output "Recursion is..."
 soul learn .soul/ --user-input "Fix this bug" --agent-output "Here's the fix" --domain coding
 
-# Skills, bonds, events
+# Skills, bonds, events (v0.2.7: skills + eval history now persist across sessions)
 soul skills .soul/
 soul bond .soul/ --strengthen 5.0
 soul events .soul/ --recent 20

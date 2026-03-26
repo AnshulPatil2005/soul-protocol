@@ -1,5 +1,7 @@
 <!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 18 tools (13 soul/memory + 5 context)
      with parameters, 3 resources, 2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-03-26 — v0.2.7 note: skills, evaluate, evolve, bond, learn are CLI-only for now.
+     MCP tools for these are planned for v0.2.8. Bond fix in context_for() benefits MCP users via soul_recall.
      Updated: 2026-03-24 — v0.2.6: Added 5 LCM context tools (soul_context_ingest, soul_context_assemble,
      soul_context_grep, soul_context_expand, soul_context_describe), soul_reload tool, auto-detect section,
      MCP Sampling Engine section. Tool count: 12 → 18.

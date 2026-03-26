@@ -1,7 +1,7 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-03-23 (v0.2.5) — updated test count to 1851, added cognitive adapters/MCP sampling/
-     LCM/visibility tiers/A2A bridge/format importers to features, expanded install extras table,
-     added engine="auto" quick-start example. -->
+<!-- Updated: 2026-03-26 (v0.2.7) — bumped test count to 1903, version to 0.2.7.
+     v0.2.7 fixes 5 broken psychology pipelines: bond recall, evolution wiring,
+     entity extraction, skills/eval persistence, heuristic calibration. -->
 
 # Soul Protocol
 
@@ -9,7 +9,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 1885 passing](https://img.shields.io/badge/tests-1885%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 1903 passing](https://img.shields.io/badge/tests-1903%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 

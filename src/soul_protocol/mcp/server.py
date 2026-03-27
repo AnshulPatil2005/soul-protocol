@@ -1,5 +1,10 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 18 tools (13 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 27 tools (22 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-03-27 — Added 4 tools: soul_forget, soul_edit_core, soul_health,
+#   soul_cleanup. MCP now has full feature parity with CLI maintenance commands (v0.2.8).
+# Updated: 2026-03-26 — Added 5 psychology pipeline tools: soul_skills, soul_evaluate,
+#   soul_learn, soul_evolve, soul_bond. MCP now has feature parity with CLI for the
+#   psychology subsystem fixed in v0.2.7.
 # Updated: 2026-03-24 — Auto-detect .soul/ in CWD or ~/.soul/ when no env var set.
 # Updated: feat/mcp-sampling-engine — Lazy MCPSamplingEngine wiring. On the first tool
 #   call that carries a FastMCP Context, MCPSamplingEngine is constructed and pushed to
@@ -840,6 +845,479 @@ async def soul_reload(
             "memories": reloaded.memory_count,
         }
     )
+
+
+# --- Psychology Pipeline Tools (v0.2.7) ---
+
+
+@mcp.tool
+async def soul_skills(soul: str | None = None) -> str:
+    """View the soul's learned skills with level, XP, and progress.
+
+    Skills are learned from entity extraction during observe() and from
+    evaluation-based XP grants. They persist across sessions.
+
+    Args:
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    skills = s.skills.skills
+    if not skills:
+        return json.dumps({"soul": s.name, "skills": [], "total": 0})
+    return json.dumps({
+        "soul": s.name,
+        "total": len(skills),
+        "skills": [
+            {
+                "id": sk.id,
+                "name": sk.name,
+                "level": sk.level,
+                "xp": sk.xp,
+                "xp_to_next": sk.xp_to_next,
+            }
+            for sk in sorted(skills, key=lambda x: x.xp, reverse=True)
+        ],
+    })
+
+
+@mcp.tool
+async def soul_evaluate(
+    user_input: str,
+    agent_output: str,
+    domain: str | None = None,
+    soul: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Evaluate an interaction against a rubric and build evaluation history.
+
+    Scores the interaction on completeness, relevance, helpfulness, and
+    specificity. Stores learning as procedural memory and grants skill XP.
+    Evaluation history feeds the evolution trigger system.
+
+    Args:
+        user_input: What the user said
+        agent_output: What the agent responded
+        domain: Self-model domain for rubric selection (auto-detected if omitted)
+        soul: Target soul name (uses active soul if omitted)
+    """
+    if ctx is not None:
+        _get_or_create_engine(ctx)
+    s = await _resolve_soul(soul)
+    interaction = Interaction(user_input=user_input, agent_output=agent_output)
+    result = await s.evaluate(interaction, domain=domain)
+    _registry.mark_modified(soul)
+    return json.dumps({
+        "soul": s.name,
+        "rubric": result.rubric_id,
+        "overall_score": round(result.overall_score, 3),
+        "criteria": [
+            {"name": cr.criterion, "score": round(cr.score, 3), "passed": cr.passed}
+            for cr in result.criterion_results
+        ],
+        "learning": result.learning,
+        "eval_history_size": len(s.evaluator._history),
+    })
+
+
+@mcp.tool
+async def soul_learn(
+    user_input: str,
+    agent_output: str,
+    domain: str | None = None,
+    soul: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Evaluate an interaction and create a learning event if notable.
+
+    Combines evaluation with learning event creation. High-scoring
+    interactions generate success patterns; low-scoring ones generate
+    failure patterns. Both are stored as procedural memory.
+
+    Args:
+        user_input: What the user said
+        agent_output: What the agent responded
+        domain: Domain for rubric selection (auto-detected if omitted)
+        soul: Target soul name (uses active soul if omitted)
+    """
+    if ctx is not None:
+        _get_or_create_engine(ctx)
+    s = await _resolve_soul(soul)
+    interaction = Interaction(user_input=user_input, agent_output=agent_output)
+    event = await s.learn(interaction, domain=domain)
+    _registry.mark_modified(soul)
+    if event is None:
+        return json.dumps({
+            "soul": s.name,
+            "learning_event": None,
+            "reason": "Score in medium range — no notable learning pattern",
+        })
+    return json.dumps({
+        "soul": s.name,
+        "learning_event": {
+            "id": event.id,
+            "lesson": event.lesson,
+            "domain": event.domain,
+            "score": round(event.evaluation_score, 3) if event.evaluation_score else None,
+            "confidence": round(event.confidence, 3),
+            "skill_id": event.skill_id,
+        },
+    })
+
+
+@mcp.tool
+async def soul_evolve(
+    action: str = "list",
+    trait: str | None = None,
+    new_value: str | None = None,
+    reason: str | None = None,
+    mutation_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Manage soul evolution — propose, approve, reject, or list mutations.
+
+    Evolution allows the soul's traits to change over time based on
+    interaction patterns. Mutations can be proposed manually or triggered
+    automatically by evaluation streaks.
+
+    Args:
+        action: One of: list, propose, approve, reject
+        trait: Trait path to mutate (e.g. "communication.warmth") — for propose
+        new_value: New value for the trait — for propose
+        reason: Why this mutation is proposed — for propose
+        mutation_id: ID of mutation to approve/reject — for approve/reject
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+
+    if action == "list":
+        pending = s.pending_mutations
+        history = s.evolution_history
+        return json.dumps({
+            "soul": s.name,
+            "pending": [
+                {"id": m.id, "trait": m.trait, "old": m.old_value,
+                 "new": m.new_value, "reason": m.reason}
+                for m in pending
+            ],
+            "history_count": len(history),
+        })
+
+    elif action == "propose":
+        if not trait or not new_value or not reason:
+            return json.dumps({"error": "propose requires trait, new_value, and reason"})
+        mutation = await s.propose_evolution(
+            trait=trait, new_value=new_value, reason=reason,
+        )
+        _registry.mark_modified(soul)
+        return json.dumps({
+            "soul": s.name,
+            "mutation_id": mutation.id,
+            "trait": mutation.trait,
+            "old_value": mutation.old_value,
+            "new_value": mutation.new_value,
+            "status": "pending",
+        })
+
+    elif action == "approve":
+        if not mutation_id:
+            return json.dumps({"error": "approve requires mutation_id"})
+        success = await s.approve_evolution(mutation_id)
+        _registry.mark_modified(soul)
+        return json.dumps({"soul": s.name, "mutation_id": mutation_id, "approved": success})
+
+    elif action == "reject":
+        if not mutation_id:
+            return json.dumps({"error": "reject requires mutation_id"})
+        success = await s.reject_evolution(mutation_id)
+        _registry.mark_modified(soul)
+        return json.dumps({"soul": s.name, "mutation_id": mutation_id, "rejected": success})
+
+    return json.dumps({"error": f"Unknown action: {action}. Use list/propose/approve/reject."})
+
+
+@mcp.tool
+async def soul_bond(
+    strengthen: float | None = None,
+    soul: str | None = None,
+) -> str:
+    """View or modify the soul's bond strength.
+
+    Bond strength influences memory visibility — higher bond unlocks
+    BONDED and PRIVATE memories. Bond grows naturally through observe()
+    interactions, or can be manually adjusted.
+
+    Args:
+        strengthen: Amount to strengthen bond by (negative to weaken). Omit to just view.
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    bond = s.bond
+    if strengthen is not None:
+        if strengthen >= 0:
+            bond.strengthen(amount=strengthen)
+        else:
+            bond.bond_strength = max(0.0, bond.bond_strength + strengthen)
+        _registry.mark_modified(soul)
+    return json.dumps({
+        "soul": s.name,
+        "bond_strength": round(bond.bond_strength, 2),
+        "interaction_count": bond.interaction_count,
+    })
+
+
+# --- Maintenance Tools (v0.2.8) ---
+
+
+@mcp.tool
+async def soul_forget(
+    query: str,
+    confirm: bool = False,
+    soul: str | None = None,
+) -> str:
+    """Delete memories matching a query (GDPR-compliant).
+
+    Searches across all memory tiers (episodic, semantic, procedural) and
+    deletes matching entries. Records a deletion audit entry without storing
+    deleted content.
+
+    Args:
+        query: Search query to match against memory content
+        confirm: Must be true to actually delete (safety gate)
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    if not confirm:
+        # Dry-run: search but don't delete
+        results = await s.recall(query, limit=50)
+        return json.dumps({
+            "status": "preview",
+            "soul": s.name,
+            "query": query,
+            "matching_count": len(results),
+            "hint": "Set confirm=true to delete these memories",
+        })
+    result = await s.forget(query)
+    _registry.mark_modified(soul)
+    return json.dumps({
+        "status": "deleted",
+        "soul": s.name,
+        "query": query,
+        "total_deleted": result.get("total_deleted", 0),
+        "tiers": result.get("tiers", {}),
+    })
+
+
+@mcp.tool
+async def soul_edit_core(
+    persona: str | None = None,
+    human: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Update the soul's core memory (always-loaded persona and human knowledge).
+
+    Core memory is never evicted — it persists across every interaction.
+    Use persona for the soul's self-description and human for knowledge
+    about the bonded human.
+
+    Args:
+        persona: New persona text (soul's self-description). Omit to keep current.
+        human: New human knowledge text. Omit to keep current.
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    if persona is None and human is None:
+        core = s.get_core_memory()
+        return json.dumps({
+            "soul": s.name,
+            "persona": core.persona,
+            "human": core.human,
+            "hint": "Provide persona and/or human to update",
+        })
+    await s.edit_core_memory(persona=persona, human=human)
+    _registry.mark_modified(soul)
+    core = s.get_core_memory()
+    return json.dumps({
+        "status": "updated",
+        "soul": s.name,
+        "persona": core.persona,
+        "human": core.human,
+    })
+
+
+@mcp.tool
+async def soul_health(
+    soul: str | None = None,
+) -> str:
+    """Run a health audit on the soul's memory, skills, bond, and graph.
+
+    Returns counts for each memory tier, detects duplicates, orphan graph
+    nodes, bond/skill anomalies, and low-importance memory buildup.
+
+    Args:
+        soul: Target soul name (uses active soul if omitted)
+    """
+    import builtins as _builtins
+
+    from ..runtime.memory.compression import MemoryCompressor
+
+    s = await _resolve_soul(soul)
+    mm = s._memory
+
+    episodic = _builtins.list(mm._episodic.entries())
+    semantic = _builtins.list(mm._semantic.facts())
+    procedural = _builtins.list(mm._procedural.entries())
+    graph_nodes = mm._graph.entities()
+    skills = s.skills.skills
+    evals = s.evaluator._history
+    total = len(episodic) + len(semantic) + len(procedural)
+
+    # Detect duplicates
+    compressor = MemoryCompressor()
+    all_mems = episodic + semantic + procedural
+    deduped = compressor.deduplicate(all_mems, similarity_threshold=0.8)
+    dup_count = len(all_mems) - len(deduped)
+
+    # Low-importance
+    low_imp = [m for m in all_mems if m.importance <= 2]
+
+    # Stale eval procedurals
+    stale_proc = [p for p in procedural if p.content.startswith("Scored ")]
+
+    # Orphan graph nodes
+    all_content = " ".join(m.content for m in all_mems)
+    orphan_nodes = [
+        n for n in graph_nodes
+        if n.lower() not in all_content.lower() and len(n) > 2
+    ]
+
+    # Bond sanity
+    bond = s.bond
+    bond_issues = []
+    if bond.bond_strength > 100:
+        bond_issues.append(f"Bond strength {bond.bond_strength:.0f} exceeds 100")
+    if bond.bond_strength < 0:
+        bond_issues.append(f"Bond strength {bond.bond_strength:.0f} is negative")
+
+    # Skill sanity
+    skill_issues = []
+    for sk in skills:
+        if sk.xp < 0:
+            skill_issues.append(f"Skill {sk.id} has negative XP ({sk.xp})")
+        if sk.level < 1 or sk.level > 10:
+            skill_issues.append(f"Skill {sk.id} has invalid level ({sk.level})")
+
+    issues = bond_issues + skill_issues
+    if dup_count > 0:
+        issues.append(f"{dup_count} duplicate memories (>80% overlap)")
+    if len(orphan_nodes) > 10:
+        issues.append(f"{len(orphan_nodes)} orphan graph nodes")
+
+    return json.dumps({
+        "soul": s.name,
+        "tiers": {
+            "episodic": len(episodic),
+            "semantic": len(semantic),
+            "procedural": len(procedural),
+            "total": total,
+        },
+        "graph_nodes": len(graph_nodes),
+        "skills": len(skills),
+        "eval_history": len(evals),
+        "bond_strength": round(bond.bond_strength, 2),
+        "duplicates": dup_count,
+        "low_importance": len(low_imp),
+        "stale_evals": len(stale_proc),
+        "orphan_nodes": len(orphan_nodes),
+        "issues": issues,
+        "healthy": len(issues) == 0,
+    })
+
+
+@mcp.tool
+async def soul_cleanup(
+    dry_run: bool = True,
+    soul: str | None = None,
+) -> str:
+    """Run cleanup on the soul — deduplicate memories and remove stale evals.
+
+    Identifies near-duplicate memories (>80% overlap) across all tiers and
+    removes stale evaluation procedural entries. Use dry_run=true (default)
+    to preview what would be cleaned.
+
+    Args:
+        dry_run: If true, report what would be cleaned without changing anything
+        soul: Target soul name (uses active soul if omitted)
+    """
+    import builtins as _builtins
+
+    from ..runtime.memory.compression import MemoryCompressor
+
+    s = await _resolve_soul(soul)
+    mm = s._memory
+    actions: list[tuple[str, str, set]] = []
+
+    # 1. Deduplicate
+    compressor = MemoryCompressor()
+    for tier_name, store in [
+        ("episodic", mm._episodic),
+        ("semantic", mm._semantic),
+        ("procedural", mm._procedural),
+    ]:
+        if tier_name == "semantic":
+            entries = _builtins.list(store.facts())
+        else:
+            entries = _builtins.list(store.entries())
+        if not entries:
+            continue
+        deduped = compressor.deduplicate(entries, similarity_threshold=0.8)
+        removed_ids = {m.id for m in entries} - {m.id for m in deduped}
+        if removed_ids:
+            actions.append(("dedup", tier_name, removed_ids))
+
+    # 2. Stale evaluation procedurals
+    procedural = _builtins.list(mm._procedural.entries())
+    stale = [p for p in procedural if p.content.startswith("Scored ") and p.importance <= 5]
+    if stale:
+        actions.append(("stale_evals", "procedural", {p.id for p in stale}))
+
+    # Build summary
+    summary: list[dict[str, Any]] = []
+    total_items = 0
+    for action_type, target, items in actions:
+        total_items += len(items)
+        summary.append({
+            "action": action_type,
+            "tier": target,
+            "count": len(items),
+        })
+
+    if dry_run or not actions:
+        return json.dumps({
+            "status": "dry_run" if actions else "clean",
+            "soul": s.name,
+            "total_items": total_items,
+            "actions": summary,
+        })
+
+    # Execute cleanup
+    removed = 0
+    for action_type, target, items in actions:
+        for mid in items:
+            if target == "episodic":
+                await mm._episodic.remove(mid)
+            elif target == "semantic":
+                await mm._semantic.remove(mid)
+            elif target == "procedural":
+                await mm._procedural.remove(mid)
+            removed += 1
+
+    _registry.mark_modified(soul)
+    return json.dumps({
+        "status": "cleaned",
+        "soul": s.name,
+        "removed": removed,
+        "actions": summary,
+    })
 
 
 # --- Context Tools (LCM — Lossless Context Management) ---

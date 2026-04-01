@@ -1,4 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: 2026-04-01 — Added smart_recall() for LLM-based memory reranking.
+#   Fetches a larger candidate pool via heuristic recall, then uses CognitiveEngine
+#   to pick the most contextually relevant memories. Falls back gracefully.
 # Updated: 2026-03-29 — F5 Auto-Consolidation: observe() now auto-triggers
 #   archive_old_memories() + reflect() every consolidation_interval interactions.
 #   interaction_count persisted through serialize/awaken via SoulConfig.
@@ -755,6 +758,28 @@ class Soul:
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
         return results
+
+    async def smart_recall(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        candidate_pool: int = 15,
+    ) -> list[MemoryEntry]:
+        """Recall memories with LLM-based reranking for better relevance.
+
+        Fetches candidate_pool memories via heuristic recall, then uses the
+        CognitiveEngine to select the top-N most relevant. Falls back to
+        regular recall() if no engine is available.
+        """
+        candidates = await self.recall(query, limit=candidate_pool)
+
+        if self._engine and len(candidates) > limit:
+            from soul_protocol.runtime.memory.rerank import rerank_memories
+
+            return await rerank_memories(candidates, query, self._engine, limit)
+
+        return candidates[:limit]
 
     async def observe(self, interaction: Interaction) -> None:
         """Soul observes an interaction and learns from it.

@@ -1,4 +1,8 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-04-04 — Added skip_deep_processing_on_low_significance to
+#   MemorySettings. When True (default), observe() skips entity extraction
+#   (step 5) and self-model update (step 6) for non-significant interactions,
+#   saving 2 LLM calls per trivial interaction.
 # Updated: 2026-03-29 — Added archived field to MemoryEntry for archival memory
 #   tier integration (F2). Added consolidation_interval to MemorySettings and
 #   interaction_count to SoulConfig for auto-consolidation (F5).
@@ -311,6 +315,11 @@ class MemorySettings(BaseModel):
     human_tokens: int = 500
     # F5 auto-consolidation — archive + reflect every N interactions
     consolidation_interval: int = 20
+    # When True, skip entity extraction (step 5) and self-model update (step 6)
+    # for interactions that are not significant after the full pipeline
+    # (including fact-based promotion in step 4b). Saves 2 LLM calls per
+    # low-value interaction.
+    skip_deep_processing_on_low_significance: bool = True
 
 
 # ============ State / Feelings ============

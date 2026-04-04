@@ -353,6 +353,8 @@ async def test_self_model_property():
 async def test_self_model_persists_through_export(tmp_path):
     """Self-model survives export → awaken round-trip."""
     soul = await Soul.birth("Aria", values=["helping"])
+    # Disable short-circuit so self-model update runs on trivial interactions
+    soul._memory._settings.skip_deep_processing_on_low_significance = False
 
     # Build up self-model
     await soul.observe(
@@ -389,6 +391,8 @@ async def test_save_load_preserves_self_model(tmp_path):
     from soul_protocol.runtime.storage.file import load_soul_full
 
     soul = await Soul.birth("Aria")
+    # Disable short-circuit so self-model update runs on trivial interactions
+    soul._memory._settings.skip_deep_processing_on_low_significance = False
     await soul.observe(
         Interaction(
             user_input="Help me write a Python script for data analysis",

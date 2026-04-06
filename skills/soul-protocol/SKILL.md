@@ -86,6 +86,11 @@ soul observe .soul/ --user-input "Hello" --agent-output "Hi there!" --channel di
 soul reflect .soul/
 soul reflect aria.soul --no-apply
 
+# Offline batch consolidation (dream cycle)
+soul dream .soul/
+soul dream pocketpaw.soul --since 2026-04-01
+soul dream .soul/ --json
+
 # Update emotional state
 soul feel .soul/ --mood excited --energy 5
 
@@ -191,6 +196,7 @@ soul export .soul/myagent.soul --output .soul/myagent.soul
 | Configure agent | `soul inject --target X` | N/A (manual config) |
 | Process interaction | `soul observe path --user-input X --agent-output Y` | `soul_observe(user_input, agent_output)` |
 | Reflect | `soul reflect path` | `soul_reflect()` |
+| Dream | `soul dream path` | `soul_dream()` |
 | Update mood/energy | `soul feel path --mood X --energy Y` | `soul_feel(mood, energy)` |
 | System prompt | `soul prompt path` | `soul_prompt()` |
 | Delete memories | `soul forget path "query"` | `soul_forget(query)` |
@@ -214,7 +220,7 @@ soul export .soul/myagent.soul --output .soul/myagent.soul
 
 ## MCP Server (for agents without shell access)
 
-23 tools available (13 soul/memory + 5 context + 5 psychology). Only set this up if the agent can't run shell commands.
+24 tools available (14 soul/memory + 5 context + 5 psychology). Only set this up if the agent can't run shell commands.
 
 ```bash
 # Start server (auto-detects .soul/ directory — no env vars needed)
@@ -232,7 +238,7 @@ SOUL_DIR=.soul soul-mcp
 `soul_birth`, `soul_list`, `soul_switch`, `soul_state`, `soul_feel`, `soul_save`, `soul_export`, `soul_reload`, `soul_prompt`
 
 ### Memory tools (4)
-`soul_observe`, `soul_remember`, `soul_recall`, `soul_reflect`
+`soul_observe`, `soul_remember`, `soul_recall`, `soul_reflect`, `soul_dream`
 
 ### Context tools — LCM (5)
 | Tool | Purpose |

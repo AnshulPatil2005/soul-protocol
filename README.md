@@ -1,5 +1,7 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-03-29 (v0.2.9) — bumped test count to 2010, version to 0.2.9.
+<!-- Updated: 2026-04-06 — Added dream feature (offline batch consolidation).
+     CLI: 37 → 38 commands. MCP: 23 → 24 tools.
+     Updated: 2026-03-29 (v0.2.9) — bumped test count to 2010, version to 0.2.9.
      5 new features: skills decay, progressive recall, archival memory,
      auto-consolidation, eternal storage wiring. -->
 
@@ -65,8 +67,8 @@ Full methodology: [research/EVAL-FRAMEWORK.md](research/EVAL-FRAMEWORK.md)
 soul_protocol/
 ├── spec/      695 lines   The protocol. Portable, minimal, no opinions.
 ├── runtime/  9,693 lines  Reference implementation. Opinionated, batteries-included.
-├── cli/                    37-command CLI
-└── mcp/                    MCP server (23 tools, 3 resources)
+├── cli/                    38-command CLI
+└── mcp/                    MCP server (24 tools, 3 resources)
 ```
 
 **`spec/`** defines what any runtime must implement: Identity, MemoryStore, MemoryEntry, SoulContainer, `.soul` file format, EmbeddingProvider, EternalStorageProvider. Depends on Pydantic only.
@@ -100,8 +102,9 @@ Like HTTP and nginx. The spec defines the contract. The runtime is one implement
 | **Eternal storage** | Archive to decentralized storage (mock providers, production planned) |
 | **Portability** | `.soul` ZIP archive. JSON inside. Rename to .zip and read it. |
 | **Cross-language** | JSON Schemas auto-generated from spec. Validate `.soul` files in any language. |
-| **CLI** | 37 commands. Rich TUI output. |
-| **MCP** | 23 tools + 3 resources for Claude Code, Cursor, or any MCP client |
+| **Dream** | Offline batch consolidation — topic clustering, procedure detection, graph cleanup, personality drift |
+| **CLI** | 38 commands. Rich TUI output. |
+| **MCP** | 24 tools + 3 resources for Claude Code, Cursor, or any MCP client |
 
 ---
 

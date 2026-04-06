@@ -701,7 +701,8 @@ async def soul_dream(
     from datetime import datetime as dt
 
     s = await _resolve_soul(soul)
-    since_dt = dt.fromisoformat(since) if since else None
+    # Strip tzinfo — episodic store uses naive datetimes
+    since_dt = dt.fromisoformat(since).replace(tzinfo=None) if since else None
     report = await s.dream(since=since_dt)
     _registry.mark_modified(soul)
 

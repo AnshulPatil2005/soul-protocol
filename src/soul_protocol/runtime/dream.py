@@ -1,6 +1,8 @@
 # dream.py — Offline consolidation engine ("dreaming") for Soul Protocol.
 # Created: 2026-04-06 — Medium-depth implementation: orchestrator + heuristic
 #   pattern detection. No new LLM calls beyond existing reflect().
+# Updated: 2026-04-06 — Fixed timezone mismatch in _gather_episodes (naive vs aware),
+#   fixed cumulative archive count (now reports delta), added TODO for A/N traits.
 #
 # Dream is the offline counterpart to observe() (online). While observe()
 # processes interactions one-at-a-time in real-time, dream() reviews
@@ -256,7 +258,16 @@ class Dreamer:
         if since is None:
             return all_episodes
 
-        return [ep for ep in all_episodes if ep.created_at >= since]
+        # Normalize timezone for comparison — the episodic store may use naive
+        # datetimes (datetime.now()) or aware ones depending on context. The
+        # `since` param may come from MCP (aware, via fromisoformat) or CLI
+        # (naive, via click.DateTime). Strip tzinfo from both sides to avoid
+        # TypeError on mixed comparison.
+        since_naive = since.replace(tzinfo=None) if since.tzinfo is not None else since
+        return [
+            ep for ep in all_episodes
+            if (ep.created_at.replace(tzinfo=None) if ep.created_at.tzinfo is not None else ep.created_at) >= since_naive
+        ]
 
     # ======================================================================
     # Phase 2: Pattern Detection (heuristic, no LLM)
@@ -433,15 +444,21 @@ class Dreamer:
     # ======================================================================
 
     async def _archive_old(self, episodes: list) -> int:
-        """Delegate to MemoryManager's archive mechanism."""
+        """Delegate to MemoryManager's archive mechanism.
+
+        Returns the number of newly archived episodes (delta, not cumulative).
+        """
         try:
-            await self._memory.archive_old_memories()
-            # Count how many episodes are now archived
-            archived = sum(
+            before = sum(
                 1 for ep in self._memory._episodic.entries()
                 if getattr(ep, "archived", False)
             )
-            return archived
+            await self._memory.archive_old_memories()
+            after = sum(
+                1 for ep in self._memory._episodic.entries()
+                if getattr(ep, "archived", False)
+            )
+            return max(0, after - before)
         except Exception as e:
             logger.warning("Archive during dream failed: %s", e)
             return 0
@@ -616,8 +633,8 @@ class Dreamer:
         - Openness: variety of topics, novel explorations
         - Conscientiousness: structured responses, planning patterns
         - Extraversion: interaction frequency, social engagement
-        - Agreeableness: accommodating patterns, conflict avoidance
-        - Neuroticism: error handling, anxiety patterns
+        - Agreeableness: accommodating patterns, conflict avoidance (TODO)
+        - Neuroticism: error handling, anxiety patterns (TODO)
         """
         if len(episodes) < 10:
             return []

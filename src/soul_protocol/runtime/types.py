@@ -311,6 +311,10 @@ class MemorySettings(BaseModel):
     human_tokens: int = 500
     # F5 auto-consolidation — archive + reflect every N interactions
     consolidation_interval: int = 20
+    # LLM-based reranking on recall. Off by default because it adds an LLM
+    # call on every smart_recall invocation. Callers who need relevance
+    # quality over latency can opt in per-soul or via SOUL_SMART_RECALL_ENABLED.
+    smart_recall_enabled: bool = False
 
 
 # ============ State / Feelings ============

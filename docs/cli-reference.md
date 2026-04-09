@@ -500,6 +500,90 @@ soul export-a2a aria.soul -o card.json --url https://aria.example.com
 
 ---
 
+### `soul remember`
+
+Store a memory directly in a soul. Use this when you already know what tier the memory belongs in and don't need the cognitive pipeline to decide for you (see `soul observe` for the pipeline-driven alternative).
+
+```bash
+# Semantic by default — facts the soul should know
+soul remember aria.soul "User prefers Python over JavaScript" --importance 8
+
+# Episodic — events that happened
+soul remember aria.soul "Shipped v0.3 today" --type episodic --importance 8
+
+# Procedural — how to do things
+soul remember aria.soul "To deploy: run make deploy" --type procedural
+
+# With emotion tagging
+soul remember aria.soul "Had a productive session" --emotion happy
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `TEXT` | Yes | The memory content to store. |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--importance, -i INT` | `5` | Importance score 1-10. |
+| `--emotion, -e TEXT` | | Emotion tag (e.g. `happy`, `sad`, `excited`). |
+| `--type, -t [episodic\|semantic\|procedural]` | `semantic` | Memory tier (v0.2.9+). |
+
+**Memory tiers:**
+
+- **episodic** — what happened. Events, sessions, shipped work, decisions. Use when the memory answers *"when did that happen?"*
+- **semantic** — what the soul knows. Facts, preferences, project knowledge. Use when the memory answers *"what do I know about X?"*
+- **procedural** — how to do things. Commands, recipes, debugging tips. Use when the memory answers *"how do I...?"*
+
+Core memory (persona and human knowledge) is not writable through `remember`. Use `soul edit-core` instead.
+
+**Output:** A confirmation panel showing the stored text, tier, importance, emotion, and memory ID. The soul is saved automatically.
+
+---
+
+### `soul recall`
+
+Query a soul's memories by text, or list the most recent memories. Returns ranked results using activation-based relevance (recency + importance + match strength).
+
+```bash
+# Text query
+soul recall aria.soul "user preferences"
+soul recall aria.soul "python" --limit 5 --min-importance 7
+
+# Recent memories
+soul recall aria.soul --recent 10
+
+# LLM-friendly output
+soul recall aria.soul "python" --full            # Untruncated content
+soul recall aria.soul "python" --json            # Machine-readable JSON
+soul recall aria.soul --recent 5 --json          # Recent memories as JSON
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `QUERY` | No | Search text. If omitted, use `--recent N` instead. |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--limit, -l INT` | `10` | Maximum results to return. |
+| `--min-importance INT` | `0` | Filter out memories below this importance score. |
+| `--recent, -r INT` | | Show N most recent memories instead of searching. |
+| `--full` | off | Return untruncated content (for LLM consumption). |
+| `--json` | off | Return results as JSON (for scripting). |
+
+**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output.
+
+---
+
 ### `soul observe`
 
 Process an interaction through the full cognitive pipeline. Runs sentiment detection, significance gating, memory storage, entity extraction, self-model updates, and evolution triggers.

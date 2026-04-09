@@ -58,10 +58,18 @@ soul list
 ### Memory operations
 
 ```bash
-# Store a memory (fast — direct write, no server round-trip)
+# Store a memory — semantic by default (facts the soul knows)
 soul remember .soul/aria.soul "User prefers concise answers" --importance 8
 soul remember .soul/aria.soul "User is a senior Python developer" --importance 9
 soul remember .soul/aria.soul "Had a productive session" --emotion happy
+
+# Store an episodic memory — events that happened (sessions, decisions, shipped work)
+soul remember .soul/aria.soul "Shipped v0.3 today" --type episodic --importance 8
+soul remember .soul/aria.soul "Signed the contract with Acme" --type episodic --importance 9
+
+# Store a procedural memory — skills and how-tos
+soul remember .soul/aria.soul "To deploy: run make deploy then verify /health" --type procedural
+soul remember .soul/aria.soul "Debug Claude SDK: set ANTHROPIC_DEBUG=1" --type procedural
 
 # Recall memories by query
 soul recall .soul/aria.soul "user preferences"
@@ -75,6 +83,13 @@ soul recall .soul/aria.soul "query" --full          # Complete text, no truncati
 soul recall .soul/aria.soul "query" --json          # Machine-readable JSON array
 soul recall .soul/aria.soul --recent 5 --json       # Recent memories as JSON
 ```
+
+**Memory tier guide** (v0.2.9+):
+- **episodic** — what happened (events, sessions, shipped work, decisions). Use when the memory answers "when did that happen?"
+- **semantic** — what the soul knows (facts, preferences, project knowledge). Default tier. Use when the memory answers "what do I know about X?"
+- **procedural** — how to do things (commands, recipes, debugging tips). Use when the memory answers "how do I...?"
+
+If you omit `--type`, the memory lands in semantic. Core memory (persona) is edited separately via `soul edit-core`.
 
 ### Runtime operations (v0.2.6)
 

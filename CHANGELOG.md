@@ -7,11 +7,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [0.3.0] -- 2026-04-09
+
 ### Added
 - **Dream cycle** — `Soul.dream()` for offline batch memory consolidation. Reviews accumulated episodes to detect topic clusters (Jaccard token overlap), extract recurring procedures (action signature frequency), detect behavioral trends (topic drift over time), consolidate knowledge graph (merge duplicate entities, prune expired edges), and synthesize cross-tier insights (episodes → procedural memories, behavioral patterns → OCEAN evolution proposals). No LLM required — all heuristic-based.
-- `soul dream` CLI command (38th command) with `--since`, `--no-archive`, `--no-synthesize`, `--json` flags
-- `soul_dream` MCP tool (24th tool) with `soul` and `since` parameters
-- `DreamReport` dataclass with full breakdown: topic clusters, detected procedures, behavioral trends, graph consolidation stats, evolution insights
+- `soul dream` CLI command with `--since`, `--no-archive`, `--no-synthesize`, `--dry-run`, `--json` flags. `--dry-run` previews the full report without any destructive mutations so you can see what a cycle would change before committing.
+- `DreamReport` dataclass with topic clusters, detected procedures, behavioral trends, graph consolidation stats, evolution insights, and a `dry_run` flag on the report itself.
+- **Smart recall** — `Soul.smart_recall()` for LLM-reranked memory retrieval. Fetches a larger candidate pool via heuristic recall, then optionally uses the `CognitiveEngine` to pick the most contextually relevant entries. Opt-in via `MemorySettings.smart_recall_enabled` (default `False`) or a per-call `enabled=` override. Hardened prompt injection defense: memory content is sanitized (angle brackets stripped, response-marker strings redacted) and isolated inside a `BEGIN/END MEMORIES` fence so adversarial memories can't hijack the rerank. 30-second hard timeout on the LLM call so a hung engine can't stall the recall hot path — falls back cleanly to heuristic order on timeout, parse error, or engine failure.
+- **Significance short-circuit** — `observe()` now skips entity extraction (step 5) and self-model update (step 6) when an interaction scores below the significance threshold AND fact extraction finds nothing. Saves two LLM calls per trivial interaction. Gated by `MemorySettings.skip_deep_processing_on_low_significance` (default `True`) with an escape hatch (`False`) for callers that need guaranteed extraction. The gate re-checks `significant` after step 4b fact-based promotion so meaningful short messages still get the full pipeline.
+- **`soul remember --type`** — the CLI command now accepts `--type/-t episodic|semantic|procedural` to pick which tier a memory lands in. Fixes a long-standing gap where the runtime `Soul.remember()` supported tier selection but the CLI always defaulted to semantic, silently dropping events that callers intended as episodic.
+
+### Changed
+- `MemorySettings` gains `smart_recall_enabled` (bool, default False) and `skip_deep_processing_on_low_significance` (bool, default True). Default values preserve previous behavior — no breaking change for existing souls.
+- `_dedup_semantic` in the dream cycle now soft-deletes duplicates via `superseded_by` instead of removing them from the underlying dict. Preserves an audit trail and honors any future side effects added to `SemanticStore.remove()`.
+- `_count_archivable` in dry-run mode matches `archive_old_memories` exactly (48-hour cutoff, archived filter, min-3 guard) so dry-run counts don't drift from real-run counts.
+
+### Fixed
+- CLI `remember` previously dropped `--type` silently because the option didn't exist. Tools passing the flag (like the PocketPaw workspace soul-sync hook) were failing without surfacing the error, leaving episodic tiers empty for extended periods.
+
+### Docs
+- `docs/cli-reference.md` now has full sections for `soul remember` and `soul recall` — these were missing from the reference entirely. Includes memory tier guide and full option tables.
+- `skills/soul-protocol/SKILL.md` updated with episodic and procedural examples plus a tier guide for agents.
+- `docs/getting-started.md` notes the runtime `type` parameter on `soul.remember()` for users reading the Python walkthrough.
+- `README.md` (kb-go workspace) adds a "Pairing with Soul Protocol" guide explaining when to reach for each tool and how to bridge them in an agent pipeline.
+
+### Tests
+- 2062 tests passing (up from 2010). New test classes: `TestDreamerDryRun`, `TestSignificanceShortCircuit`. New test files: `test_dream.py`, `test_rerank.py`. New CLI tests for `remember --type` with every tier plus invalid-value rejection.
 
 ---
 

@@ -1,4 +1,8 @@
 # __init__.py — Public API for the soul-protocol package
+# Updated: 2026-04-09 (v0.3.0 release) — Bumped __version__ to 0.3.0.
+#   New features: dream cycle (offline batch consolidation), smart recall
+#   (LLM-reranked memory retrieval, opt-in), significance short-circuit
+#   (skip expensive steps on trivial interactions), soul remember --type flag.
 # Updated: 2026-03-29 (v0.2.9 release) — Bumped __version__ to 0.2.9.
 # Updated: feat/spec-multi-participant — Added Participant, BondTarget exports
 #   for multi-participant Interaction and multi-bond Identity support.
@@ -140,4 +144,4 @@ __all__ = [
     "MemoryStore",
 ]
 
-__version__ = "0.2.9"
+__version__ = "0.3.0"

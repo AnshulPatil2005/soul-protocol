@@ -20,9 +20,7 @@ from datetime import datetime, timedelta
 from soul_protocol.runtime.memory.archival import ArchivalMemoryStore, ConversationArchive
 from soul_protocol.runtime.memory.compression import MemoryCompressor
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
-from soul_protocol.runtime.soul import Soul
-from soul_protocol.runtime.types import Interaction, MemoryEntry, MemoryType
-
+from soul_protocol.runtime.types import MemoryEntry, MemoryType
 
 # Simulated conversation topics for variety
 TOPICS = [
@@ -47,11 +45,6 @@ async def run_simulation():
     print()
 
     # --- Setup ---
-    soul = await Soul.birth(
-        "Aria",
-        archetype="The Curious Companion",
-        personality="I am a thoughtful AI companion who remembers everything.",
-    )
     archival = ArchivalMemoryStore()
     compressor = MemoryCompressor()
     graph = KnowledgeGraph()
@@ -75,7 +68,6 @@ async def run_simulation():
         # Vary the message slightly each cycle
         cycle = i // len(TOPICS)
         user_input = f"{user_msg} (conversation {i + 1}, cycle {cycle})"
-        agent_output = f"That's interesting! Tell me more about {topic_name}."
 
         interaction_time = base_time + timedelta(hours=i)
 
@@ -137,8 +129,10 @@ async def run_simulation():
             session_memories = []
 
             if (i + 1) % 25 == 0:
-                print(f"  [{i + 1}/100] {archives_created} archives, "
-                      f"{memories_created} memories, {graph_edges_added} graph edges")
+                print(
+                    f"  [{i + 1}/100] {archives_created} archives, "
+                    f"{memories_created} memories, {graph_edges_added} graph edges"
+                )
 
     print(f"\n  Simulation complete: {memories_created} memories generated")
     print()
@@ -152,8 +146,10 @@ async def run_simulation():
 
     # Deduplicate
     deduped = compressor.deduplicate(all_memories, similarity_threshold=0.7)
-    print(f"  After deduplication: {len(deduped)} memories "
-          f"({before_count - len(deduped)} duplicates removed)")
+    print(
+        f"  After deduplication: {len(deduped)} memories "
+        f"({before_count - len(deduped)} duplicates removed)"
+    )
 
     # Prune by importance
     keep, pruned = compressor.prune_by_importance(deduped, min_importance=4)
@@ -217,15 +213,17 @@ async def run_simulation():
     print("=" * 60)
     print("  FINAL STATS")
     print("=" * 60)
-    print(f"  Interactions simulated:    100")
+    print("  Interactions simulated:    100")
     print(f"  Raw memories created:      {memories_created}")
     print(f"  After dedup:               {len(deduped)}")
     print(f"  After pruning:             {len(keep)}")
     print(f"  Archives created:          {archives_created}")
     print(f"  Graph entities:            {len(graph.entities())}")
     print(f"  Graph total edges:         {graph_edges_added}")
-    print(f"  Compression ratio:         {len(keep)}/{before_count} "
-          f"({len(keep)/before_count:.1%} retained)")
+    print(
+        f"  Compression ratio:         {len(keep)}/{before_count} "
+        f"({len(keep) / before_count:.1%} retained)"
+    )
     print()
 
 

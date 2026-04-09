@@ -42,14 +42,18 @@ class SQLiteContextStore:
         self._conn = await asyncio.to_thread(self._connect)
         await asyncio.to_thread(self._create_tables)
         # Load current max seq so we can continue from where we left off
-        row = await asyncio.to_thread(
-            self._execute_fetchone, "SELECT MAX(seq) FROM messages"
-        )
+        row = await asyncio.to_thread(self._execute_fetchone, "SELECT MAX(seq) FROM messages")
         if row and row[0] is not None:
             self._seq_counter = row[0]
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path)
+        # check_same_thread=False is required because every store method routes
+        # the actual SQLite call through asyncio.to_thread(), which uses a shared
+        # ThreadPoolExecutor — the connection is created on one worker thread but
+        # subsequent reads/writes can land on any worker. Serialized access is
+        # guaranteed by the async call sites (one to_thread at a time), so the
+        # usual reason for keeping the check is not a concern here.
+        conn = sqlite3.connect(self._db_path, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
@@ -176,9 +180,7 @@ class SQLiteContextStore:
 
     async def count_messages(self) -> int:
         """Count total messages in the store."""
-        row = await asyncio.to_thread(
-            self._execute_fetchone, "SELECT COUNT(*) FROM messages"
-        )
+        row = await asyncio.to_thread(self._execute_fetchone, "SELECT COUNT(*) FROM messages")
         return row[0] if row else 0
 
     async def total_message_tokens(self) -> int:
@@ -201,9 +203,7 @@ class SQLiteContextStore:
             datetime.fromisoformat(row[1]),
         )
 
-    async def grep_messages(
-        self, pattern: str, *, limit: int = 20
-    ) -> list[GrepResult]:
+    async def grep_messages(self, pattern: str, *, limit: int = 20) -> list[GrepResult]:
         """Search messages by regex pattern. Returns matches ordered by recency."""
         # Fetch all messages and filter in Python (sqlite3 has no regex by default)
         rows = await asyncio.to_thread(
@@ -360,9 +360,7 @@ class SQLiteContextStore:
 
     async def count_nodes(self) -> int:
         """Count total nodes."""
-        row = await asyncio.to_thread(
-            self._execute_fetchone, "SELECT COUNT(*) FROM nodes"
-        )
+        row = await asyncio.to_thread(self._execute_fetchone, "SELECT COUNT(*) FROM nodes")
         return row[0] if row else 0
 
     async def compaction_stats(self) -> dict[str, int]:

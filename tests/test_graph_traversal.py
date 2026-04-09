@@ -4,12 +4,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
-
 
 # ============ Fixtures ============
 
@@ -54,7 +51,9 @@ def rich_graph() -> KnowledgeGraph:
     g.add_entity("Python", "technology")
     g.add_entity("Rust", "technology")
     g.add_entity("ACME", "company")
-    g.add_relationship("Alice", "Python", "uses", metadata={"context": "Primary language", "confidence": 0.9})
+    g.add_relationship(
+        "Alice", "Python", "uses", metadata={"context": "Primary language", "confidence": 0.9}
+    )
     g.add_relationship("Alice", "ACME", "works_at")
     g.add_relationship("Bob", "Python", "uses")
     g.add_relationship("Bob", "Rust", "uses")
@@ -402,5 +401,7 @@ class TestProgressiveContext:
         ctx = graph.format_context("Center", level=2)
         # Count lines starting with "  N" in the Neighbors section
         lines = ctx.split("\n")
-        neighbor_lines = [l for l in lines if l.strip().startswith("N") and "relationships" in l]
+        neighbor_lines = [
+            line for line in lines if line.strip().startswith("N") and "relationships" in line
+        ]
         assert len(neighbor_lines) <= 10

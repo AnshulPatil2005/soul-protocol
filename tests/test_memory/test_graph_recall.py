@@ -20,7 +20,6 @@ from soul_protocol.runtime.types import (
     MemoryType,
 )
 
-
 # ---- Fixtures ----
 
 
@@ -96,7 +95,6 @@ class TestProgressiveContext:
 
     def test_level_two_expands_further(self, graph: KnowledgeGraph):
         results = graph.progressive_context("FastAPI", level=2)
-        depths = {r["depth"] for r in results}
         # At level 2, we should reach entities 2 hops away
         assert len(results) >= 2
 
@@ -202,8 +200,6 @@ class TestGraphRecall:
 
         # With use_graph=False, searching for FastAPI shouldn't find Python memory
         results = await engine.recall("FastAPI", limit=10, use_graph=False)
-        # FastAPI doesn't appear in the memory content, so without graph, no results
-        python_results = [r for r in results if "Python" in r.content]
         # Without graph augmentation, the Python memory might not surface for "FastAPI"
         # (depends on token overlap). The key is that graph code doesn't run.
         assert isinstance(results, list)
@@ -217,9 +213,7 @@ class TestGraphRecall:
         """Empty graph should not affect recall results."""
         empty_graph = KnowledgeGraph()
         semantic = SemanticStore()
-        mem = MemoryEntry(
-            type=MemoryType.SEMANTIC, content="test memory content", importance=5
-        )
+        mem = MemoryEntry(type=MemoryType.SEMANTIC, content="test memory content", importance=5)
         await semantic.add(mem)
 
         engine = RecallEngine(
@@ -237,9 +231,7 @@ class TestGraphRecall:
         graph.add_entity("Python", "language")
 
         semantic = SemanticStore()
-        mem = MemoryEntry(
-            type=MemoryType.SEMANTIC, content="weather is sunny today", importance=5
-        )
+        mem = MemoryEntry(type=MemoryType.SEMANTIC, content="weather is sunny today", importance=5)
         await semantic.add(mem)
 
         engine = RecallEngine(
@@ -327,9 +319,7 @@ class TestGraphRecall:
         )
 
         # Only search PROCEDURAL — should not find semantic memories even with graph
-        results = await engine.recall(
-            "Django", limit=10, types=[MemoryType.PROCEDURAL]
-        )
+        results = await engine.recall("Django", limit=10, types=[MemoryType.PROCEDURAL])
         assert all(r.type == MemoryType.PROCEDURAL for r in results)
 
     async def test_manager_recall_uses_graph(self):
@@ -386,9 +376,7 @@ class TestGraphRecall:
         graph.add_relationship("Django", "Python", "built_with")
 
         semantic = SemanticStore()
-        low = MemoryEntry(
-            type=MemoryType.SEMANTIC, content="Python trivia", importance=2
-        )
+        low = MemoryEntry(type=MemoryType.SEMANTIC, content="Python trivia", importance=2)
         high = MemoryEntry(
             type=MemoryType.SEMANTIC, content="Python is critical for our stack", importance=9
         )

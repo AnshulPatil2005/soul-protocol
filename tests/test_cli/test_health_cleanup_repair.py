@@ -4,14 +4,10 @@
 
 from __future__ import annotations
 
-import asyncio
-
-import pytest
 from click.testing import CliRunner
 
 from soul_protocol.cli.main import cli
 from soul_protocol.runtime.soul import Soul
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -202,7 +198,12 @@ class TestCleanupDryRun:
         assert result.exit_code == 0, result.output
         # Either "dry run" or "Dry run" or "no changes" should appear
         output_lower = result.output.lower()
-        assert "dry run" in output_lower or "no changes" in output_lower or "nothing to clean" in output_lower or "tidy" in output_lower
+        assert (
+            "dry run" in output_lower
+            or "no changes" in output_lower
+            or "nothing to clean" in output_lower
+            or "tidy" in output_lower
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -230,19 +231,26 @@ class TestCleanupAuto:
 
         runner = CliRunner()
         # Add two nearly identical semantic memories
-        runner.invoke(cli, ["remember", soul_path, "User likes Python programming very much", "-i", "6"])
-        runner.invoke(cli, ["remember", soul_path, "User likes Python programming very much", "-i", "6"])
+        runner.invoke(
+            cli, ["remember", soul_path, "User likes Python programming very much", "-i", "6"]
+        )
+        runner.invoke(
+            cli, ["remember", soul_path, "User likes Python programming very much", "-i", "6"]
+        )
 
         # Run auto cleanup
         result = runner.invoke(cli, ["cleanup", "--auto", soul_path])
 
         assert result.exit_code == 0, result.output
         # Should confirm cleanup occurred — "Cleaned" in output, or "nothing to clean"
-        assert "Cleaned" in result.output or "Nothing to clean" in result.output or "tidy" in result.output
+        assert (
+            "Cleaned" in result.output
+            or "Nothing to clean" in result.output
+            or "tidy" in result.output
+        )
 
     def test_cleanup_auto_saves_soul_file(self, tmp_path):
         """cleanup --auto writes the soul file after removing duplicates."""
-        import os
 
         soul_path = str(tmp_path / "cleanup-save.soul")
         _birth_soul_at(soul_path, "SaveBot")
@@ -250,8 +258,6 @@ class TestCleanupAuto:
         runner = CliRunner()
         runner.invoke(cli, ["remember", soul_path, "remember Python loves cats deeply", "-i", "5"])
         runner.invoke(cli, ["remember", soul_path, "remember Python loves cats deeply", "-i", "5"])
-
-        mtime_before = os.path.getmtime(soul_path)
 
         result = runner.invoke(cli, ["cleanup", "--auto", soul_path])
 
@@ -272,7 +278,11 @@ class TestCleanupAuto:
 
         assert result.exit_code == 0, result.output
         # Should clean or report nothing found
-        assert "Cleaned" in result.output or "Nothing to clean" in result.output or "tidy" in result.output
+        assert (
+            "Cleaned" in result.output
+            or "Nothing to clean" in result.output
+            or "tidy" in result.output
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +344,9 @@ class TestRepairResetEnergy:
         assert result.exit_code == 0, result.output
         # Should say something about no actions specified or use --help
         output_lower = result.output.lower()
-        assert "no repair" in output_lower or "--help" in output_lower or "specified" in output_lower
+        assert (
+            "no repair" in output_lower or "--help" in output_lower or "specified" in output_lower
+        )
 
     def test_repair_reset_energy_shows_soul_name(self, tmp_path):
         """repair --reset-energy output panel includes the soul name."""

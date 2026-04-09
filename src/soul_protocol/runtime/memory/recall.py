@@ -31,8 +31,6 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-logger = logging.getLogger(__name__)
-
 from soul_protocol.runtime.memory.activation import compute_activation
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
@@ -43,6 +41,8 @@ from soul_protocol.runtime.types import MemoryEntry, MemoryType, MemoryVisibilit
 
 if TYPE_CHECKING:
     from soul_protocol.runtime.memory.strategy import SearchStrategy
+
+logger = logging.getLogger(__name__)
 
 # Cap access_timestamps to prevent unbounded memory growth in long-running sessions.
 # 100 timestamps is sufficient for ACT-R power-law decay calculations.
@@ -230,8 +230,12 @@ class RecallEngine:
         results.sort(
             key=lambda e: (
                 -compute_activation(
-                    e, query, now=now, noise=False,
-                    strategy=self._strategy, personality=self._personality,
+                    e,
+                    query,
+                    now=now,
+                    noise=False,
+                    strategy=self._strategy,
+                    personality=self._personality,
                 )
             ),
         )
@@ -239,7 +243,7 @@ class RecallEngine:
         # Progressive disclosure: return primary (full) + overflow (abstract-only)
         if progressive:
             primary = results[:limit]
-            overflow_entries = results[limit:limit * 2]
+            overflow_entries = results[limit : limit * 2]
             # Create shallow copies for overflow with abstract content
             summarized_overflow: list[MemoryEntry] = []
             for entry in overflow_entries:

@@ -1,9 +1,15 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-09 — smart_recall() is now opt-in via MemorySettings.smart_recall_enabled
+#   or a per-call `enabled=` override. Off by default because it adds an LLM call
+#   on every invocation. Protects high-frequency callers from unbounded token cost.
 # Updated: 2026-04-06 — Added dream() method for offline batch consolidation.
 #   Wires Dreamer engine from dream.py into Soul lifecycle. dream() detects
 #   topic clusters, recurring procedures, behavioral trends, consolidates
 #   graph, and synthesizes cross-tier insights (episodes → procedures,
 #   entities → evolution proposals).
+# Updated: 2026-04-01 — Added smart_recall() for LLM-based memory reranking.
+#   Fetches a larger candidate pool via heuristic recall, then uses CognitiveEngine
+#   to pick the most contextually relevant memories. Falls back gracefully.
 # Updated: 2026-03-29 — F5 Auto-Consolidation: observe() now auto-triggers
 #   archive_old_memories() + reflect() every consolidation_interval interactions.
 #   interaction_count persisted through serialize/awaken via SoulConfig.
@@ -761,6 +767,47 @@ class Soul:
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
         return results
+
+    async def smart_recall(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        candidate_pool: int = 15,
+        enabled: bool | None = None,
+    ) -> list[MemoryEntry]:
+        """Recall memories with optional LLM-based reranking for better relevance.
+
+        Fetches ``candidate_pool`` memories via heuristic recall, then optionally
+        uses the CognitiveEngine to select the top-N most relevant. The LLM
+        rerank is **off by default** — enable it per-soul via
+        ``MemorySettings.smart_recall_enabled`` or per-call via the ``enabled``
+        argument. When disabled (or when no engine is available), this falls
+        back to the first ``limit`` candidates in heuristic order.
+
+        Args:
+            query: Search text / current context.
+            limit: How many memories to return.
+            candidate_pool: How many candidates to fetch from heuristic recall
+                before reranking. Larger pools give the LLM more to work with
+                but cost more tokens per call.
+            enabled: Per-call override. When None (default), uses
+                ``self._memory.settings.smart_recall_enabled``. Pass ``True``
+                or ``False`` to force a specific behavior for this call.
+        """
+        candidates = await self.recall(query, limit=candidate_pool)
+
+        # Resolve the effective flag: explicit override > settings > off
+        effective_enabled = (
+            enabled if enabled is not None else self._memory.settings.smart_recall_enabled
+        )
+
+        if effective_enabled and self._engine and len(candidates) > limit:
+            from soul_protocol.runtime.memory.rerank import rerank_memories
+
+            return await rerank_memories(candidates, query, self._engine, limit)
+
+        return candidates[:limit]
 
     async def observe(self, interaction: Interaction) -> None:
         """Soul observes an interaction and learns from it.

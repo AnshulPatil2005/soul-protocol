@@ -320,6 +320,12 @@ class MemorySettings(BaseModel):
     # (including fact-based promotion in step 4b). Saves 2 LLM calls per
     # low-value interaction.
     skip_deep_processing_on_low_significance: bool = True
+    # LLM-based reranking on recall. Off by default because it adds an LLM
+    # call on every smart_recall invocation. Callers who need relevance
+    # quality over latency can opt in by constructing MemorySettings with
+    # smart_recall_enabled=True, or override per-call via the enabled= arg
+    # on Soul.smart_recall().
+    smart_recall_enabled: bool = False
 
 
 # ============ State / Feelings ============

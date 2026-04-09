@@ -1,4 +1,5 @@
 # memory/__init__.py — Memory subsystem package for the Digital Soul Protocol.
+# Updated: 2026-04-01 — Added rerank_memories export for LLM-based memory reranking.
 # Updated: v0.4.0 — Added ContradictionDetector export.
 # Updated: Phase 2 memory-runtime-v2 — Added reconcile_fact export from dedup module.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
@@ -20,6 +21,7 @@ from soul_protocol.runtime.memory.graph import KnowledgeGraph, TemporalEdge
 from soul_protocol.runtime.memory.manager import MemoryManager
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.recall import RecallEngine
+from soul_protocol.runtime.memory.rerank import rerank_memories
 from soul_protocol.runtime.memory.self_model import SelfModelManager
 from soul_protocol.runtime.memory.semantic import SemanticStore
 from soul_protocol.runtime.memory.sentiment import detect_sentiment
@@ -50,4 +52,6 @@ __all__ = [
     "reconcile_fact",
     # v0.4.0 — contradiction detection
     "ContradictionDetector",
+    # Smart reranking
+    "rerank_memories",
 ]

@@ -262,13 +262,21 @@ class TestSignificanceShortCircuit:
     @pytest.fixture
     def mocked_manager(self) -> MemoryManager:
         """MemoryManager with every LLM-touching cognitive method replaced
-        by an AsyncMock. Significance is left unmocked so individual tests
-        can set it to trigger the branch they want."""
+        by an AsyncMock, including a safe-default trivial significance score.
+
+        Individual tests override assess_significance to set a specific
+        branch; pre-mocking it here guarantees that a test which forgets to
+        set a value never falls through to a live LLM call."""
         from unittest.mock import AsyncMock
 
         mgr = MemoryManager(core=CoreMemory(), settings=MemorySettings())
         mgr._cognitive.detect_sentiment = AsyncMock(
             return_value=self._neutral_somatic()
+        )
+        # Safe default — trivial score. Tests that care about the high path
+        # override this explicitly.
+        mgr._cognitive.assess_significance = AsyncMock(
+            return_value=self._trivial_score()
         )
         mgr._cognitive.extract_facts = AsyncMock(return_value=[])
         mgr._cognitive.extract_entities = AsyncMock(return_value=[])
@@ -364,12 +372,14 @@ class TestSignificanceShortCircuit:
 
     async def test_fact_promotion_still_triggers_extraction(self, mocked_manager):
         """When significance is low but fact extraction finds facts (step 4b
-        promotion), extraction should still run. This protects the subtle
-        case where a message is short but carries meaningful content."""
+        promotion), BOTH entity extraction AND self-model update should run.
+        This protects the subtle case where a message is short but carries
+        meaningful content — steps 5 and 6 rise and fall together inside the
+        same else branch, so both must be asserted."""
         from unittest.mock import AsyncMock
 
         mgr = mocked_manager
-        mgr._cognitive.assess_significance = AsyncMock(return_value=self._trivial_score())
+        # (assess_significance is already mocked to trivial by the fixture)
         # Fact extraction finds something — this flips `significant` in step 4b
         mgr._cognitive.extract_facts = AsyncMock(
             return_value=[
@@ -386,5 +396,7 @@ class TestSignificanceShortCircuit:
         )
 
         # Because facts were found, the significance gate flipped to True and
-        # extraction should have run even though assess_significance scored low
+        # BOTH deep-processing steps should have run even though
+        # assess_significance scored low
         mgr._cognitive.extract_entities.assert_called_once()
+        mgr._cognitive.update_self_model.assert_called_once()

@@ -1438,8 +1438,14 @@ def reflect_cmd(path, no_apply):
 @click.option("--since", type=click.DateTime(), default=None, help="Only review episodes after this datetime")
 @click.option("--no-archive", is_flag=True, default=False, help="Skip archiving old memories")
 @click.option("--no-synthesize", is_flag=True, default=False, help="Skip creating procedural memories and evolution insights")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Preview what would change without mutating the soul. Shows planned archives, dedups, and graph merges.",
+)
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON")
-def dream_cmd(path, since, no_archive, no_synthesize, as_json):
+def dream_cmd(path, since, no_archive, no_synthesize, dry_run, as_json):
     """Run an offline dream cycle — batch memory consolidation.
 
     Dreaming reviews accumulated episodes to detect topic patterns,
@@ -1454,6 +1460,7 @@ def dream_cmd(path, since, no_archive, no_synthesize, as_json):
     Examples:
       soul dream .soul/
       soul dream pocketpaw.soul --since 2026-04-01
+      soul dream .soul/ --dry-run          # Preview without mutating
       soul dream .soul/ --json
       soul dream .soul/ --no-archive
     """
@@ -1466,13 +1473,15 @@ def dream_cmd(path, since, no_archive, no_synthesize, as_json):
             since=since,
             archive=not no_archive,
             synthesize=not no_synthesize,
+            dry_run=dry_run,
         )
 
-        # Save changes
-        if Path(path).is_dir():
-            await soul.save_local(path)
-        else:
-            await soul.export(path)
+        # Save changes — skip on dry run so nothing hits disk
+        if not dry_run:
+            if Path(path).is_dir():
+                await soul.save_local(path)
+            else:
+                await soul.export(path)
 
         if as_json:
             import dataclasses
@@ -1491,6 +1500,9 @@ def dream_cmd(path, since, no_archive, no_synthesize, as_json):
         lines = []
 
         # Header
+        if dry_run:
+            lines.append("[yellow bold]DRY RUN — no changes applied[/yellow bold]")
+            lines.append("")
         lines.append(f"[bold]Episodes reviewed:[/bold] {report.episodes_reviewed}")
 
         # Topic clusters
@@ -1534,7 +1546,8 @@ def dream_cmd(path, since, no_archive, no_synthesize, as_json):
 
         if stats:
             lines.append("")
-            lines.append("[cyan bold]Consolidation[/cyan bold]")
+            header = "Consolidation Preview" if dry_run else "Consolidation"
+            lines.append(f"[cyan bold]{header}[/cyan bold]")
             lines.append(f"  {', '.join(stats)}")
 
         # Evolution insights

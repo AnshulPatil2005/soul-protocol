@@ -1,8 +1,12 @@
 # dream.py — Offline consolidation engine ("dreaming") for Soul Protocol.
-# Created: 2026-04-06 — Medium-depth implementation: orchestrator + heuristic
-#   pattern detection. No new LLM calls beyond existing reflect().
+# Updated: 2026-04-09 — Added dry_run mode (preview without mutating), switched
+#   _dedup_semantic to soft-delete via superseded_by for audit trail (no more
+#   direct _facts dict mutation), added _find_semantic_duplicates helper that
+#   both the real dedup and dry-run counter share.
 # Updated: 2026-04-06 — Fixed timezone mismatch in _gather_episodes (naive vs aware),
 #   fixed cumulative archive count (now reports delta), added TODO for A/N traits.
+# Created: 2026-04-06 — Medium-depth implementation: orchestrator + heuristic
+#   pattern detection. No new LLM calls beyond existing reflect().
 #
 # Dream is the offline counterpart to observe() (online). While observe()
 # processes interactions one-at-a-time in real-time, dream() reviews
@@ -24,7 +28,7 @@ from __future__ import annotations
 import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from soul_protocol.runtime.memory.search import relevance_score, tokenize
 
@@ -96,6 +100,9 @@ class DreamReport:
     evolution_insights: list[EvolutionInsight] = field(default_factory=list)
     # Metadata
     duration_ms: int = 0
+    # True when the cycle ran in dry-run mode and no destructive mutations
+    # were applied. Counters reflect what *would* have happened.
+    dry_run: bool = False
 
     def summary(self) -> str:
         """Human-readable summary of the dream cycle."""
@@ -186,6 +193,7 @@ class Dreamer:
         detect_patterns: bool = True,
         consolidate_graph: bool = True,
         synthesize: bool = True,
+        dry_run: bool = False,
     ) -> DreamReport:
         """Run a full dream cycle.
 
@@ -195,14 +203,22 @@ class Dreamer:
             detect_patterns: Whether to detect topic clusters and procedures (Phase 2).
             consolidate_graph: Whether to merge/prune graph entities (Phase 3).
             synthesize: Whether to create procedural memories and evolution insights (Phase 4).
+            dry_run: When True, run the full pipeline for its analysis output
+                but skip every destructive mutation: no archiving, no
+                semantic dedup, no graph consolidation, no new procedural
+                memories. The returned DreamReport still shows what *would*
+                happen so the caller can preview and then re-run with
+                dry_run=False once the plan looks right.
 
         Returns:
-            DreamReport with all findings and actions taken.
+            DreamReport with all findings and actions taken (or the no-op
+            result shape when dry_run=True).
         """
         start = datetime.now(timezone.utc)
         report = DreamReport()
+        report.dry_run = dry_run
 
-        # Phase 1: Gather
+        # Phase 1: Gather (read-only)
         episodes = self._gather_episodes(since=since)
         report.episodes_reviewed = len(episodes)
 
@@ -210,32 +226,46 @@ class Dreamer:
             report.duration_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
             return report
 
-        # Phase 2: Pattern Detection
+        # Phase 2: Pattern Detection (read-only)
         if detect_patterns:
             report.topic_clusters = self._detect_topic_clusters(episodes)
             report.detected_procedures = self._detect_procedures(episodes)
             report.behavioral_trends = self._detect_behavioral_trends(episodes)
 
-        # Phase 3: Consolidate
+        # Phase 3: Consolidate (destructive — skip on dry run, only count)
         if archive:
-            report.archived_count = await self._archive_old(episodes)
-            report.deduplicated_count = await self._dedup_semantic()
+            if dry_run:
+                # Report what *would* be archived/deduped without doing it
+                report.archived_count = self._count_archivable(episodes)
+                report.deduplicated_count = await self._count_semantic_duplicates()
+            else:
+                report.archived_count = await self._archive_old(episodes)
+                report.deduplicated_count = await self._dedup_semantic()
 
         if consolidate_graph:
-            report.graph_consolidation = self._consolidate_graph(episodes)
+            if dry_run:
+                report.graph_consolidation = self._preview_graph_consolidation(episodes)
+            else:
+                report.graph_consolidation = self._consolidate_graph(episodes)
 
-        # Phase 4: Synthesize
+        # Phase 4: Synthesize (destructive — skip on dry run)
         if synthesize:
-            report.procedures_created = await self._synthesize_procedures(
-                report.detected_procedures
-            )
+            if dry_run:
+                # Count how many procedures would be created without creating them
+                report.procedures_created = len(report.detected_procedures)
+            else:
+                report.procedures_created = await self._synthesize_procedures(
+                    report.detected_procedures
+                )
+            # Evolution analysis is read-only, run it either way
             report.evolution_insights = self._analyze_evolution(
                 episodes, report.topic_clusters
             )
 
         report.duration_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
         logger.info(
-            "Dream cycle complete: episodes=%d, clusters=%d, procedures=%d, archived=%d, duration=%dms",
+            "Dream cycle %scomplete: episodes=%d, clusters=%d, procedures=%d, archived=%d, duration=%dms",
+            "(dry run) " if dry_run else "",
             report.episodes_reviewed,
             len(report.topic_clusters),
             report.procedures_created,
@@ -463,14 +493,20 @@ class Dreamer:
             logger.warning("Archive during dream failed: %s", e)
             return 0
 
-    async def _dedup_semantic(self) -> int:
-        """Remove duplicate semantic facts using token overlap."""
+    def _find_semantic_duplicates(self) -> list[tuple[str, str]]:
+        """Return (loser_id, winner_id) pairs for duplicate semantic facts.
+
+        ``facts()`` is pre-sorted by importance desc, then created_at desc,
+        so the first time we see a token-overlap ≥ 0.85 the already-seen
+        entry is the more important / newer one — that's the keeper.
+        The later occurrence becomes the "loser" and is superseded.
+        """
         facts = self._memory._semantic.facts()
         if len(facts) < 2:
-            return 0
+            return []
 
         seen: list[tuple[str, set[str]]] = []
-        to_remove: list[str] = []
+        pairs: list[tuple[str, str]] = []
 
         for fact in facts:
             if fact.superseded_by is not None:
@@ -486,22 +522,94 @@ class Dreamer:
                     len(fact_tokens | existing_tokens), 1
                 )
                 if overlap >= 0.85:
-                    to_remove.append(fact.id)
+                    pairs.append((fact.id, existing_id))
                     is_dup = True
                     break
 
             if not is_dup:
                 seen.append((fact.id, fact_tokens))
 
-        # Remove duplicates
-        for mid in to_remove:
-            if mid in self._memory._semantic._facts:
-                del self._memory._semantic._facts[mid]
+        return pairs
 
-        if to_remove:
-            logger.debug("Dream dedup: removed %d duplicate semantic facts", len(to_remove))
+    async def _count_semantic_duplicates(self) -> int:
+        """Dry-run equivalent of _dedup_semantic. Counts without mutating."""
+        return len(self._find_semantic_duplicates())
 
-        return len(to_remove)
+    async def _dedup_semantic(self) -> int:
+        """Supersede duplicate semantic facts using token overlap.
+
+        Uses ``superseded_by`` for a soft-delete audit trail rather than
+        hard-deleting the duplicate. The winning fact keeps living; the
+        duplicate is marked superseded and will be filtered out of
+        future ``facts()`` calls but remains available via
+        ``facts(include_superseded=True)`` for inspection.
+        """
+        pairs = self._find_semantic_duplicates()
+        if not pairs:
+            return 0
+
+        removed = 0
+        for loser_id, winner_id in pairs:
+            loser = self._memory._semantic._facts.get(loser_id)
+            if loser is None:
+                continue
+            # Soft-delete via supersede — preserves the entry for audit
+            # and ensures any future API change on remove() is honored.
+            loser.superseded_by = winner_id
+            removed += 1
+
+        if removed:
+            logger.debug("Dream dedup: superseded %d duplicate semantic facts", removed)
+
+        return removed
+
+    def _count_archivable(self, episodes: list) -> int:
+        """Dry-run equivalent of _archive_old. Counts what would be archived."""
+        if not episodes:
+            return 0
+        cutoff_days = 30
+        cutoff = datetime.now(timezone.utc) - timedelta(days=cutoff_days)
+
+        def _ts(mem):
+            t = mem.created_at
+            return t.replace(tzinfo=None) if t.tzinfo else t
+
+        cutoff_naive = cutoff.replace(tzinfo=None)
+        return sum(1 for ep in episodes if _ts(ep) < cutoff_naive)
+
+    def _preview_graph_consolidation(self, episodes: list) -> GraphConsolidation:
+        """Dry-run equivalent of _consolidate_graph. Reports what would change.
+
+        Runs the same similarity logic but does not mutate _graph. The
+        returned GraphConsolidation shows planned merges and prunes so the
+        caller can preview the outcome before committing.
+        """
+        result = GraphConsolidation()
+        entities = self._graph.entities()
+        if len(entities) < 2:
+            return result
+
+        normalized: dict[str, list[str]] = defaultdict(list)
+        for entity in entities:
+            normalized[entity.lower().strip()].append(entity)
+
+        for norm_name, variants in normalized.items():
+            if len(variants) <= 1:
+                continue
+            # Same selection logic as _consolidate_graph: keep the variant
+            # with the most edges, record the others as merge candidates.
+            edge_counts: dict[str, int] = {}
+            for v in variants:
+                edge_counts[v] = sum(
+                    1 for e in self._graph._edges
+                    if e.source == v or e.target == v
+                )
+            keeper = max(edge_counts, key=lambda k: edge_counts[k])
+            for v in variants:
+                if v != keeper:
+                    result.merged_entities.append((v, keeper))
+
+        return result
 
     def _consolidate_graph(self, episodes: list) -> GraphConsolidation:
         """Merge similar entities and prune stale edges in the knowledge graph."""

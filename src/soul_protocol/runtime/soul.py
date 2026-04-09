@@ -994,6 +994,7 @@ class Soul:
         detect_patterns: bool = True,
         consolidate_graph: bool = True,
         synthesize: bool = True,
+        dry_run: bool = False,
     ) -> DreamReport:
         """Run an offline dream cycle — batch consolidation of accumulated memories.
 
@@ -1011,9 +1012,14 @@ class Soul:
             detect_patterns: Whether to detect topic clusters and recurring procedures.
             consolidate_graph: Whether to merge/prune knowledge graph.
             synthesize: Whether to create procedural memories and evolution insights.
+            dry_run: When True, run analysis only — no archiving, no dedup,
+                no graph mutation, no new procedural memories. The returned
+                DreamReport shows what *would* happen so callers can preview
+                before committing.
 
         Returns:
-            DreamReport with all findings and actions taken.
+            DreamReport with all findings and actions taken (or the preview
+            report when dry_run=True).
         """
         dreamer = Dreamer(
             memory=self._memory,
@@ -1028,6 +1034,7 @@ class Soul:
             detect_patterns=detect_patterns,
             consolidate_graph=consolidate_graph,
             synthesize=synthesize,
+            dry_run=dry_run,
         )
 
         logger.info(

@@ -506,6 +506,112 @@ class TestDreamerDeduplicateSemantic:
         removed = await dreamer._dedup_semantic()
         assert removed == 0
 
+    @pytest.mark.asyncio
+    async def test_dedup_soft_deletes_via_superseded_by(self):
+        """Dedup should mark losers with superseded_by instead of hard-deleting.
+
+        The audit trail matters: after dedup runs, the loser fact should still
+        exist in the underlying dict so it's discoverable via
+        facts(include_superseded=True), and its superseded_by should point
+        at the winner.
+        """
+        memory = MagicMock()
+        memory._graph = KnowledgeGraph()
+        memory._episodic = MagicMock()
+        memory._procedural = ProceduralStore()
+        semantic = SemanticStore()
+
+        fact_a = _make_semantic_fact("User prefers Python programming language for data science")
+        fact_b = _make_semantic_fact("User prefers Python programming language for data science work")
+        await semantic.add(fact_a)
+        await semantic.add(fact_b)
+        memory._semantic = semantic
+
+        dreamer = Dreamer(memory)
+        removed = await dreamer._dedup_semantic()
+
+        assert removed == 1
+        # Both facts should still exist in the raw dict — nothing is deleted
+        assert len(semantic._facts) == 2
+        # But only one is visible through the default facts() call
+        assert len(semantic.facts()) == 1
+        # And we can still see both by opting into superseded
+        all_facts = semantic.facts(include_superseded=True)
+        assert len(all_facts) == 2
+        # The loser has a pointer to the winner
+        losers = [f for f in all_facts if f.superseded_by is not None]
+        assert len(losers) == 1
+        winner_id = losers[0].superseded_by
+        assert winner_id in {fact_a.id, fact_b.id}
+
+
+class TestDreamerDryRun:
+    """dream(dry_run=True) — analysis without mutation."""
+
+    @pytest.mark.asyncio
+    async def test_dry_run_does_not_mutate_semantic_store(self):
+        """With duplicates present, dry-run reports them but leaves the store alone."""
+        memory = MagicMock()
+        memory._graph = KnowledgeGraph()
+        episodic = MagicMock()
+        episodic.entries = MagicMock(return_value=[])
+        memory._episodic = episodic
+        memory._procedural = ProceduralStore()
+        semantic = SemanticStore()
+        await semantic.add(_make_semantic_fact("User prefers Python for data science"))
+        await semantic.add(_make_semantic_fact("User prefers Python for data science work"))
+        memory._semantic = semantic
+
+        dreamer = Dreamer(memory)
+        # No episodes so dream() returns early — call the helper directly
+        count = await dreamer._count_semantic_duplicates()
+        assert count == 1
+
+        # Raw dict untouched, no superseded_by set
+        assert len(semantic._facts) == 2
+        for fact in semantic._facts.values():
+            assert fact.superseded_by is None
+
+    @pytest.mark.asyncio
+    async def test_dry_run_sets_report_flag(self):
+        """DreamReport.dry_run reflects the run mode."""
+        memory = MagicMock()
+        memory._graph = KnowledgeGraph()
+        episodic = MagicMock()
+        episodic.entries = MagicMock(return_value=[])
+        memory._episodic = episodic
+        memory._procedural = ProceduralStore()
+        memory._semantic = SemanticStore()
+
+        dreamer = Dreamer(memory)
+        report = await dreamer.dream(dry_run=True)
+        assert report.dry_run is True
+
+        report2 = await dreamer.dream(dry_run=False)
+        assert report2.dry_run is False
+
+    def test_count_archivable_matches_archive_cutoff(self):
+        """_count_archivable returns the same count _archive_old would archive."""
+        from datetime import datetime, timedelta, timezone
+
+        memory = MagicMock()
+        memory._graph = KnowledgeGraph()
+        memory._episodic = MagicMock()
+        memory._procedural = ProceduralStore()
+        memory._semantic = SemanticStore()
+
+        # 3 old episodes, 2 recent
+        now = datetime.now(timezone.utc)
+        old_time = now - timedelta(days=45)
+        recent_time = now - timedelta(days=5)
+
+        old_eps = [MagicMock(created_at=old_time) for _ in range(3)]
+        recent_eps = [MagicMock(created_at=recent_time) for _ in range(2)]
+
+        dreamer = Dreamer(memory)
+        count = dreamer._count_archivable(old_eps + recent_eps)
+        assert count == 3
+
 
 class TestDreamerConsolidateGraph:
     """_consolidate_graph() — entity merges, expired edge pruning, deduplication."""

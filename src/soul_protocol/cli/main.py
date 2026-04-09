@@ -846,15 +846,33 @@ def eternal_status(path):
     help="Importance score 1-10 (default: 5)",
 )
 @click.option("--emotion", "-e", type=str, default=None, help="Emotion tag (e.g. happy, sad)")
-def remember_cmd(path, text, importance, emotion):
+@click.option(
+    "--type",
+    "-t",
+    "memory_type",
+    type=click.Choice(["episodic", "semantic", "procedural"], case_sensitive=False),
+    default="semantic",
+    help="Memory tier (default: semantic). Use episodic for events, procedural for skills.",
+)
+def remember_cmd(path, text, importance, emotion, memory_type):
     """Store a memory in a Soul.
+
+    \b
+    Memory tiers:
+      episodic   — events that happened (what, when, where)
+      semantic   — facts the soul knows (default)
+      procedural — skills and how-to knowledge
 
     \b
     Examples:
       soul remember aria.soul "User prefers dark mode"
       soul remember aria.soul "Likes Python" --importance 7
       soul remember aria.soul "Had a great day" --emotion happy
+      soul remember aria.soul "Shipped v0.3" --type episodic --importance 8
     """
+    from soul_protocol.runtime.types import MemoryType
+
+    tier = MemoryType(memory_type.lower())
 
     async def _remember():
         from soul_protocol.runtime.soul import Soul
@@ -862,6 +880,7 @@ def remember_cmd(path, text, importance, emotion):
         soul = await Soul.awaken(path)
         memory_id = await soul.remember(
             text,
+            type=tier,
             importance=importance,
             emotion=emotion,
         )
@@ -874,6 +893,7 @@ def remember_cmd(path, text, importance, emotion):
             Panel(
                 f"[bold]{soul.name}[/bold] will remember:\n\n"
                 f"  [cyan]{text}[/cyan]\n\n"
+                f"  Tier        [magenta]{tier.value}[/magenta]\n"
                 f"  Importance  [yellow]{importance}/10[/yellow]\n"
                 f"  Emotion     {emotion or '[dim]none[/dim]'}\n"
                 f"  ID          [dim]{memory_id}[/dim]",

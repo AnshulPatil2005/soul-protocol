@@ -100,6 +100,98 @@ def test_remember_with_emotion(tmp_path):
     assert "happy" in result.output
 
 
+def test_remember_episodic_type(tmp_path):
+    """remember --type episodic routes memory to the episodic tier."""
+    import json
+    import zipfile
+
+    runner = CliRunner()
+    soul_path = str(tmp_path / "episodic-test.soul")
+
+    runner.invoke(cli, ["birth", "EpBot", "-o", soul_path])
+
+    result = runner.invoke(
+        cli,
+        ["remember", soul_path, "Shipped v0.3 today", "--type", "episodic", "-i", "8"],
+    )
+
+    assert result.exit_code == 0
+    assert "episodic" in result.output.lower()
+
+    # Verify the memory is actually in the episodic tier, not semantic.
+    # Episodic memories are wrapped in the interaction format ("User: ... Agent: ...")
+    with zipfile.ZipFile(soul_path) as zf:
+        episodic = json.loads(zf.read("memory/episodic.json"))
+        semantic = json.loads(zf.read("memory/semantic.json"))
+
+    assert len(episodic) == 1
+    assert "Shipped v0.3 today" in episodic[0]["content"]
+    assert len(semantic) == 0
+
+
+def test_remember_procedural_type(tmp_path):
+    """remember --type procedural routes memory to the procedural tier."""
+    import json
+    import zipfile
+
+    runner = CliRunner()
+    soul_path = str(tmp_path / "procedural-test.soul")
+
+    runner.invoke(cli, ["birth", "ProcBot", "-o", soul_path])
+
+    result = runner.invoke(
+        cli,
+        ["remember", soul_path, "How to deploy the app", "--type", "procedural"],
+    )
+
+    assert result.exit_code == 0
+
+    with zipfile.ZipFile(soul_path) as zf:
+        procedural = json.loads(zf.read("memory/procedural.json"))
+        semantic = json.loads(zf.read("memory/semantic.json"))
+
+    assert len(procedural) == 1
+    assert procedural[0]["content"] == "How to deploy the app"
+    assert len(semantic) == 0
+
+
+def test_remember_default_is_semantic(tmp_path):
+    """remember without --type defaults to semantic (backward compat)."""
+    import json
+    import zipfile
+
+    runner = CliRunner()
+    soul_path = str(tmp_path / "default-type-test.soul")
+
+    runner.invoke(cli, ["birth", "DefBot", "-o", soul_path])
+
+    result = runner.invoke(cli, ["remember", soul_path, "A plain fact"])
+
+    assert result.exit_code == 0
+
+    with zipfile.ZipFile(soul_path) as zf:
+        semantic = json.loads(zf.read("memory/semantic.json"))
+        episodic = json.loads(zf.read("memory/episodic.json"))
+
+    assert len(semantic) == 1
+    assert len(episodic) == 0
+
+
+def test_remember_rejects_invalid_type(tmp_path):
+    """remember --type with an invalid value exits with an error."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "invalid-type-test.soul")
+
+    runner.invoke(cli, ["birth", "InvBot", "-o", soul_path])
+
+    result = runner.invoke(
+        cli, ["remember", soul_path, "Some text", "--type", "core"]
+    )
+
+    # core is a valid MemoryType but not allowed via CLI (core is persona-level)
+    assert result.exit_code != 0
+
+
 def test_recall_with_query(tmp_path):
     """recall command searches memories by query."""
     runner = CliRunner()

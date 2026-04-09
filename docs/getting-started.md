@@ -151,6 +151,8 @@ async def main():
     ))
 
     # 4. Remember something directly
+    # Default tier is semantic (facts the soul knows).
+    # Use MemoryType.EPISODIC for events, MemoryType.PROCEDURAL for how-tos.
     await soul.remember("User prefers concise code examples", importance=8)
 
     # 5. Recall memories

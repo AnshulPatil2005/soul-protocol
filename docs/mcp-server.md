@@ -1,6 +1,7 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 23 tools
-     (13 soul/memory + 5 context + 5 psychology), 3 resources, 2 prompts, auto-detect,
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 24 tools
+     (14 soul/memory + 5 context + 5 psychology), 3 resources, 2 prompts, auto-detect,
      MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-04-06 — Added soul_dream tool for offline batch memory consolidation.
      Updated: 2026-03-27 — v0.2.8: Fixed section header "Tools (18)" → "Tools (23)".
      Updated: 2026-03-26 — v0.2.7: Added 5 psychology pipeline tools (soul_skills,
      soul_evaluate, soul_learn, soul_evolve, soul_bond). Tool count: 18 → 23.
@@ -85,9 +86,9 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (23)
+## Tools (24)
 
-All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 23 tools break down as: 9 soul management, 4 memory, 5 context (LCM), and 5 psychology pipeline (v0.2.7).
+All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 24 tools break down as: 9 soul management, 5 memory, 5 context (LCM), and 5 psychology pipeline (v0.2.7).
 
 **Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
@@ -158,6 +159,19 @@ Trigger a reflection and memory consolidation pass. The soul reviews recent inte
 | (none) | | | |
 
 **Returns:** JSON with `status` and either `themes`, `emotional_patterns`, `self_insight` (on success) or `reason` (on skip).
+
+---
+
+### `soul_dream`
+
+Run an offline dream cycle — batch memory consolidation. Reviews accumulated episodes to detect topic patterns, extract recurring procedures, consolidate the knowledge graph, and propose personality evolution. No LLM required — all pattern detection is heuristic-based.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+| `since` | `str` | `None` | ISO datetime — only review episodes after this time |
+
+**Returns:** JSON `DreamReport` with `topic_clusters`, `detected_procedures`, `behavioral_trends`, `graph_consolidation`, `evolution_insights`, and consolidation stats.
 
 ---
 

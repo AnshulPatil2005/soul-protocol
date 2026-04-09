@@ -1,4 +1,9 @@
-# soul.py — The main Soul class: birth, awaken, observe, save, export
+# soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-06 — Added dream() method for offline batch consolidation.
+#   Wires Dreamer engine from dream.py into Soul lifecycle. dream() detects
+#   topic clusters, recurring procedures, behavioral trends, consolidates
+#   graph, and synthesizes cross-tier insights (episodes → procedures,
+#   entities → evolution proposals).
 # Updated: 2026-03-29 — F5 Auto-Consolidation: observe() now auto-triggers
 #   archive_old_memories() + reflect() every consolidation_interval interactions.
 #   interaction_count persisted through serialize/awaken via SoulConfig.
@@ -83,6 +88,7 @@ from .cognitive.engine import CognitiveEngine
 from .dna.prompt import dna_to_system_prompt
 from .eternal.manager import EternalStorageManager
 from .evaluation import Evaluator
+from .dream import DreamReport, Dreamer
 from .evolution.manager import EvolutionManager
 from .export.pack import pack_soul
 from .export.unpack import unpack_soul
@@ -979,6 +985,65 @@ class Soul:
         if result is not None and apply:
             await self._memory.consolidate(result, soul_name=self.name)
         return result
+
+    async def dream(
+        self,
+        *,
+        since: datetime | None = None,
+        archive: bool = True,
+        detect_patterns: bool = True,
+        consolidate_graph: bool = True,
+        synthesize: bool = True,
+        dry_run: bool = False,
+    ) -> DreamReport:
+        """Run an offline dream cycle — batch consolidation of accumulated memories.
+
+        Dreaming is the offline counterpart to observe() (online). While observe()
+        processes interactions one-at-a-time, dream() reviews accumulated episodes
+        in batch to detect patterns, consolidate memory tiers, and synthesize
+        cross-tier insights.
+
+        Call this periodically (e.g., at session end, or after every N interactions)
+        for deeper memory optimization than auto-consolidation provides.
+
+        Args:
+            since: Only review episodes after this time. None = review all.
+            archive: Whether to archive old episodic memories.
+            detect_patterns: Whether to detect topic clusters and recurring procedures.
+            consolidate_graph: Whether to merge/prune knowledge graph.
+            synthesize: Whether to create procedural memories and evolution insights.
+            dry_run: When True, run analysis only — no archiving, no dedup,
+                no graph mutation, no new procedural memories. The returned
+                DreamReport shows what *would* happen so callers can preview
+                before committing.
+
+        Returns:
+            DreamReport with all findings and actions taken (or the preview
+            report when dry_run=True).
+        """
+        dreamer = Dreamer(
+            memory=self._memory,
+            graph=self._memory._graph,
+            skills=self._skills,
+            evolution=self._evolution,
+            dna=self._dna,
+        )
+        report = await dreamer.dream(
+            since=since,
+            archive=archive,
+            detect_patterns=detect_patterns,
+            consolidate_graph=consolidate_graph,
+            synthesize=synthesize,
+            dry_run=dry_run,
+        )
+
+        logger.info(
+            "Soul.dream() complete: episodes=%d, clusters=%d, procedures=%d",
+            report.episodes_reviewed,
+            len(report.topic_clusters),
+            report.procedures_created,
+        )
+        return report
 
     @property
     def general_events(self) -> list[GeneralEvent]:

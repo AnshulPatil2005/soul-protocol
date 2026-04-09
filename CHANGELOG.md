@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Dream cycle** — `Soul.dream()` for offline batch memory consolidation. Reviews accumulated episodes to detect topic clusters (Jaccard token overlap), extract recurring procedures (action signature frequency), detect behavioral trends (topic drift over time), consolidate knowledge graph (merge duplicate entities, prune expired edges), and synthesize cross-tier insights (episodes → procedural memories, behavioral patterns → OCEAN evolution proposals). No LLM required — all heuristic-based.
+- `soul dream` CLI command (38th command) with `--since`, `--no-archive`, `--no-synthesize`, `--json` flags
+- `soul_dream` MCP tool (24th tool) with `soul` and `since` parameters
+- `DreamReport` dataclass with full breakdown: topic clusters, detected procedures, behavioral trends, graph consolidation stats, evolution insights
+
+---
+
 ## [0.2.9] -- 2026-03-29
 
 ### Added

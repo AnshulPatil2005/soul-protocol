@@ -313,7 +313,9 @@ class MemorySettings(BaseModel):
     consolidation_interval: int = 20
     # LLM-based reranking on recall. Off by default because it adds an LLM
     # call on every smart_recall invocation. Callers who need relevance
-    # quality over latency can opt in per-soul or via SOUL_SMART_RECALL_ENABLED.
+    # quality over latency can opt in by constructing MemorySettings with
+    # smart_recall_enabled=True, or override per-call via the enabled= arg
+    # on Soul.smart_recall().
     smart_recall_enabled: bool = False
 
 

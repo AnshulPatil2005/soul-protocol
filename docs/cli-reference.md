@@ -1,7 +1,8 @@
-<!-- Covers: CLI installation, all 37 commands with usage examples, options tables, and output descriptions.
+<!-- Covers: CLI installation, all 38 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-04-06 — Added `soul dream` command for offline batch memory consolidation.
      Updated: 2026-03-27 — v0.2.8: Added archive, recover, and eternal-status command documentation.
      Updated: 2026-03-26 — v0.2.7: Added 3 maintenance commands (health, cleanup, repair).
-     Total: 37 commands. Biorhythms defaults changed to always-on (no energy/social drain).
+     Total: 38 commands. Biorhythms defaults changed to always-on (no energy/social drain).
      Updated: 2026-03-24 — v0.2.6: Added 13 runtime commands (observe, reflect, feel, prompt, forget,
      edit-core, evolve, evaluate, learn, skills, bond, events, context) and 6 import/export commands
      (import-soulspec, export-soulspec, import-tavernai, export-tavernai, import-a2a, export-a2a).
@@ -10,7 +11,7 @@
 
 # CLI Reference
 
-Soul Protocol ships a command-line interface with 37 commands for creating, inspecting, exporting, and managing souls. Built on Click with Rich output formatting.
+Soul Protocol ships a command-line interface with 38 commands for creating, inspecting, exporting, and managing souls. Built on Click with Rich output formatting.
 
 ## Installation
 
@@ -500,6 +501,90 @@ soul export-a2a aria.soul -o card.json --url https://aria.example.com
 
 ---
 
+### `soul remember`
+
+Store a memory directly in a soul. Use this when you already know what tier the memory belongs in and don't need the cognitive pipeline to decide for you (see `soul observe` for the pipeline-driven alternative).
+
+```bash
+# Semantic by default — facts the soul should know
+soul remember aria.soul "User prefers Python over JavaScript" --importance 8
+
+# Episodic — events that happened
+soul remember aria.soul "Shipped v0.3 today" --type episodic --importance 8
+
+# Procedural — how to do things
+soul remember aria.soul "To deploy: run make deploy" --type procedural
+
+# With emotion tagging
+soul remember aria.soul "Had a productive session" --emotion happy
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `TEXT` | Yes | The memory content to store. |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--importance, -i INT` | `5` | Importance score 1-10. |
+| `--emotion, -e TEXT` | | Emotion tag (e.g. `happy`, `sad`, `excited`). |
+| `--type, -t [episodic\|semantic\|procedural]` | `semantic` | Memory tier (v0.2.9+). |
+
+**Memory tiers:**
+
+- **episodic** — what happened. Events, sessions, shipped work, decisions. Use when the memory answers *"when did that happen?"*
+- **semantic** — what the soul knows. Facts, preferences, project knowledge. Use when the memory answers *"what do I know about X?"*
+- **procedural** — how to do things. Commands, recipes, debugging tips. Use when the memory answers *"how do I...?"*
+
+Core memory (persona and human knowledge) is not writable through `remember`. Use `soul edit-core` instead.
+
+**Output:** A confirmation panel showing the stored text, tier, importance, emotion, and memory ID. The soul is saved automatically.
+
+---
+
+### `soul recall`
+
+Query a soul's memories by text, or list the most recent memories. Returns ranked results using activation-based relevance (recency + importance + match strength).
+
+```bash
+# Text query
+soul recall aria.soul "user preferences"
+soul recall aria.soul "python" --limit 5 --min-importance 7
+
+# Recent memories
+soul recall aria.soul --recent 10
+
+# LLM-friendly output
+soul recall aria.soul "python" --full            # Untruncated content
+soul recall aria.soul "python" --json            # Machine-readable JSON
+soul recall aria.soul --recent 5 --json          # Recent memories as JSON
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `QUERY` | No | Search text. If omitted, use `--recent N` instead. |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--limit, -l INT` | `10` | Maximum results to return. |
+| `--min-importance INT` | `0` | Filter out memories below this importance score. |
+| `--recent, -r INT` | | Show N most recent memories instead of searching. |
+| `--full` | off | Return untruncated content (for LLM consumption). |
+| `--json` | off | Return results as JSON (for scripting). |
+
+**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output.
+
+---
+
 ### `soul observe`
 
 Process an interaction through the full cognitive pipeline. Runs sentiment detection, significance gating, memory storage, entity extraction, self-model updates, and evolution triggers.
@@ -549,6 +634,46 @@ soul reflect aria.soul --no-apply
 | `--no-apply` | Don't consolidate results into memory (dry run). |
 
 **Output:** A panel with themes, summaries, emotional patterns, and self-insights. Saves the soul automatically unless `--no-apply` is set.
+
+---
+
+### `soul dream`
+
+Run an offline dream cycle — batch memory consolidation. Dreaming reviews accumulated episodes to detect topic patterns, extract recurring procedures, consolidate the knowledge graph, and propose personality evolution from behavioral trends.
+
+Unlike `soul reflect` (which only summarizes recent episodes via LLM), `soul dream` performs cross-tier synthesis: episodes → procedures, entities → evolution, and graph → cleanup. No LLM required — all pattern detection is heuristic-based.
+
+```bash
+soul dream .soul/
+soul dream pocketpaw.soul --since 2026-04-01
+soul dream .soul/ --json
+soul dream .soul/ --no-archive --no-synthesize
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--since DATETIME` | Only review episodes after this datetime. |
+| `--no-archive` | Skip archiving old memories. |
+| `--no-synthesize` | Skip creating procedural memories and evolution insights. |
+| `--json` | Output as machine-readable JSON. |
+
+**Output:** A panel with topic clusters, recurring patterns, behavioral trends, consolidation stats, and evolution insights. Saves the soul automatically.
+
+**Dream phases:**
+
+1. **Gather** — Collect episodes (optionally filtered by `--since`)
+2. **Detect patterns** — Topic clustering (Jaccard token overlap), procedure detection (action signature frequency), behavioral trend analysis (first-half vs second-half token drift)
+3. **Consolidate** — Archive old memories, deduplicate semantic facts, merge duplicate graph entities, prune expired/duplicate edges
+4. **Synthesize** — Convert detected patterns into procedural memories, analyze OCEAN trait drift from behavioral data
+5. **Report** — Full `DreamReport` with all findings and actions taken
 
 ---
 

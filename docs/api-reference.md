@@ -1,10 +1,11 @@
-<!-- API Reference for soul-protocol v0.2.3. Covers: Soul class (lifecycle, properties,
-     memory, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
-     SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums. -->
+<!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
+     memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
+     SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-04-06 — Added soul.dream() method and DreamReport type. -->
 
 # API Reference
 
-> soul-protocol v0.2.3
+> soul-protocol v0.2.9+
 
 This is the complete public API reference for the `soul_protocol` package. Every class, method, field, and enum listed here is exported from `soul_protocol` and covered by semver guarantees.
 
@@ -316,6 +317,39 @@ Requires a `CognitiveEngine` (LLM). Returns `None` in heuristic-only mode.
 result = await soul.reflect()
 if result:
     print(result.themes)
+```
+
+#### `soul.dream()`
+
+```python
+async def dream(
+    self,
+    *,
+    since: datetime | None = None,
+    archive: bool = True,
+    detect_patterns: bool = True,
+    consolidate_graph: bool = True,
+    synthesize: bool = True,
+) -> DreamReport
+```
+
+Run an offline dream cycle — batch consolidation of accumulated memories. Dreaming is the offline counterpart to `observe()` (online). While `observe()` processes interactions one-at-a-time, `dream()` reviews accumulated episodes in batch to detect patterns, consolidate memory tiers, and synthesize cross-tier insights. No LLM required.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `since` | `datetime \| None` | `None` | Only review episodes after this time. None = review all. |
+| `archive` | `bool` | `True` | Whether to archive old episodic memories. |
+| `detect_patterns` | `bool` | `True` | Whether to detect topic clusters and recurring procedures. |
+| `consolidate_graph` | `bool` | `True` | Whether to merge/prune knowledge graph. |
+| `synthesize` | `bool` | `True` | Whether to create procedural memories and evolution insights. |
+
+**Returns:** `DreamReport` with `topic_clusters`, `detected_procedures`, `behavioral_trends`, `graph_consolidation`, `evolution_insights`, and consolidation stats.
+
+```python
+report = await soul.dream()
+print(report.summary())  # Human-readable summary
+print(f"Found {len(report.topic_clusters)} topic clusters")
+print(f"Created {report.procedures_created} procedures")
 ```
 
 ### State

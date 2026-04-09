@@ -58,10 +58,18 @@ soul list
 ### Memory operations
 
 ```bash
-# Store a memory (fast — direct write, no server round-trip)
+# Store a memory — semantic by default (facts the soul knows)
 soul remember .soul/aria.soul "User prefers concise answers" --importance 8
 soul remember .soul/aria.soul "User is a senior Python developer" --importance 9
 soul remember .soul/aria.soul "Had a productive session" --emotion happy
+
+# Store an episodic memory — events that happened (sessions, decisions, shipped work)
+soul remember .soul/aria.soul "Shipped v0.3 today" --type episodic --importance 8
+soul remember .soul/aria.soul "Signed the contract with Acme" --type episodic --importance 9
+
+# Store a procedural memory — skills and how-tos
+soul remember .soul/aria.soul "To deploy: run make deploy then verify /health" --type procedural
+soul remember .soul/aria.soul "Debug Claude SDK: set ANTHROPIC_DEBUG=1" --type procedural
 
 # Recall memories by query
 soul recall .soul/aria.soul "user preferences"
@@ -76,6 +84,13 @@ soul recall .soul/aria.soul "query" --json          # Machine-readable JSON arra
 soul recall .soul/aria.soul --recent 5 --json       # Recent memories as JSON
 ```
 
+**Memory tier guide** (v0.2.9+):
+- **episodic** — what happened (events, sessions, shipped work, decisions). Use when the memory answers "when did that happen?"
+- **semantic** — what the soul knows (facts, preferences, project knowledge). Default tier. Use when the memory answers "what do I know about X?"
+- **procedural** — how to do things (commands, recipes, debugging tips). Use when the memory answers "how do I...?"
+
+If you omit `--type`, the memory lands in semantic. Core memory (persona) is edited separately via `soul edit-core`.
+
 ### Runtime operations (v0.2.6)
 
 ```bash
@@ -85,6 +100,11 @@ soul observe .soul/ --user-input "Hello" --agent-output "Hi there!" --channel di
 # Memory consolidation and reflection
 soul reflect .soul/
 soul reflect aria.soul --no-apply
+
+# Offline batch consolidation (dream cycle)
+soul dream .soul/
+soul dream pocketpaw.soul --since 2026-04-01
+soul dream .soul/ --json
 
 # Update emotional state
 soul feel .soul/ --mood excited --energy 5
@@ -191,6 +211,7 @@ soul export .soul/myagent.soul --output .soul/myagent.soul
 | Configure agent | `soul inject --target X` | N/A (manual config) |
 | Process interaction | `soul observe path --user-input X --agent-output Y` | `soul_observe(user_input, agent_output)` |
 | Reflect | `soul reflect path` | `soul_reflect()` |
+| Dream | `soul dream path` | `soul_dream()` |
 | Update mood/energy | `soul feel path --mood X --energy Y` | `soul_feel(mood, energy)` |
 | System prompt | `soul prompt path` | `soul_prompt()` |
 | Delete memories | `soul forget path "query"` | `soul_forget(query)` |
@@ -214,7 +235,7 @@ soul export .soul/myagent.soul --output .soul/myagent.soul
 
 ## MCP Server (for agents without shell access)
 
-23 tools available (13 soul/memory + 5 context + 5 psychology). Only set this up if the agent can't run shell commands.
+24 tools available (14 soul/memory + 5 context + 5 psychology). Only set this up if the agent can't run shell commands.
 
 ```bash
 # Start server (auto-detects .soul/ directory — no env vars needed)
@@ -232,7 +253,7 @@ SOUL_DIR=.soul soul-mcp
 `soul_birth`, `soul_list`, `soul_switch`, `soul_state`, `soul_feel`, `soul_save`, `soul_export`, `soul_reload`, `soul_prompt`
 
 ### Memory tools (4)
-`soul_observe`, `soul_remember`, `soul_recall`, `soul_reflect`
+`soul_observe`, `soul_remember`, `soul_recall`, `soul_reflect`, `soul_dream`
 
 ### Context tools — LCM (5)
 | Tool | Purpose |

@@ -1,4 +1,10 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-04-04 — Added significance-based short-circuit in observe().
+#   When skip_deep_processing_on_low_significance is True (default) and the
+#   interaction is not significant (including after fact-based promotion in 4b),
+#   steps 5 (entity extraction) and 6 (self-model update) are skipped, saving
+#   2 LLM calls per low-value interaction. Return dict still includes all keys
+#   with empty defaults for skipped data.
 # Updated: 2026-03-29 — F2: Wired ArchivalMemoryStore into MemoryManager. Added
 #   archive_old_memories() to compress old episodic memories into ConversationArchive.
 #   Archives persist through to_dict/from_dict. Recall filters archived entries.
@@ -725,18 +731,36 @@ class MemoryManager:
 
 
         # --- 5. Extract entities (with provenance metadata) ---
-        entities = await self._cognitive.extract_entities(
-            interaction, source_memory_id=episodic_id,
-        )
-        if entities:
-            logger.debug(
-                "Entities extracted: %s",
-                [e.get("name") for e in entities],
-            )
-
         # --- 6. Update self-model ---
-        await self._cognitive.update_self_model(interaction, facts, self._self_model)
-        logger.debug("Self-model updated")
+        # Short-circuit: skip expensive LLM steps 5 & 6 for low-significance
+        # interactions when the config flag is enabled. The `significant` flag
+        # accounts for both the initial significance gate (step 2) AND
+        # fact-based promotion (step 4b), so we only skip when the interaction
+        # truly had no meaningful content.
+        skip_deep = (
+            not significant
+            and self._settings.skip_deep_processing_on_low_significance
+        )
+
+        entities: list[dict] = []
+        if skip_deep:
+            logger.debug(
+                "Low-significance short-circuit: skipping entity extraction "
+                "and self-model update (sig=%.3f)",
+                sig_value,
+            )
+        else:
+            entities = await self._cognitive.extract_entities(
+                interaction, source_memory_id=episodic_id,
+            )
+            if entities:
+                logger.debug(
+                    "Entities extracted: %s",
+                    [e.get("name") for e in entities],
+                )
+
+            await self._cognitive.update_self_model(interaction, facts, self._self_model)
+            logger.debug("Self-model updated")
 
         return {
             "somatic": somatic,

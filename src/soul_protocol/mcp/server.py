@@ -1,5 +1,8 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 27 tools (22 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 28 tools (23 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-04-06 — Added soul_dream tool for offline batch memory consolidation.
+#   Detects topic clusters, recurring procedures, behavioral trends, consolidates
+#   graph, and proposes personality evolution.
 # Updated: 2026-03-27 — Added 4 tools: soul_forget, soul_edit_core, soul_health,
 #   soul_cleanup. MCP now has full feature parity with CLI maintenance commands (v0.2.8).
 # Updated: 2026-03-26 — Added 5 psychology pipeline tools: soul_skills, soul_evaluate,
@@ -674,6 +677,43 @@ async def soul_reflect(
             "self_insight": result.self_insight,
         }
     )
+
+
+@mcp.tool
+async def soul_dream(
+    soul: str | None = None,
+    since: str | None = None,
+) -> str:
+    """Run an offline dream cycle — batch memory consolidation.
+
+    Dreaming reviews accumulated episodes to detect topic patterns,
+    extract recurring procedures, consolidate the knowledge graph,
+    and propose personality evolution from behavioral trends.
+
+    Unlike reflect (which only summarizes), dream performs cross-tier
+    synthesis: episodes → procedures, entities → evolution.
+
+    Args:
+        soul: Target soul name (uses active soul if omitted)
+        since: ISO datetime — only review episodes after this time (optional)
+    """
+    import dataclasses
+    from datetime import datetime as dt
+
+    s = await _resolve_soul(soul)
+    # Strip tzinfo — episodic store uses naive datetimes
+    since_dt = dt.fromisoformat(since).replace(tzinfo=None) if since else None
+    report = await s.dream(since=since_dt)
+    _registry.mark_modified(soul)
+
+    def _ser(obj):
+        if isinstance(obj, dt):
+            return obj.isoformat()
+        if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+            return dataclasses.asdict(obj)
+        return str(obj)
+
+    return json.dumps(dataclasses.asdict(report), default=_ser)
 
 
 @mcp.tool

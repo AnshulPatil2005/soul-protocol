@@ -1,4 +1,7 @@
-# cli/main.py — Click CLI for the Soul Protocol (37 commands)
+# cli/main.py — Click CLI for the Soul Protocol (38 commands)
+# Updated: 2026-04-06 — Added `soul dream` command for offline batch memory
+#   consolidation. Detects topic clusters, recurring procedures, behavioral
+#   trends, consolidates graph, and proposes personality evolution.
 # Updated: 2026-03-27 — Added --full and --json flags to `soul recall` for untruncated
 #   and machine-readable output (v0.2.8).
 # Updated: 2026-03-26 — Added 3 soul maintenance commands: health, cleanup, repair.
@@ -846,15 +849,33 @@ def eternal_status(path):
     help="Importance score 1-10 (default: 5)",
 )
 @click.option("--emotion", "-e", type=str, default=None, help="Emotion tag (e.g. happy, sad)")
-def remember_cmd(path, text, importance, emotion):
+@click.option(
+    "--type",
+    "-t",
+    "memory_type",
+    type=click.Choice(["episodic", "semantic", "procedural"], case_sensitive=False),
+    default="semantic",
+    help="Memory tier (default: semantic). Use episodic for events, procedural for skills.",
+)
+def remember_cmd(path, text, importance, emotion, memory_type):
     """Store a memory in a Soul.
+
+    \b
+    Memory tiers:
+      episodic   — events that happened (what, when, where)
+      semantic   — facts the soul knows (default)
+      procedural — skills and how-to knowledge
 
     \b
     Examples:
       soul remember aria.soul "User prefers dark mode"
       soul remember aria.soul "Likes Python" --importance 7
       soul remember aria.soul "Had a great day" --emotion happy
+      soul remember aria.soul "Shipped v0.3" --type episodic --importance 8
     """
+    from soul_protocol.runtime.types import MemoryType
+
+    tier = MemoryType(memory_type.lower())
 
     async def _remember():
         from soul_protocol.runtime.soul import Soul
@@ -862,6 +883,7 @@ def remember_cmd(path, text, importance, emotion):
         soul = await Soul.awaken(path)
         memory_id = await soul.remember(
             text,
+            type=tier,
             importance=importance,
             emotion=emotion,
         )
@@ -874,6 +896,7 @@ def remember_cmd(path, text, importance, emotion):
             Panel(
                 f"[bold]{soul.name}[/bold] will remember:\n\n"
                 f"  [cyan]{text}[/cyan]\n\n"
+                f"  Tier        [magenta]{tier.value}[/magenta]\n"
                 f"  Importance  [yellow]{importance}/10[/yellow]\n"
                 f"  Emotion     {emotion or '[dim]none[/dim]'}\n"
                 f"  ID          [dim]{memory_id}[/dim]",
@@ -1428,6 +1451,148 @@ def reflect_cmd(path, no_apply):
         )
 
     asyncio.run(_reflect())
+
+
+@cli.command("dream")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--since", type=click.DateTime(), default=None, help="Only review episodes after this datetime")
+@click.option("--no-archive", is_flag=True, default=False, help="Skip archiving old memories")
+@click.option("--no-synthesize", is_flag=True, default=False, help="Skip creating procedural memories and evolution insights")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Preview what would change without mutating the soul. Shows planned archives, dedups, and graph merges.",
+)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON")
+def dream_cmd(path, since, no_archive, no_synthesize, dry_run, as_json):
+    """Run an offline dream cycle — batch memory consolidation.
+
+    Dreaming reviews accumulated episodes to detect topic patterns,
+    extract recurring procedures, consolidate the knowledge graph,
+    and propose personality evolution from behavioral trends.
+
+    Unlike reflect (which only summarizes recent episodes), dream
+    performs cross-tier synthesis: episodes → procedures, entities →
+    evolution, and graph → cleanup.
+
+    \b
+    Examples:
+      soul dream .soul/
+      soul dream pocketpaw.soul --since 2026-04-01
+      soul dream .soul/ --dry-run          # Preview without mutating
+      soul dream .soul/ --json
+      soul dream .soul/ --no-archive
+    """
+
+    async def _dream():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        report = await soul.dream(
+            since=since,
+            archive=not no_archive,
+            synthesize=not no_synthesize,
+            dry_run=dry_run,
+        )
+
+        # Save changes — skip on dry run so nothing hits disk
+        if not dry_run:
+            if Path(path).is_dir():
+                await soul.save_local(path)
+            else:
+                await soul.export(path)
+
+        if as_json:
+            import dataclasses
+
+            def _serialize(obj):
+                if isinstance(obj, datetime):
+                    return obj.isoformat()
+                if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+                    return dataclasses.asdict(obj)
+                return str(obj)
+
+            console.print_json(json.dumps(dataclasses.asdict(report), default=_serialize))
+            return
+
+        # Rich output
+        lines = []
+
+        # Header
+        if dry_run:
+            lines.append("[yellow bold]DRY RUN — no changes applied[/yellow bold]")
+            lines.append("")
+        lines.append(f"[bold]Episodes reviewed:[/bold] {report.episodes_reviewed}")
+
+        # Topic clusters
+        if report.topic_clusters:
+            lines.append("")
+            lines.append("[cyan bold]Topic Clusters[/cyan bold]")
+            for tc in report.topic_clusters[:8]:
+                time_range = ""
+                if tc.first_seen and tc.last_seen:
+                    time_range = f" ({tc.first_seen.strftime('%m/%d')}-{tc.last_seen.strftime('%m/%d')})"
+                lines.append(f"  • [bold]{tc.topic}[/bold] — {tc.episode_count} episodes{time_range}")
+
+        # Detected procedures
+        if report.detected_procedures:
+            lines.append("")
+            lines.append("[cyan bold]Recurring Patterns[/cyan bold]")
+            for dp in report.detected_procedures[:5]:
+                conf = f"[green]{'●' * int(dp.confidence * 5)}{'○' * (5 - int(dp.confidence * 5))}[/green]"
+                lines.append(f"  • {dp.description} {conf}")
+
+        # Behavioral trends
+        if report.behavioral_trends:
+            lines.append("")
+            lines.append("[cyan bold]Behavioral Trends[/cyan bold]")
+            for bt in report.behavioral_trends[:5]:
+                lines.append(f"  • {bt}")
+
+        # Consolidation stats
+        stats = []
+        if report.archived_count:
+            stats.append(f"archived={report.archived_count}")
+        if report.deduplicated_count:
+            stats.append(f"deduped={report.deduplicated_count}")
+        gc = report.graph_consolidation
+        if gc.merged_entities:
+            stats.append(f"entities_merged={len(gc.merged_entities)}")
+        if gc.pruned_edges:
+            stats.append(f"edges_pruned={gc.pruned_edges}")
+        if report.procedures_created:
+            stats.append(f"procedures_created={report.procedures_created}")
+
+        if stats:
+            lines.append("")
+            header = "Consolidation Preview" if dry_run else "Consolidation"
+            lines.append(f"[cyan bold]{header}[/cyan bold]")
+            lines.append(f"  {', '.join(stats)}")
+
+        # Evolution insights
+        if report.evolution_insights:
+            lines.append("")
+            lines.append("[cyan bold]Evolution Insights[/cyan bold]")
+            for ei in report.evolution_insights:
+                arrow = "↑" if ei.direction == "increase" else "↓"
+                lines.append(f"  • {ei.trait} {arrow} ({ei.magnitude:.2f}) — {ei.evidence}")
+
+        lines.append("")
+        lines.append(f"[dim]Duration: {report.duration_ms}ms[/dim]")
+
+        if not report.episodes_reviewed:
+            lines = ["[dim]No episodes to dream about.[/dim]"]
+
+        console.print(
+            Panel(
+                "\n".join(lines),
+                title=f"Dream Report — {soul.name}",
+                border_style="magenta",
+            )
+        )
+
+    asyncio.run(_dream())
 
 
 @cli.command("feel")

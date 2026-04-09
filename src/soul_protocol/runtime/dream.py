@@ -564,18 +564,34 @@ class Dreamer:
         return removed
 
     def _count_archivable(self, episodes: list) -> int:
-        """Dry-run equivalent of _archive_old. Counts what would be archived."""
+        """Dry-run equivalent of _archive_old. Counts what would be archived.
+
+        Mirrors MemoryManager.archive_old_memories() exactly so the dry-run
+        preview matches what a real run would do:
+          - 48-hour age cutoff (matches the default max_age_hours)
+          - Excludes already-archived entries
+          - Minimum 3 entries or archival is skipped entirely
+        If archive_old_memories changes its cutoff or guard logic, this
+        method needs to track it. The test
+        test_count_archivable_matches_archive_cutoff guards against drift.
+        """
         if not episodes:
             return 0
-        cutoff_days = 30
-        cutoff = datetime.now(timezone.utc) - timedelta(days=cutoff_days)
 
-        def _ts(mem):
-            t = mem.created_at
-            return t.replace(tzinfo=None) if t.tzinfo else t
+        max_age_hours = 48.0
+        now = datetime.now()
+        cutoff = now.timestamp() - (max_age_hours * 3600)
 
-        cutoff_naive = cutoff.replace(tzinfo=None)
-        return sum(1 for ep in episodes if _ts(ep) < cutoff_naive)
+        candidates = [
+            ep for ep in episodes
+            if ep.created_at.timestamp() < cutoff
+            and not getattr(ep, "archived", False)
+        ]
+
+        # archive_old_memories requires at least 3 entries or it no-ops
+        if len(candidates) < 3:
+            return 0
+        return len(candidates)
 
     def _preview_graph_consolidation(self, episodes: list) -> GraphConsolidation:
         """Dry-run equivalent of _consolidate_graph. Reports what would change.

@@ -590,9 +590,11 @@ class TestDreamerDryRun:
         report2 = await dreamer.dream(dry_run=False)
         assert report2.dry_run is False
 
-    def test_count_archivable_matches_archive_cutoff(self):
-        """_count_archivable returns the same count _archive_old would archive."""
-        from datetime import datetime, timedelta, timezone
+    def test_count_archivable_matches_48h_cutoff(self):
+        """_count_archivable must use the same 48-hour cutoff as
+        archive_old_memories. Three old episodes past the threshold should
+        all be counted; recent ones within the window should not."""
+        from datetime import datetime, timedelta
 
         memory = MagicMock()
         memory._graph = KnowledgeGraph()
@@ -600,17 +602,71 @@ class TestDreamerDryRun:
         memory._procedural = ProceduralStore()
         memory._semantic = SemanticStore()
 
-        # 3 old episodes, 2 recent
-        now = datetime.now(timezone.utc)
-        old_time = now - timedelta(days=45)
-        recent_time = now - timedelta(days=5)
+        # archive_old_memories uses datetime.now() (naive) not utc
+        now = datetime.now()
+        past_cutoff = now - timedelta(hours=50)  # just past 48h
+        inside_cutoff = now - timedelta(hours=10)  # well inside 48h
 
-        old_eps = [MagicMock(created_at=old_time) for _ in range(3)]
-        recent_eps = [MagicMock(created_at=recent_time) for _ in range(2)]
+        old_eps = [
+            MagicMock(created_at=past_cutoff, archived=False) for _ in range(3)
+        ]
+        recent_eps = [
+            MagicMock(created_at=inside_cutoff, archived=False) for _ in range(2)
+        ]
 
         dreamer = Dreamer(memory)
         count = dreamer._count_archivable(old_eps + recent_eps)
         assert count == 3
+
+    def test_count_archivable_respects_min_three_guard(self):
+        """archive_old_memories no-ops when fewer than 3 entries qualify.
+        _count_archivable must match — if only 2 entries are old enough,
+        count must be 0 (because nothing would actually archive)."""
+        from datetime import datetime, timedelta
+
+        memory = MagicMock()
+        memory._graph = KnowledgeGraph()
+        memory._episodic = MagicMock()
+        memory._procedural = ProceduralStore()
+        memory._semantic = SemanticStore()
+
+        now = datetime.now()
+        past_cutoff = now - timedelta(hours=50)
+
+        old_eps = [
+            MagicMock(created_at=past_cutoff, archived=False) for _ in range(2)
+        ]
+
+        dreamer = Dreamer(memory)
+        count = dreamer._count_archivable(old_eps)
+        # Only 2 old entries — archive_old_memories would skip, so count = 0
+        assert count == 0
+
+    def test_count_archivable_skips_already_archived(self):
+        """Already-archived entries must not be counted — archive_old_memories
+        filters them out of the candidate set."""
+        from datetime import datetime, timedelta
+
+        memory = MagicMock()
+        memory._graph = KnowledgeGraph()
+        memory._episodic = MagicMock()
+        memory._procedural = ProceduralStore()
+        memory._semantic = SemanticStore()
+
+        now = datetime.now()
+        past_cutoff = now - timedelta(hours=50)
+
+        # 3 old entries, but 2 already archived
+        eps = [
+            MagicMock(created_at=past_cutoff, archived=True),
+            MagicMock(created_at=past_cutoff, archived=True),
+            MagicMock(created_at=past_cutoff, archived=False),
+        ]
+
+        dreamer = Dreamer(memory)
+        count = dreamer._count_archivable(eps)
+        # Only 1 unarchived candidate — below the min-3 guard, so count = 0
+        assert count == 0
 
 
 class TestDreamerConsolidateGraph:

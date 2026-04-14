@@ -9,6 +9,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.1] -- 2026-04-14
+
+### Added
+
+- **Org-level event journal** — append-only event log with SQLite WAL backend, atomic `seq` allocation, and opportunistic hash-chain for tamper evidence. `EventEntry`, `Actor`, and `DataRef` spec types land in `soul_protocol.spec`. Journal entries flow through the org layer for audit and replay. (#165, #172)
+- **Decision traces** — three new event types (`agent.proposed`, `human.corrected`, `decision.graduated`) with `causation_id` chaining so a correction links back to the proposal that triggered it. Helpers for building a trace, querying by chain, and clustering recurring correction patterns. This is the core moat — the graduation from "the agent guessed" to "the human decided, and here's the receipt." (#168)
+- **Retrieval router + credential broker** — Zero-Copy data federation for the org layer. Router resolves a `DataRef` against registered adapters, broker scopes credentials per source and fails closed with an audit event on any denial. No data is copied into the org boundary; only the receipt is. (#169)
+- **`soul org` CLI** — `init`, `status`, and `destroy` commands to bootstrap an org, inspect its current state (root agent, journal head, adapter registry), and tear it down cleanly. `destroy` archives the org to `~/.soul-archives/` before wiping so nothing is ever truly lost on an accident. (#167, #170)
+- **Root Agent** — the governance-only agent that sits above the org. Three-layer undeletability (storage-level guard on the file, protocol-level guard in the journal, CLI-level refusal to delete) makes it structurally impossible to remove by accident. Can propose, cannot execute — by design. (#170)
+- **Default archives directory** at `~/.soul-archives/` as a sibling of the org directory so `soul org destroy` archives survive a wipe of the org dir itself.
+- **`MemoryEntry.scope` + `match_scope` helper** — scope tags on memories with a matcher that uses the spec-level grammar (`org:*`, `agent:<id>`, `session:<id>`, etc.). Recalls can now filter by scope without reaching into tier internals. (#162)
+- **`RetrievalTrace` receipt** — every recall now produces a trace with the query, candidate set, rerank decisions, and final selection. Exposed at runtime via `Soul.last_retrieval` so callers can introspect why a given memory surfaced. (#161)
+- **Bundled role archetype templates** — Arrow, Flash, Cyborg, and Analyst templates ship with the package. `load_template()` loads them by name, and the new `soul template` CLI lists and instantiates them. (#163)
+- **`SOUL_USERS_DIR` env var + improved `--users-dir` default** — user souls now nest under `--data-dir` by default (so `soul org init --data-dir /tmp/foo` keeps founder souls in `/tmp/foo/users/` instead of the real `~/.soul/users/`). The `SOUL_USERS_DIR` env var overrides without a flag, and an explicit `--users-dir` overrides both. The pre-v0.3.1 behavior of always writing to `~/.soul/users/` (regardless of `--data-dir`) silently polluted home directories during CI runs and isolated demos.
+- **Framework-agnostic Org Journal Spec** at `docs/org-journal-spec.md` so other implementations can target the same wire format without reading the Python source. (#164)
+- **Manual testing guide** at `docs/manual-testing.md` for org-layer flows that are awkward to cover in unit tests. (#164)
+
+### Changed
+
+- Architecture doc trimmed — org-layer detail moved to the dedicated spec so `docs/architecture.md` stays focused on the soul runtime. (#164)
+- Doc examples neutralized — replaced PocketPaw-specific wording so the docs land cleanly for anyone using the protocol from their own stack. (#171)
+
+### Fixed
+
+
+- Bare `pip install soul-protocol` now produces a working `soul` CLI. The CLI's required dependencies (`click`, `rich`, `pyyaml`, `cryptography`) have moved from the `[engine]` extra into base `dependencies`, so `soul --help` no longer raises `ImportError` on a minimal install. The `[engine]` extra is kept as an empty backwards-compat alias so existing `pip install soul-protocol[engine]` pins continue to resolve. (#173, fixes #157)
+- `smart_recall` now populates `Soul.last_retrieval` with a `RetrievalTrace` receipt. The original #161 instrumentation covered `recall()` only because `smart_recall` was not on dev at the time; this closes the gap. The trace carries `source="soul.smart"` and metadata flags that record whether rerank ran.
+- `match_scope` is now bidirectional containment: a caller with scope `org:sales:leads` matches a memory tagged `org:sales:*` (and vice versa). The previous asymmetric behaviour made bundled archetypes' core memories invisible to agents installed from them. The fix makes the glob-style `default_scope` in Arrow, Flash, Cyborg, and Analyst actually functional out of the box. The old one-way variant is preserved as `match_scope_strict`.
+
+---
+
 ## [0.3.0] -- 2026-04-09
 
 ### Added

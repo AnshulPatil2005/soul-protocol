@@ -280,6 +280,23 @@ See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 - **[MCP Server](mcp-server.md)** -- FastMCP server for agent integration
 - **[Integrations](integrations.md)** -- Give Claude Code, Cursor, or any agent a `.soul`
 - **[CLI Reference](cli-reference.md)** -- All 37 commands including `soul inject` for fast agent integration
+- **[Org management](org.md)** -- Bootstrap a governance journal for a team of souls with `soul org init`
+
+### What's new in v0.3.1
+
+- `soul org init / status / destroy` -- bootstrap a governance journal with a root agent
+- Decision traces -- `agent.proposed` → `human.corrected` → `decision.graduated` event chains
+- `Soul.last_retrieval` -- every recall now produces a `RetrievalTrace` receipt you can introspect
+- Scope tags on memories -- filter recalls by `org:*`, `agent:<id>`, `session:<id>`
+- Bundled role archetypes -- Arrow, Flash, Cyborg, Analyst via `soul template`
+- Bare `pip install soul-protocol` now produces a working CLI (#157)
+
+### What's new in v0.3.0
+
+- `soul.dream()` -- offline batch consolidation (sleep-style memory processing)
+- `soul.smart_recall()` -- LLM-reranked memory retrieval (opt-in via `MemorySettings.smart_recall_enabled`)
+- Significance short-circuit -- skip expensive pipeline steps on trivial interactions
+- `soul remember --type <episodic|semantic|procedural>` -- target a specific memory tier
 
 ### What's new in v0.2.9
 

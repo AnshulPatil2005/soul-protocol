@@ -68,6 +68,7 @@ class Identity(BaseModel):
     did: str = ""
     name: str
     archetype: str = ""
+    role: str = ""  # Free-form: "root" marks an org's governance soul (undeletable). Empty for normal souls.
     born: datetime = Field(default_factory=datetime.now)
     bonded_to: str | None = None  # DEPRECATED — use bonds instead
     bonds: list[BondTarget] = Field(default_factory=list)
@@ -319,6 +320,11 @@ class MemoryEntry(BaseModel):
     archived: bool = False  # True when memory has been compressed into a ConversationArchive
     # F1 progressive disclosure — runtime-only marker, never persisted
     is_summarized: bool = False  # Runtime marker: True when content replaced with abstract
+    # Move 5 PR-A — RBAC/ABAC scope tags. Empty list = no scope assigned
+    # (visible to any caller). Hierarchical glob: "org:sales:*" matches
+    # "org:sales:leads". Filtered at retrieval time before results reach
+    # the LLM.
+    scope: list[str] = Field(default_factory=list)
 
 
 class CoreMemory(BaseModel):

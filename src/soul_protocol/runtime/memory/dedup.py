@@ -1,8 +1,11 @@
 # memory/dedup.py — Deduplication pipeline for semantic memory reconciliation.
 # Created: Phase 2 memory-runtime-v2
-#   - reconcile_fact() uses token overlap (Jaccard) to decide CREATE/SKIP/MERGE
+# Updated: 2026-03-24 — Added containment coefficient to _jaccard_similarity so
+#   enriched/superset facts land in MERGE range instead of CREATE.
+#   - reconcile_fact() uses token overlap (Jaccard + containment) to decide CREATE/SKIP/MERGE
 #   - SKIP: >0.85 similarity (near-duplicate), MERGE: 0.6-0.85 (update existing),
 #     CREATE: <0.6 (genuinely new fact)
+#   - Containment boost (intersection/min-set * 0.75) applies only when min_size >= 3 tokens
 #   - Uses tokenize() from search.py with min_length=2 for dedup so that short
 #     but meaningful tokens (Go, JS, AI, ML, UI, etc.) are preserved.
 
@@ -60,12 +63,20 @@ def _jaccard_similarity(a: str, b: str) -> float:
     stopwords) to preserve short but meaningful tokens that the default
     ``tokenize()`` (len >= 3) would discard.
 
+    When one fact is a subset of the other (e.g. a short fact enriched
+    with additional detail), pure Jaccard is diluted by the extra tokens
+    in the union.  A **containment coefficient** (intersection / min-set)
+    scaled by 0.75 is used as a floor so that subset relationships land
+    in the MERGE range (≥ 0.6) without ever reaching the SKIP range
+    (> 0.85).  The containment boost requires ≥ 3 tokens in the smaller
+    set to avoid spurious matches on very short texts.
+
     Args:
         a: First string.
         b: Second string.
 
     Returns:
-        Jaccard similarity coefficient (0.0 to 1.0).
+        Similarity score (0.0 to 1.0).
     """
     tokens_a = _dedup_tokenize(a)
     tokens_b = _dedup_tokenize(b)
@@ -75,7 +86,16 @@ def _jaccard_similarity(a: str, b: str) -> float:
         return 0.0
     intersection = tokens_a & tokens_b
     union = tokens_a | tokens_b
-    return len(intersection) / len(union)
+    jaccard = len(intersection) / len(union)
+
+    # Containment: fraction of the smaller set present in the larger.
+    # Catches enriched/superset facts that pure Jaccard under-scores.
+    min_size = min(len(tokens_a), len(tokens_b))
+    if min_size >= 3:
+        containment = len(intersection) / min_size
+        return max(jaccard, containment * 0.75)
+
+    return jaccard
 
 
 def reconcile_fact(

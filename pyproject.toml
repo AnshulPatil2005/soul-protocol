@@ -1,8 +1,12 @@
 # soul-protocol — Portable AI identity and memory
-# Updated: 2026-03-29 — v0.2.9 release: Wire 5 P1/P2 features — significance-weighted
-#   skills XP with decay, progressive recall (L0 abstracts), archival memory compression,
-#   auto-consolidation every N interactions, eternal storage Soul.archive() method.
-#   2010 tests passing.
+# Updated: 2026-04-14 — v0.3.1 release: org-layer (journal, root agent, retrieval router,
+#   decision traces, soul org CLI), reconciliation work (scope tags, RetrievalTrace,
+#   templates), and #157 fix (bare pip install produces working CLI).
+# Previous: 2026-04-10 — v0.3.0 release: smart-recall, dream-cycle, significance-short-circuit,
+#   remember --type flag.
+# Earlier: 2026-03-23 — v0.2.5 release: cognitive adapters, MCP sampling, real embeddings,
+#   LCM, memory visibility tiers, soul templates, A2A bridge, format importers,
+#   graph traversal, learning events, multi-participant interaction, multi-soul coordination spec.
 
 [build-system]
 requires = ["hatchling"]
@@ -10,7 +14,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soul-protocol"
-version = "0.3.0"
+version = "0.3.1"
 description = "The open standard for portable AI identity and memory"
 readme = "README.md"
 license = "MIT"
@@ -35,18 +39,19 @@ classifiers = [
 
 dependencies = [
     "pydantic>=2.0",
+    "click>=8.0",
+    "rich>=13.0",
+    "pyyaml>=6.0",
+    "cryptography>=41.0",
 ]
 
 [project.optional-dependencies]
-engine = [
-    "pyyaml>=6.0",
-    "click>=8.0",
-    "rich>=13.0",
-    "cryptography>=41.0",
-]
+# Kept as an empty backwards-compat alias. CLI deps now live in base so
+# `pip install soul-protocol` alone is enough to run the CLI; existing
+# pins like `soul-protocol[engine]` continue to resolve without error.
+engine = []
 mcp = [
     "fastmcp>=2.0",
-    "soul-protocol[engine]",
 ]
 dspy = []  # dspy depends on litellm which breaks uv sync — install dspy manually if needed
 graph = ["networkx>=3.0"]
@@ -65,9 +70,8 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
     "mypy>=1.8",
-    "soul-protocol[engine]",
 ]
-all = ["soul-protocol[engine,mcp,graph,vector,llm,lcm,embeddings-st,embeddings-openai,embeddings-ollama]"]
+all = ["soul-protocol[mcp,graph,vector,llm,lcm,embeddings-st,embeddings-openai,embeddings-ollama]"]
 
 [project.scripts]
 soul = "soul_protocol.cli.main:cli"
@@ -80,6 +84,9 @@ Issues = "https://github.com/qbtrix/soul-protocol/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/soul_protocol"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/soul_protocol/templates" = "soul_protocol/templates"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

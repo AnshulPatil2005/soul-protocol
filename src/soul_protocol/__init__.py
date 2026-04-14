@@ -1,4 +1,9 @@
 # __init__.py — Public API for the soul-protocol package
+# Updated: 2026-04-14 (v0.3.1 release) — Bumped __version__ to 0.3.1.
+#   New features: org-layer (journal + SQLite WAL engine, root agent,
+#   retrieval router + credential broker, decision traces, soul org CLI),
+#   scope tags on MemoryEntry, RetrievalTrace receipts, bundled role
+#   archetype templates. Fix: bare pip install now produces a working CLI.
 # Updated: 2026-04-09 (v0.3.0 release) — Bumped __version__ to 0.3.0.
 #   New features: dream cycle (offline batch consolidation), smart recall
 #   (LLM-reranked memory retrieval, opt-in), significance short-circuit
@@ -20,6 +25,11 @@
 #   v0.2.1 — Added CognitiveEngine, HeuristicEngine, ReflectionResult exports.
 #   v0.2.0 — Added psychology types (SomaticMarker, SignificanceScore,
 #   GeneralEvent, SelfImage) to public exports.
+# Updated: feat/journal-spec — Added org journal primitives (Actor, DataRef,
+#   EventEntry, ACTION_NAMESPACES) from spec.journal. See RFC PR #164.
+# Updated: feat/decision-traces — Added decision-trace payload models and
+#   helpers (AgentProposal, HumanCorrection, DecisionGraduation, build/trace
+#   helpers, cluster_correction_patterns). See RFC PR #164, Workstream D.
 
 from __future__ import annotations
 
@@ -77,6 +87,17 @@ from .runtime.types import (
 # Core primitives from spec/ (always available — only requires pydantic)
 from .spec.identity import BondTarget as CoreBondTarget
 from .spec.identity import Identity as CoreIdentity
+from .spec.decisions import (
+    AgentProposal,
+    DecisionGraduation,
+    HumanCorrection,
+    build_correction_event,
+    build_proposal_event,
+    cluster_correction_patterns,
+    find_corrections_for,
+    trace_decision_chain,
+)
+from .spec.journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .spec.manifest import Manifest as CoreManifest
 from .spec.memory import DictMemoryStore, MemoryStore
 from .spec.memory import Interaction as CoreInteraction
@@ -147,6 +168,20 @@ __all__ = [
     "CoreParticipant",
     "DictMemoryStore",
     "MemoryStore",
+    # Org Journal (feat/journal-spec)
+    "ACTION_NAMESPACES",
+    "Actor",
+    "DataRef",
+    "EventEntry",
+    # Decision traces (feat/decision-traces)
+    "AgentProposal",
+    "HumanCorrection",
+    "DecisionGraduation",
+    "build_proposal_event",
+    "build_correction_event",
+    "find_corrections_for",
+    "trace_decision_chain",
+    "cluster_correction_patterns",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"

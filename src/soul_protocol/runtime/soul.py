@@ -1,4 +1,14 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-14 (v0.3.1 polish) — smart_recall() now populates
+#   ``self._last_retrieval`` with a RetrievalTrace for the final returned
+#   set (source="soul.smart"). The receipt that recall() wrote internally
+#   gets overwritten so the caller's introspection reflects what
+#   smart_recall actually handed back rather than the pre-rerank pool.
+# Updated: 2026-04-14 (v0.3.1) — remember() accepts a ``scope`` kwarg so callers
+#   (notably SoulFactory.from_template) can stamp RBAC/ABAC tags on seeded
+#   memories. Pairs with spec/scope.match_scope on the recall side.
+#   Also surfaces `last_retrieval: RetrievalTrace | None` so callers can
+#   introspect the last recall's decision chain.
 # Updated: 2026-04-09 — smart_recall() is now opt-in via MemorySettings.smart_recall_enabled
 #   or a per-call `enabled=` override. Off by default because it adds an LLM call
 #   on every invocation. Protects high-frequency callers from unbounded token cost.
@@ -88,6 +98,7 @@ from pathlib import Path
 from typing import Any
 
 from soul_protocol.spec.learning import LearningEvent
+from soul_protocol.spec.trace import RetrievalTrace, TraceCandidate
 
 from .bond import Bond
 from .cognitive.engine import CognitiveEngine
@@ -161,6 +172,101 @@ def _resolve_engine(engine: Any) -> CognitiveEngine | None:
     return engine
 
 
+def _resolve_actor(soul: Any) -> str:
+    """Best-effort actor identifier for retrieval traces.
+
+    Prefers ``soul._identity.did`` when present. Tests and mock doubles that
+    stub out only the pieces they need still get a trace with a non-empty
+    actor (``""``) without raising.
+    """
+    identity = getattr(soul, "_identity", None)
+    if identity is None:
+        return ""
+    return getattr(identity, "did", "") or ""
+
+
+def _build_trace(
+    *,
+    query: str,
+    source: str,
+    actor: str,
+    results: list,
+    latency_ms: int,
+    metadata: dict | None = None,
+) -> RetrievalTrace:
+    """Construct a :class:`RetrievalTrace` from a recall result set.
+
+    The score fields on individual :class:`MemoryEntry` objects aren't
+    normalised across the codebase. Until ACT-R / rerank scores are
+    plumbed through the recall return value, we approximate via
+    ``importance / 10`` so downstream consumers get a stable 0-1 range.
+    Runtime-defined per the spec — paw-runtime's log sink is free to
+    ignore the value when it has a better signal available.
+    """
+    candidates = []
+    for entry in results:
+        importance = getattr(entry, "importance", 5)
+        tier_raw = getattr(entry, "type", None) or getattr(entry, "layer", "")
+        tier = tier_raw.value if hasattr(tier_raw, "value") else (str(tier_raw) if tier_raw else None)
+        candidates.append(
+            TraceCandidate(
+                id=entry.id,
+                source=source,
+                score=float(importance) / 10.0,
+                tier=tier,
+            )
+        )
+    return RetrievalTrace(
+        actor=actor,
+        query=query,
+        source=source,
+        candidates=candidates,
+        latency_ms=latency_ms,
+        metadata=metadata or {},
+    )
+
+
+def _peek_soul_role(path: Path) -> str:
+    """Read the ``identity.role`` of a soul archive without awakening it.
+
+    Inspects ``soul.json`` first (unencrypted exports and flat .soul/ dirs),
+    falling back to ``manifest.json``'s ``stats.role`` when the archive is
+    encrypted. Returns an empty string when no role can be read. This is a
+    cheap pre-check used by :meth:`Soul.delete` to enforce root protection.
+    """
+    import json
+    import zipfile
+
+    candidates: list[str] = []
+    try:
+        if path.is_dir():
+            soul_json = path / "soul.json"
+            if soul_json.exists():
+                data = json.loads(soul_json.read_text(encoding="utf-8"))
+                return data.get("identity", {}).get("role", "") or ""
+            return ""
+        with zipfile.ZipFile(path) as zf:
+            names = set(zf.namelist())
+            if "soul.json" in names:
+                with zf.open("soul.json") as fh:
+                    data = json.loads(fh.read().decode("utf-8"))
+                role = data.get("identity", {}).get("role", "")
+                if role:
+                    return role
+                candidates.append(role or "")
+            if "manifest.json" in names:
+                with zf.open("manifest.json") as fh:
+                    manifest = json.loads(fh.read().decode("utf-8"))
+                stats = manifest.get("stats", {}) or {}
+                role = stats.get("role", "")
+                if role:
+                    return role
+                candidates.append(role or "")
+    except (zipfile.BadZipFile, KeyError, json.JSONDecodeError, OSError):
+        return ""
+    return candidates[0] if candidates else ""
+
+
 class Soul:
     """A Digital Soul — persistent identity, memory, and state for an AI agent."""
 
@@ -232,6 +338,12 @@ class Soul:
         # F5: Interaction counter for auto-consolidation (persisted in SoulConfig)
         self._interaction_count: int = getattr(config, "interaction_count", 0)
 
+        # Retrieval trace for the most recent recall() call.
+        # Consumers (paw-runtime JSONL sink, graduation policy) read this after
+        # each call to construct a RetrievalTrace receipt. In-memory only —
+        # never serialised into the .soul file.
+        self._last_retrieval: RetrievalTrace | None = None
+
     # ============ Lifecycle ============
 
     @classmethod
@@ -251,6 +363,7 @@ class Soul:
         biorhythms: dict[str, Any] | None = None,
         persona: str | None = None,
         seed_domains: dict[str, list[str]] | None = None,
+        role: str = "",
         # DSPy integration — optional optimized cognitive processing
         use_dspy: bool = False,
         dspy_model: str | None = None,
@@ -295,6 +408,7 @@ class Soul:
             did=generate_did(name),
             name=name,
             archetype=archetype,
+            role=role,
             origin_story=personality,
             core_values=values or [],
             bonded_to=bonded_to,
@@ -610,6 +724,37 @@ class Soul:
         return self._identity.archetype
 
     @property
+    def role(self) -> str:
+        """Free-form role tag. ``"root"`` marks an undeletable governance soul."""
+        return self._identity.role
+
+    @classmethod
+    def delete(cls, path: str | Path) -> None:
+        """Delete a .soul file from disk.
+
+        Refuses with :class:`SoulProtectedError` when the target soul has
+        ``identity.role == "root"`` (Org Architecture RFC #164, layer 1).
+        Use ``soul org destroy`` to tear down an org instance instead.
+        """
+        from .exceptions import SoulFileNotFoundError, SoulProtectedError
+
+        soul_path = Path(path)
+        if not soul_path.exists():
+            raise SoulFileNotFoundError(str(soul_path))
+
+        role = _peek_soul_role(soul_path)
+        if role == "root":
+            raise SoulProtectedError(path=str(soul_path), role=role)
+
+        if soul_path.is_dir():
+            import shutil
+
+            shutil.rmtree(soul_path)
+        else:
+            soul_path.unlink()
+        logger.info("Soul deleted: path=%s", soul_path)
+
+    @property
     def dna(self) -> DNA:
         return self._dna
 
@@ -661,6 +806,15 @@ class Soul:
     def memory_count(self) -> int:
         """Total number of stored memories."""
         return self._memory.count()
+
+    @property
+    def last_retrieval(self) -> RetrievalTrace | None:
+        """The :class:`RetrievalTrace` for the most recent recall call.
+
+        Reset on every ``recall()``. ``None`` until the first recall.
+        In-memory only — never round-tripped through export/awaken.
+        """
+        return self._last_retrieval
 
     async def context_for(
         self,
@@ -737,8 +891,14 @@ class Soul:
         emotion: str | None = None,
         entities: list[str] | None = None,
         visibility: MemoryVisibility = MemoryVisibility.BONDED,
+        scope: list[str] | None = None,
     ) -> str:
-        """Soul remembers something. Returns memory ID."""
+        """Soul remembers something. Returns memory ID.
+
+        ``scope`` accepts hierarchical RBAC/ABAC tags (e.g. ``["org:sales:*"]``)
+        that pair with :func:`soul_protocol.spec.match_scope` at recall time.
+        Defaults to an empty list (no scope — visible to any caller).
+        """
         return await self._memory.add(
             MemoryEntry(
                 type=type,
@@ -747,6 +907,7 @@ class Soul:
                 emotion=emotion,
                 entities=entities or [],
                 visibility=visibility,
+                scope=scope or [],
             )
         )
 
@@ -761,11 +922,29 @@ class Soul:
         bond_strength: float | None = None,
         bond_threshold: float = 30.0,
         progressive: bool = False,
+        scopes: list[str] | None = None,
     ) -> list[MemoryEntry]:
-        """Soul recalls relevant memories with visibility filtering."""
+        """Soul recalls relevant memories with visibility + scope filtering.
+
+        ``scopes`` applies hierarchical RBAC/ABAC matching. When omitted (or
+        empty) the caller sees everything they would otherwise see — back-compat
+        for pre-scope memories and consumers that do not need RBAC. When
+        present, only memories whose own ``scope`` list intersects with the
+        caller's ``scopes`` (via :func:`soul_protocol.spec.match_scope`) are
+        returned. Filtering happens after scoring so the underlying recall
+        order is unchanged.
+
+        Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
+        receipt every call, regardless of whether results were found. The
+        receipt is in-memory only — never serialised into the ``.soul``
+        file. Consumers read it after the call to append to their own log.
+        """
+        import time as _time
+
         effective_bond = (
             bond_strength if bond_strength is not None else self._identity.bond.bond_strength
         )
+        start = _time.monotonic()
         results = await self._memory.recall(
             query=query,
             limit=limit,
@@ -775,6 +954,21 @@ class Soul:
             bond_strength=effective_bond,
             bond_threshold=bond_threshold,
             progressive=progressive,
+        )
+        if scopes:
+            from soul_protocol.spec.scope import match_scope
+
+            results = [
+                entry for entry in results
+                if match_scope(getattr(entry, "scope", None), scopes)
+            ]
+        elapsed_ms = int((_time.monotonic() - start) * 1000)
+        self._last_retrieval = _build_trace(
+            query=query,
+            source="soul",
+            actor=requester_id or _resolve_actor(self),
+            results=results,
+            latency_ms=elapsed_ms,
         )
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
@@ -806,7 +1000,17 @@ class Soul:
             enabled: Per-call override. When None (default), uses
                 ``self._memory.settings.smart_recall_enabled``. Pass ``True``
                 or ``False`` to force a specific behavior for this call.
+
+        Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
+        receipt reflecting the final returned set (not the pre-rerank
+        pool). The underlying :meth:`recall` call writes its own trace
+        first, which we overwrite here so the caller's introspection
+        matches what ``smart_recall`` actually handed back. Source label
+        is ``"soul.smart"`` to distinguish it from a plain recall trace.
         """
+        import time as _time
+
+        start = _time.monotonic()
         candidates = await self.recall(query, limit=candidate_pool)
 
         # Resolve the effective flag: explicit override > settings > off
@@ -817,9 +1021,26 @@ class Soul:
         if effective_enabled and self._engine and len(candidates) > limit:
             from soul_protocol.runtime.memory.rerank import rerank_memories
 
-            return await rerank_memories(candidates, query, self._engine, limit)
+            results = await rerank_memories(candidates, query, self._engine, limit)
+            reranked = True
+        else:
+            results = candidates[:limit]
+            reranked = False
 
-        return candidates[:limit]
+        elapsed_ms = int((_time.monotonic() - start) * 1000)
+        self._last_retrieval = _build_trace(
+            query=query,
+            source="soul.smart",
+            actor=_resolve_actor(self),
+            results=results,
+            latency_ms=elapsed_ms,
+            metadata={
+                "reranked": reranked,
+                "candidate_pool": candidate_pool,
+                "limit": limit,
+            },
+        )
+        return results
 
     async def observe(self, interaction: Interaction) -> None:
         """Soul observes an interaction and learns from it.

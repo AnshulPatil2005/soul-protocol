@@ -2,8 +2,16 @@
 
 > Current implementation architecture, module dependencies, memory layers, and data flow.
 
-**Date:** 2026-03-12
-**Version:** 0.2.3
+**Date:** 2026-04-13
+**Version:** 0.3.0 (draft — org-layer additions pending merge)
+
+---
+
+## 0. Scope of This Document
+
+This doc covers the per-soul implementation — how a single `.soul` file works, its module layout, data flow, and storage format. Sections 1–6 are authoritative for soul internals.
+
+**v0.3 adds an org layer** (multi-soul + event journal + retrieval router + decision traces) on top of the per-soul model. The org layer is specified separately in `org-journal-spec.md` as a framework-agnostic protocol. Section 7 of this doc summarizes how *this codebase* implements that spec; for the spec itself, see the dedicated doc.
 
 ---
 
@@ -410,9 +418,75 @@ Same structure but unpacked on disk. Created by `soul init` or `soul.save_local(
 | click >= 8.0 | CLI framework | Yes |
 | pyyaml >= 6.0 | YAML parsing (soul.yaml, config files) | Yes |
 | rich >= 13.0 | CLI rich text output (inspect, status) | Yes |
-| cryptography >= 42.0 | Fernet encryption, PBKDF2 | Yes |
+| cryptography >= 42.0 | Fernet encryption, PBKDF2, Ed25519 signing keys for root agent | Yes |
 | fastmcp >= 0.4 | MCP server (optional extra) | No (mcp extra) |
+
+No new runtime deps were added for the v0.3 org layer. SQLite is stdlib; Ed25519 uses the existing `cryptography` dependency; the retrieval router uses `concurrent.futures.ThreadPoolExecutor` from stdlib.
 
 ---
 
-*Document generated from codebase analysis on 2026-03-06.*
+## 7. Org Layer Implementation Summary
+
+The protocol-level spec is `docs/org-journal-spec.md` (framework-agnostic). This section summarizes how *this codebase* implements it.
+
+### Modules
+
+```
+src/soul_protocol/
+├── spec/
+│   ├── journal.py              # EventEntry, Actor, DataRef + action namespace catalog
+│   ├── decisions.py            # AgentProposal, HumanCorrection, DecisionGraduation + helpers
+│   └── retrieval.py            # RetrievalRequest/Result/Candidate, CandidateSource
+│
+├── engine/
+│   ├── journal/
+│   │   ├── journal.py          # Journal high-level API + invariants
+│   │   ├── backend.py          # JournalBackend Protocol
+│   │   ├── sqlite.py           # SQLiteJournalBackend (WAL mode)
+│   │   ├── schema.py           # SQL schema + migration helper
+│   │   └── exceptions.py
+│   │
+│   └── retrieval/
+│       ├── router.py           # RetrievalRouter (first/parallel/sequential)
+│       ├── broker.py           # CredentialBroker Protocol + InMemoryCredentialBroker
+│       ├── adapters.py         # SourceAdapter Protocol + MockAdapter + ProjectionAdapter (reference only)
+│       └── exceptions.py
+│
+└── cli/
+    └── org.py                  # soul org init / status / destroy subcommands
+                                # (NOTE: currently named paw_os.py — rename pending; see repo issue)
+```
+
+### Implementation choices (this codebase)
+
+- **Default backend:** SQLite WAL, single file at `~/.soul/org/journal.db` (default target; currently uses `~/.pocketpaw/org/` — rename pending). Overridable via `SOUL_DATA_DIR` or `--data-dir`.
+- **Atomic `seq` assignment:** `BEGIN IMMEDIATE` transaction + `MAX(seq) + 1` inside the backend's append path. Required for concurrent-writer safety under WAL.
+- **Hash-chain:** computed opportunistically per event (sha256 over prior event's `id || ts || action || seq`); stored but optional in v1, mandatory in v2.
+- **Scope matching:** local matcher with strict arity rules (does not replicate the "wildcard-in-non-leaf segment" class bug seen in client-side scope parsers). Will slot into the shared `spec/scope.py` grammar when #162 lands.
+- **Credential tokens:** `secrets.token_urlsafe(16)`, opaque to callers. Routers pass through; consumers don't introspect.
+
+### Concrete source adapters
+
+`MockAdapter` and `ProjectionAdapter` ship in this package as **reference implementations** (for testing + the local-projection case). Concrete adapters for external systems (Drive, Salesforce, Slack, Snowflake) live in their consuming runtime's connector package — not in this repo. This keeps the soul-protocol install surface lean (no SDK dependencies for systems you don't use).
+
+### Known implementation leaks
+
+Documented for transparency; cleanup PR pending:
+
+1. CLI group currently registered as `soul paw os` (should be `soul org`). See audit notes on the org-architecture-rfc branch.
+2. Default data directory hardcoded to `~/.pocketpaw/` (should be `~/.soul/`, with `SOUL_DATA_DIR` env override for runtime integrations).
+3. Action namespace catalog includes `paw.os.destroyed` (should be `org.destroyed` for symmetry with `org.created`).
+4. Governance persona description references "Paw OS instance" (should be "org instance").
+
+These are cosmetic layer leaks, not protocol leaks. The engine / spec / router / broker code itself is runtime-agnostic.
+
+---
+
+## Appendix A. Legacy — Retained for Historical Reference
+
+(Earlier drafts of the org-layer architecture lived inline in this doc. The material was moved to `docs/org-journal-spec.md` on 2026-04-13 once it was promoted to a framework-agnostic RFC.)
+
+---
+
+*Document updated 2026-04-13 for v0.3 org-layer additions. Sections 1-6 are authoritative for per-soul internals; Section 7 summarizes the org-layer implementation (see org-journal-spec.md for the protocol contract).*
+

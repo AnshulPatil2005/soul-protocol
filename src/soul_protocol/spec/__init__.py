@@ -5,6 +5,15 @@
 # Updated: Added EternalStorageProvider, EmbeddingProvider, similarity functions.
 # Updated: Added ContextEngine protocol and LCM models for Lossless Context Management.
 # Updated: 2026-03-23 — Added A2A Agent Card models (A2AAgentCard, A2ASkill, SoulExtension).
+# Updated: feat/journal-spec — Exported Journal primitives (Actor, DataRef, EventEntry,
+#   ACTION_NAMESPACES) from the new org journal module. See RFC PR #164.
+# Updated: feat/decision-traces — Exported decision trace payload models
+#   (AgentProposal, HumanCorrection, DecisionGraduation) and helpers
+#   (build_proposal_event, build_correction_event, find_corrections_for,
+#   trace_decision_chain, cluster_correction_patterns). See RFC PR #164,
+#   Workstream D.
+# Updated: feat/retrieval-trace-spec — Exported RetrievalTrace + TraceCandidate
+#   from spec.trace (the per-recall receipt model — PR #161).
 
 from __future__ import annotations
 
@@ -28,6 +37,18 @@ from .embeddings import (
 )
 from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
 from .identity import BondTarget, Identity
+from .decisions import (
+    AgentProposal,
+    DecisionGraduation,
+    Disposition,
+    HumanCorrection,
+    build_correction_event,
+    build_proposal_event,
+    cluster_correction_patterns,
+    find_corrections_for,
+    trace_decision_chain,
+)
+from .journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .learning import LearningEvent
 from .manifest import Manifest
 from .memory import (
@@ -38,8 +59,10 @@ from .memory import (
     MemoryVisibility,
     Participant,
 )
+from .scope import match_scope, normalise_scopes
 from .soul_file import pack_soul, unpack_soul, unpack_to_container
 from .template import SoulTemplate
+from .trace import RetrievalTrace, TraceCandidate
 
 __all__ = [
     # A2A Agent Card
@@ -60,6 +83,21 @@ __all__ = [
     # Identity
     "BondTarget",
     "Identity",
+    # Journal (org-level event sourcing)
+    "ACTION_NAMESPACES",
+    "Actor",
+    "DataRef",
+    "EventEntry",
+    # Decision traces (agent.proposed / human.corrected / decision.graduated)
+    "AgentProposal",
+    "HumanCorrection",
+    "DecisionGraduation",
+    "Disposition",
+    "build_proposal_event",
+    "build_correction_event",
+    "find_corrections_for",
+    "trace_decision_chain",
+    "cluster_correction_patterns",
     # Memory
     "Interaction",
     "MemoryEntry",
@@ -67,6 +105,12 @@ __all__ = [
     "MemoryStore",
     "MemoryVisibility",
     "DictMemoryStore",
+    # Scope
+    "match_scope",
+    "normalise_scopes",
+    # Retrieval trace (per-recall receipt)
+    "RetrievalTrace",
+    "TraceCandidate",
     # Learning
     "LearningEvent",
     "SoulTemplate",

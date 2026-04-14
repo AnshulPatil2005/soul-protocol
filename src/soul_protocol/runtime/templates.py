@@ -3,11 +3,19 @@
 #   and batch_spawn(). from_template() creates one soul from a SoulTemplate with
 #   optional overrides. batch_spawn() creates N souls with controlled personality
 #   variance. Each spawned soul gets a unique DID and slightly varied OCEAN traits.
+# Updated: 2026-04-13 (Move 6 PR-A) — load_template() reads YAML/JSON files
+#   so bundled templates (Arrow, Flash, Cyborg, Analyst) and custom user
+#   templates can be loaded without hand-constructing the model.
+# Updated: 2026-04-14 (v0.3.1 rebase) — from_template + batch_spawn now
+#   propagate template.metadata["default_scope"] into seeded core memories
+#   so Move 5 scope tags (see spec/scope.py) apply out of the box.
 
 from __future__ import annotations
 
+import json
 import logging
 import random
+from pathlib import Path
 from typing import Any
 
 from soul_protocol.spec.template import SoulTemplate
@@ -35,6 +43,45 @@ class SoulFactory:
     def list_templates(self) -> list[str]:
         """List registered template names."""
         return list(self._templates.keys())
+
+    def get(self, name: str) -> SoulTemplate | None:
+        """Return a registered template by name (None if missing)."""
+        return self._templates.get(name)
+
+    @staticmethod
+    def load_template(path: str | Path) -> SoulTemplate:
+        """Load a SoulTemplate from a YAML or JSON file.
+
+        File extension picks the parser: ``.yaml``/``.yml`` use PyYAML,
+        anything else is parsed as JSON. Missing files raise FileNotFoundError;
+        malformed payloads raise pydantic ValidationError so callers see the
+        offending field clearly.
+        """
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"Template file not found: {path}")
+
+        text = p.read_text(encoding="utf-8")
+        if p.suffix.lower() in {".yaml", ".yml"}:
+            try:
+                import yaml
+            except ImportError as exc:
+                raise ImportError(
+                    "PyYAML is required to load YAML templates. "
+                    "Install with `pip install soul-protocol[engine]`."
+                ) from exc
+            data = yaml.safe_load(text) or {}
+        else:
+            data = json.loads(text)
+
+        return SoulTemplate.model_validate(data)
+
+    @classmethod
+    def load_bundled(cls, name: str) -> SoulTemplate:
+        """Load one of the bundled role templates by short name (e.g. 'arrow')."""
+        from soul_protocol.templates import template_path
+
+        return cls.load_template(template_path(name))
 
     @staticmethod
     async def from_template(
@@ -72,9 +119,19 @@ class SoulFactory:
 
         soul = await Soul.birth(**birth_kwargs)
 
+        # Propagate default_scope from template metadata (Move 5 hand-off).
+        # When the template declares ``default_scope``, every seeded core
+        # memory inherits those hierarchical scope tags so RBAC/ABAC recall
+        # filtering works on a freshly-instantiated soul without extra wiring.
+        default_scope = template.metadata.get("default_scope")
+        if isinstance(default_scope, str):
+            default_scope = [default_scope]
+        elif not isinstance(default_scope, list):
+            default_scope = None
+
         # Set core memories from template
         for memory_text in template.core_memories:
-            await soul.remember(memory_text, importance=9)
+            await soul.remember(memory_text, importance=9, scope=default_scope)
 
         # Register skills from template
         if template.skills:
@@ -125,6 +182,14 @@ class SoulFactory:
 
         rng = random.Random(rng_seed)
         prefix = template.name_prefix or template.name
+
+        # Propagate default_scope so every spawned soul's core memories
+        # carry the template's RBAC/ABAC tags (e.g. org:sales:*).
+        default_scope = template.metadata.get("default_scope")
+        if isinstance(default_scope, str):
+            default_scope = [default_scope]
+        elif not isinstance(default_scope, list):
+            default_scope = None
         base_ocean = {
             "openness": template.personality.get("openness", 0.5),
             "conscientiousness": template.personality.get("conscientiousness", 0.5),
@@ -154,7 +219,7 @@ class SoulFactory:
 
             # Set core memories from template
             for memory_text in template.core_memories:
-                await soul.remember(memory_text, importance=9)
+                await soul.remember(memory_text, importance=9, scope=default_scope)
 
             # Register skills from template
             for skill_name in template.skills:

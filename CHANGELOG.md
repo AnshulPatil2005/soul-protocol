@@ -22,6 +22,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`MemoryEntry.scope` + `match_scope` helper** — scope tags on memories with a matcher that uses the spec-level grammar (`org:*`, `agent:<id>`, `session:<id>`, etc.). Recalls can now filter by scope without reaching into tier internals. (#162)
 - **`RetrievalTrace` receipt** — every recall now produces a trace with the query, candidate set, rerank decisions, and final selection. Exposed at runtime via `Soul.last_retrieval` so callers can introspect why a given memory surfaced. (#161)
 - **Bundled role archetype templates** — Arrow, Flash, Cyborg, and Analyst templates ship with the package. `load_template()` loads them by name, and the new `soul template` CLI lists and instantiates them. (#163)
+- **`SOUL_USERS_DIR` env var + improved `--users-dir` default** — user souls now nest under `--data-dir` by default (so `soul org init --data-dir /tmp/foo` keeps founder souls in `/tmp/foo/users/` instead of the real `~/.soul/users/`). The `SOUL_USERS_DIR` env var overrides without a flag, and an explicit `--users-dir` overrides both. The pre-v0.3.1 behavior of always writing to `~/.soul/users/` (regardless of `--data-dir`) silently polluted home directories during CI runs and isolated demos.
 - **Framework-agnostic Org Journal Spec** at `docs/org-journal-spec.md` so other implementations can target the same wire format without reading the Python source. (#164)
 - **Manual testing guide** at `docs/manual-testing.md` for org-layer flows that are awkward to cover in unit tests. (#164)
 

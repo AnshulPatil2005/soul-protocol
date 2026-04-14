@@ -391,3 +391,90 @@ def test_validator_passes_for_unrelated_events() -> None:
     )
     # Empty root_did is a no-op
     check_root_undeletable(_event("agent.retired", actor_id="anything"), "")
+
+
+# --- Users-dir override ----------------------------------------------------
+
+
+def test_users_dir_defaults_under_data_dir_when_no_flag(tmp_path: Path) -> None:
+    """Without --users-dir or SOUL_USERS_DIR, founder soul lands under the
+    org data dir — not the real ~/.soul/users/. This is the smoke-test
+    isolation property that lets CI runs avoid polluting the home dir."""
+    runner = CliRunner()
+    data_dir = tmp_path / "org"
+    # Note: NO --users-dir flag passed; relying on data_dir nesting.
+    result = runner.invoke(
+        cli,
+        [
+            "org", "init",
+            "--org-name", "Nested",
+            "--purpose", ".",
+            "--values", ".",
+            "--founder-name", "Nest",
+            "--founder-email", "n@n",
+            "--scopes", "org:n",
+            "--fleet", "skip",
+            "--data-dir", str(data_dir),
+            "--non-interactive",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    expected = data_dir / "users" / "Nest.soul"
+    assert expected.exists(), f"founder soul should land at {expected}"
+
+
+def test_soul_users_dir_env_var_honored(tmp_path: Path, monkeypatch) -> None:
+    """SOUL_USERS_DIR env var redirects user souls without a CLI flag."""
+    runner = CliRunner()
+    data_dir = tmp_path / "org"
+    custom_users = tmp_path / "elsewhere" / "users"
+    monkeypatch.setenv("SOUL_USERS_DIR", str(custom_users))
+    result = runner.invoke(
+        cli,
+        [
+            "org", "init",
+            "--org-name", "EnvTest",
+            "--purpose", ".",
+            "--values", ".",
+            "--founder-name", "Env",
+            "--founder-email", "e@e",
+            "--scopes", "org:e",
+            "--fleet", "skip",
+            "--data-dir", str(data_dir),
+            "--non-interactive",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert (custom_users / "Env.soul").exists(), \
+        f"founder soul should honor SOUL_USERS_DIR ({custom_users})"
+
+
+def test_users_dir_flag_overrides_env_var(tmp_path: Path, monkeypatch) -> None:
+    """When both --users-dir and SOUL_USERS_DIR are set, the flag wins."""
+    runner = CliRunner()
+    data_dir = tmp_path / "org"
+    env_users = tmp_path / "from-env"
+    flag_users = tmp_path / "from-flag"
+    monkeypatch.setenv("SOUL_USERS_DIR", str(env_users))
+    result = runner.invoke(
+        cli,
+        [
+            "org", "init",
+            "--org-name", "FlagWins",
+            "--purpose", ".",
+            "--values", ".",
+            "--founder-name", "Flag",
+            "--founder-email", "f@f",
+            "--scopes", "org:f",
+            "--fleet", "skip",
+            "--data-dir", str(data_dir),
+            "--users-dir", str(flag_users),
+            "--non-interactive",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert (flag_users / "Flag.soul").exists()
+    assert not (env_users / "Flag.soul").exists()

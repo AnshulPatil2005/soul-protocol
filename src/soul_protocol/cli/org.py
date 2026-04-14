@@ -79,9 +79,26 @@ def _default_data_dir() -> Path:
     return Path.home() / ".soul"
 
 
-def _default_users_dir() -> Path:
-    """Default directory for user-owned soul data (nested under the org dir)."""
-    return _default_data_dir() / "users"
+def _default_users_dir(data_dir: Path | None = None) -> Path:
+    """Default directory for user-owned soul data.
+
+    Resolution order:
+
+    1. ``SOUL_USERS_DIR`` env var when set — explicit override.
+    2. ``<data_dir>/users`` when ``data_dir`` is provided — nest under the
+       resolved org dir so ``--data-dir /tmp/foo`` keeps founders there too.
+    3. ``~/.soul/users/`` — the out-of-the-box default when nothing is set.
+
+    User souls are portable identity that persists across orgs, so the
+    default lives in the user's home. CI, tests, and isolated demos
+    redirect via ``SOUL_USERS_DIR`` or ``--users-dir``.
+    """
+    env = os.environ.get("SOUL_USERS_DIR")
+    if env:
+        return Path(env).expanduser()
+    if data_dir is not None:
+        return data_dir / "users"
+    return Path.home() / ".soul" / "users"
 
 
 def _default_archives_dir() -> Path:
@@ -238,7 +255,8 @@ def user_group() -> None:
 @click.option("--data-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
               help="Where to create the org (default: ~/.soul/, or $SOUL_DATA_DIR).")
 @click.option("--users-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
-              help="Where founder user souls live (default: ~/.soul/users/, or $SOUL_DATA_DIR/users/).")
+              help="Where founder user souls live (default: nested under --data-dir, or $SOUL_USERS_DIR if set, "
+                   "else ~/.soul/users/).")
 @click.option("--force", is_flag=True, help="Overwrite an existing org directory.")
 @click.option("--non-interactive", is_flag=True,
               help="Fail instead of prompting. Requires --org-name at minimum.")
@@ -269,7 +287,7 @@ def org_init(
         --scopes "org:sales,org:ops" --fleet sales --non-interactive
     """
     data_dir = Path(data_dir) if data_dir else _default_data_dir()
-    users_dir = Path(users_dir) if users_dir else _default_users_dir()
+    users_dir = Path(users_dir) if users_dir else _default_users_dir(data_dir)
 
     # --- Step 1 — org name -------------------------------------------------
     if not org_name:

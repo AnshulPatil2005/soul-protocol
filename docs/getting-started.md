@@ -293,6 +293,13 @@ See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 
 ### What's new in v0.3.0
 
+- `soul.dream()` -- offline batch consolidation (sleep-style memory processing)
+- `soul.smart_recall()` -- LLM-reranked memory retrieval (opt-in via `MemorySettings.smart_recall_enabled`)
+- Significance short-circuit -- skip expensive pipeline steps on trivial interactions
+- `soul remember --type <episodic|semantic|procedural>` -- target a specific memory tier
+
+### What's new in v0.2.9
+
 - `soul skills` -- view learned skills with level, XP, and decay status
 - `soul reflect` -- trigger memory consolidation (also runs automatically every 20 interactions)
 - `recall(progressive=True)` -- get overflow entries with L0 abstracts for token-budgeted context

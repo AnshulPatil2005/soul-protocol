@@ -1,4 +1,9 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-14 (v0.3.1 polish) — smart_recall() now populates
+#   ``self._last_retrieval`` with a RetrievalTrace for the final returned
+#   set (source="soul.smart"). The receipt that recall() wrote internally
+#   gets overwritten so the caller's introspection reflects what
+#   smart_recall actually handed back rather than the pre-rerank pool.
 # Updated: 2026-04-14 (v0.3.1) — remember() accepts a ``scope`` kwarg so callers
 #   (notably SoulFactory.from_template) can stamp RBAC/ABAC tags on seeded
 #   memories. Pairs with spec/scope.match_scope on the recall side.
@@ -995,7 +1000,17 @@ class Soul:
             enabled: Per-call override. When None (default), uses
                 ``self._memory.settings.smart_recall_enabled``. Pass ``True``
                 or ``False`` to force a specific behavior for this call.
+
+        Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
+        receipt reflecting the final returned set (not the pre-rerank
+        pool). The underlying :meth:`recall` call writes its own trace
+        first, which we overwrite here so the caller's introspection
+        matches what ``smart_recall`` actually handed back. Source label
+        is ``"soul.smart"`` to distinguish it from a plain recall trace.
         """
+        import time as _time
+
+        start = _time.monotonic()
         candidates = await self.recall(query, limit=candidate_pool)
 
         # Resolve the effective flag: explicit override > settings > off
@@ -1006,9 +1021,26 @@ class Soul:
         if effective_enabled and self._engine and len(candidates) > limit:
             from soul_protocol.runtime.memory.rerank import rerank_memories
 
-            return await rerank_memories(candidates, query, self._engine, limit)
+            results = await rerank_memories(candidates, query, self._engine, limit)
+            reranked = True
+        else:
+            results = candidates[:limit]
+            reranked = False
 
-        return candidates[:limit]
+        elapsed_ms = int((_time.monotonic() - start) * 1000)
+        self._last_retrieval = _build_trace(
+            query=query,
+            source="soul.smart",
+            actor=_resolve_actor(self),
+            results=results,
+            latency_ms=elapsed_ms,
+            metadata={
+                "reranked": reranked,
+                "candidate_pool": candidate_pool,
+                "limit": limit,
+            },
+        )
+        return results
 
     async def observe(self, interaction: Interaction) -> None:
         """Soul observes an interaction and learns from it.

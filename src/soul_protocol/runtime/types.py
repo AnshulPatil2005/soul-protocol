@@ -1,4 +1,16 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-04-04 — Added skip_deep_processing_on_low_significance to
+#   MemorySettings. When True (default), observe() skips entity extraction
+#   (step 5) and self-model update (step 6) for non-significant interactions,
+#   saving 2 LLM calls per trivial interaction.
+# Updated: 2026-03-29 — Added archived field to MemoryEntry for archival memory
+#   tier integration (F2). Added consolidation_interval to MemorySettings and
+#   interaction_count to SoulConfig for auto-consolidation (F5).
+#   Added is_summarized runtime marker to MemoryEntry for progressive disclosure
+#   in recall (F1). is_summarized=True signals that content was replaced with
+#   abstract for overflow entries. Never persisted to disk.
+# Updated: 2026-03-26 — Added skills and evaluation_history fields to SoulConfig so
+#   that learned skills and evaluation history persist through export/awaken cycles.
 # Updated: v0.4.0 — Added ingested_at (bi-temporal) and superseded (contradiction detection)
 #   fields to MemoryEntry. ingested_at tracks when a memory entered the pipeline,
 #   superseded marks memories replaced by newer contradicting information.
@@ -21,7 +33,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -70,9 +82,7 @@ class Identity(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         """Auto-migrate bonded_to to bonds if bonds is empty."""
         if self.bonded_to and not self.bonds:
-            self.bonds.append(
-                BondTarget(id=self.bonded_to, bond_type="human")
-            )
+            self.bonds.append(BondTarget(id=self.bonded_to, bond_type="human"))
 
 
 # ============ DNA / Personality ============
@@ -100,8 +110,12 @@ class CommunicationStyle(BaseModel):
 class Biorhythms(BaseModel):
     """Simulated vitality and energy patterns.
 
-    All fields have sensible defaults matching the original hardcoded behavior.
-    Set drain rates to 0 for "always-on" agents that never get tired.
+    Defaults to "always-on" mode with no energy/social drain — appropriate for
+    developer tools, consulting agents, and most non-companion use cases.
+    For companion souls that should simulate fatigue and recovery, set
+    energy_drain_rate, social_drain_rate, and auto_regen explicitly::
+
+        Biorhythms(energy_drain_rate=2.0, social_drain_rate=5.0, auto_regen=True)
     """
 
     chronotype: str = "neutral"
@@ -109,18 +123,44 @@ class Biorhythms(BaseModel):
     # at runtime, not this field. Soul.birth() syncs this into SoulState at creation time.
     social_battery: float = Field(default=100.0, ge=0.0, le=100.0)
 
-    # Energy dynamics
-    energy_regen_rate: float = Field(default=10.0, ge=0.0, description="Energy recovered per hour of elapsed time")
-    energy_drain_rate: float = Field(default=2.0, ge=0.0, description="Energy lost per interaction (0 = no drain)")
-    social_drain_rate: float = Field(default=5.0, ge=0.0, description="Social battery lost per interaction (0 = no drain)")
+    # Energy dynamics — defaults to 0 (always-on, no drain)
+    energy_regen_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Energy recovered per hour of elapsed time (0 = no regen needed)",
+    )
+    energy_drain_rate: float = Field(
+        default=0.0, ge=0.0, description="Energy lost per interaction (0 = no drain)"
+    )
+    social_drain_rate: float = Field(
+        default=0.0, ge=0.0, description="Social battery lost per interaction (0 = no drain)"
+    )
 
     # Mood dynamics
-    tired_threshold: float = Field(default=20.0, ge=0.0, le=100.0, description="Energy below this forces TIRED mood (0 = disabled)")
-    mood_inertia: float = Field(default=0.4, ge=0.0, le=1.0, description="EMA alpha for mood shifts (0 = max inertia, 1 = instant)")
-    mood_sensitivity: float = Field(default=0.25, ge=0.0, le=1.0, description="Valence threshold to trigger mood change (0 = always shift)")
+    tired_threshold: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="Energy below this forces TIRED mood (0 = disabled)",
+    )
+    mood_inertia: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=1.0,
+        description="EMA alpha for mood shifts (0 = max inertia, 1 = instant)",
+    )
+    mood_sensitivity: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description="Valence threshold to trigger mood change (0 = always shift)",
+    )
 
     # Auto-regeneration
-    auto_regen: bool = Field(default=True, description="Recover energy automatically based on elapsed time between interactions")
+    auto_regen: bool = Field(
+        default=False,
+        description="Recover energy automatically based on elapsed time (enable for companion souls)",
+    )
 
 
 class DNA(BaseModel):
@@ -195,9 +235,9 @@ class SelfImage(BaseModel):
 # ============ Memory ============
 
 
-
 class MemoryVisibility(StrEnum):
     """Visibility tier for memory entries in public channel contexts."""
+
     PUBLIC = "public"
     BONDED = "bonded"
     PRIVATE = "private"
@@ -303,6 +343,19 @@ class MemorySettings(BaseModel):
     confidence_threshold: float = 0.7
     persona_tokens: int = 500
     human_tokens: int = 500
+    # F5 auto-consolidation — archive + reflect every N interactions
+    consolidation_interval: int = 20
+    # When True, skip entity extraction (step 5) and self-model update (step 6)
+    # for interactions that are not significant after the full pipeline
+    # (including fact-based promotion in step 4b). Saves 2 LLM calls per
+    # low-value interaction.
+    skip_deep_processing_on_low_significance: bool = True
+    # LLM-based reranking on recall. Off by default because it adds an LLM
+    # call on every smart_recall invocation. Callers who need relevance
+    # quality over latency can opt in by constructing MemorySettings with
+    # smart_recall_enabled=True, or override per-call via the enabled= arg
+    # on Soul.smart_recall().
+    smart_recall_enabled: bool = False
 
 
 # ============ State / Feelings ============
@@ -391,7 +444,7 @@ class RubricResult(BaseModel):
     overall_score: float  # weighted average, 0.0-1.0
     criterion_results: list[CriterionResult]
     learning: str = ""
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class EvolutionConfig(BaseModel):
@@ -403,6 +456,7 @@ class EvolutionConfig(BaseModel):
     mutable_traits: list[str] = Field(default_factory=lambda: ["communication", "biorhythms"])
     immutable_traits: list[str] = Field(default_factory=lambda: ["personality", "core_values"])
     history: list[Mutation] = Field(default_factory=list)
+    pending: list[Mutation] = Field(default_factory=list)
 
 
 # ============ Lifecycle ============
@@ -429,6 +483,10 @@ class SoulConfig(BaseModel):
     state: SoulState = Field(default_factory=SoulState)
     evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
     lifecycle: LifecycleState = LifecycleState.BORN
+    skills: list[dict] = Field(default_factory=list)
+    evaluation_history: list[dict] = Field(default_factory=list)
+    # F5 auto-consolidation — tracks observe() call count for consolidation triggers
+    interaction_count: int = 0
 
 
 # ============ Interaction (input to observe()) ============
@@ -475,13 +533,9 @@ class Interaction(BaseModel):
                 if not participants:
                     new_participants = []
                     if user_input is not None:
-                        new_participants.append(
-                            {"role": "user", "content": user_input}
-                        )
+                        new_participants.append({"role": "user", "content": user_input})
                     if agent_output is not None:
-                        new_participants.append(
-                            {"role": "agent", "content": agent_output}
-                        )
+                        new_participants.append({"role": "agent", "content": agent_output})
                     data["participants"] = new_participants
         return data
 
@@ -510,7 +564,7 @@ class Interaction(BaseModel):
         channel: str = "unknown",
         timestamp: datetime | None = None,
         metadata: dict | None = None,
-    ) -> "Interaction":
+    ) -> Interaction:
         """Create a 2-party interaction from user input and agent output."""
         return cls(
             participants=[

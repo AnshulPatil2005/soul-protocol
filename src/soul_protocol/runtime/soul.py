@@ -1,7 +1,36 @@
-# soul.py — The main Soul class: birth, awaken, observe, save, export
+# soul.py — The main Soul class: birth, awaken, observe, dream, save, export
 # Updated: 2026-04-14 (v0.3.1) — remember() accepts a ``scope`` kwarg so callers
 #   (notably SoulFactory.from_template) can stamp RBAC/ABAC tags on seeded
 #   memories. Pairs with spec/scope.match_scope on the recall side.
+#   Also surfaces `last_retrieval: RetrievalTrace | None` so callers can
+#   introspect the last recall's decision chain.
+# Updated: 2026-04-09 — smart_recall() is now opt-in via MemorySettings.smart_recall_enabled
+#   or a per-call `enabled=` override. Off by default because it adds an LLM call
+#   on every invocation. Protects high-frequency callers from unbounded token cost.
+# Updated: 2026-04-06 — Added dream() method for offline batch consolidation.
+#   Wires Dreamer engine from dream.py into Soul lifecycle. dream() detects
+#   topic clusters, recurring procedures, behavioral trends, consolidates
+#   graph, and synthesizes cross-tier insights (episodes → procedures,
+#   entities → evolution proposals).
+# Updated: 2026-04-01 — Added smart_recall() for LLM-based memory reranking.
+#   Fetches a larger candidate pool via heuristic recall, then uses CognitiveEngine
+#   to pick the most contextually relevant memories. Falls back gracefully.
+# Updated: 2026-03-29 — F5 Auto-Consolidation: observe() now auto-triggers
+#   archive_old_memories() + reflect() every consolidation_interval interactions.
+#   interaction_count persisted through serialize/awaken via SoulConfig.
+# Updated: 2026-03-29 — F4 Eternal Storage: Added archive() method, _eternal instance
+#   variable, eternal= param on birth()/awaken(), and archive=/archive_tiers= on export().
+# Updated: 2026-03-29 — Added progressive parameter to recall() for F1 progressive
+#   disclosure support. Passes through to MemoryManager.recall().
+# Updated: 2026-03-29 — F3 Skills XP: observe() now calls decay_all() before
+#   memory pipeline, and XP grants are significance-weighted (5-30 XP range).
+# Updated: 2026-03-26 — Fixed 5 broken pipelines discovered in feature audit:
+#   1. context_for() now passes bond_strength to recall (was always defaulting to 100.0)
+#   2. observe() now calls evaluate() to build evaluation history, enabling evolution
+#      triggers and skill XP from learning (was dead code — history always empty)
+#   3. Both fixes together wire bonds→memory visibility and observe→evaluate→evolve
+#   4. Skills now persist through export/awaken (added to SoulConfig serialization)
+#   5. Evaluation history now persists through export/awaken (added to SoulConfig)
 # Updated: feat/mcp-sampling-engine — Added set_engine() to swap CognitiveEngine at runtime.
 #   MCPSamplingEngine uses this for lazy wiring on first MCP tool call.
 # Updated: 2026-03-22 — Added learn() and learning_events for LearningEvent pipeline.
@@ -57,9 +86,9 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import datetime
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +98,8 @@ from soul_protocol.spec.trace import RetrievalTrace, TraceCandidate
 from .bond import Bond
 from .cognitive.engine import CognitiveEngine
 from .dna.prompt import dna_to_system_prompt
+from .dream import Dreamer, DreamReport
+from .eternal.manager import EternalStorageManager
 from .evaluation import Evaluator
 from .evolution.manager import EvolutionManager
 from .export.pack import pack_soul
@@ -76,7 +107,7 @@ from .export.unpack import unpack_soul
 from .identity.did import generate_did
 from .memory.manager import MemoryManager
 from .memory.strategy import SearchStrategy
-from .skills import SkillRegistry
+from .skills import Skill, SkillRegistry
 from .state.manager import StateManager
 from .types import (
     DNA,
@@ -123,11 +154,13 @@ def _resolve_engine(engine: Any) -> CognitiveEngine | None:
 
     if engine == "auto":
         from soul_protocol.runtime.cognitive.adapters._auto import engine_from_env
+
         return engine_from_env()
 
     # Plain callable that doesn't implement the CognitiveEngine protocol
     if callable(engine) and not isinstance(engine, CognitiveEngine):
         from soul_protocol.runtime.cognitive.adapters._callable import CallableEngine
+
         return CallableEngine(engine)
 
     # Already a CognitiveEngine — pass through
@@ -277,9 +310,28 @@ class Soul:
         )
         self._state = StateManager(config.state, biorhythms=config.dna.biorhythms)
         self._evolution = EvolutionManager(config.evolution)
-        self._skills = SkillRegistry()
+        # Restore skills from config (persisted since v0.2.7)
+        restored_skills = []
+        for skill_data in getattr(config, "skills", []) or []:
+            try:
+                restored_skills.append(Skill(**skill_data))
+            except Exception:
+                logger.warning("Skipping malformed skill entry: %s", skill_data)
+        self._skills = SkillRegistry(skills=restored_skills)
+
+        # Restore evaluation history from config (persisted since v0.2.7)
         self._evaluator = Evaluator()
+        for eval_data in getattr(config, "evaluation_history", []) or []:
+            try:
+                self._evaluator._history.append(RubricResult(**eval_data))
+            except Exception:
+                logger.warning("Skipping malformed evaluation entry: %s", eval_data)
+
         self._learning_events: list[LearningEvent] = []
+        self._eternal: EternalStorageManager | None = None
+
+        # F5: Interaction counter for auto-consolidation (persisted in SoulConfig)
+        self._interaction_count: int = getattr(config, "interaction_count", 0)
 
         # Retrieval trace for the most recent recall() call.
         # Consumers (paw-runtime JSONL sink, graduation policy) read this after
@@ -311,6 +363,8 @@ class Soul:
         use_dspy: bool = False,
         dspy_model: str | None = None,
         dspy_optimized_path: str | None = None,
+        # F4 — Eternal storage
+        eternal: EternalStorageManager | None = None,
         **kwargs,
     ) -> Soul:
         """Birth a new Soul.
@@ -404,6 +458,9 @@ class Soul:
             persona=persona_text,
             human="",
         )
+
+        # F4 — Wire eternal storage
+        soul._eternal = eternal
 
         logger.info("Soul born: name=%s, did=%s", name, identity.did)
         return soul
@@ -532,6 +589,7 @@ class Soul:
         engine: CognitiveEngine | Callable | str | None = None,
         search_strategy: SearchStrategy | None = None,
         password: str | None = None,
+        eternal: EternalStorageManager | None = None,
     ) -> Soul:
         """Awaken a Soul from a .soul file, directory, soul.json, soul.yaml, or soul.md.
 
@@ -542,7 +600,12 @@ class Soul:
             search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
             password: Optional password for decrypting encrypted .soul archives.
         """
-        from .exceptions import SoulCorruptError, SoulDecryptionError, SoulEncryptedError, SoulFileNotFoundError
+        from .exceptions import (
+            SoulCorruptError,
+            SoulDecryptionError,
+            SoulEncryptedError,
+            SoulFileNotFoundError,
+        )
 
         memory_data: dict = {}
 
@@ -574,9 +637,7 @@ class Soul:
                     except (SoulEncryptedError, SoulDecryptionError):
                         raise
                     except Exception as e:
-                        logger.error(
-                            "Corrupt .soul archive: path=%s, error=%s", path, e
-                        )
+                        logger.error("Corrupt .soul archive: path=%s, error=%s", path, e)
                         raise SoulCorruptError(str(path), str(e)) from e
                 elif path.suffix == ".json":
                     config = SoulConfig.model_validate_json(path.read_text())
@@ -595,7 +656,12 @@ class Soul:
                     )
                 else:
                     raise ValueError(f"Unknown soul format: {path.suffix}")
-            except (SoulFileNotFoundError, SoulCorruptError, SoulEncryptedError, SoulDecryptionError):
+            except (
+                SoulFileNotFoundError,
+                SoulCorruptError,
+                SoulEncryptedError,
+                SoulDecryptionError,
+            ):
                 raise
             except PermissionError as e:
                 raise SoulFileNotFoundError(str(path)) from e
@@ -614,6 +680,9 @@ class Soul:
                 search_strategy=search_strategy,
                 personality=config.dna.personality,
             )
+
+        # F4 — Wire eternal storage
+        soul._eternal = eternal
 
         logger.info(
             "Soul awakened: name=%s, did=%s, memories=%d",
@@ -787,7 +856,11 @@ class Soul:
             )
 
         if include_memories and user_input.strip():
-            memories = await self._memory.recall(query=user_input, limit=max_memories)
+            memories = await self._memory.recall(
+                query=user_input,
+                limit=max_memories,
+                bond_strength=self._identity.bond.bond_strength,
+            )
             if memories:
                 lines = [f"- {m.content}" for m in memories]
                 parts.append("[Relevant memories:\n" + "\n".join(lines) + "]")
@@ -875,6 +948,7 @@ class Soul:
             requester_id=requester_id,
             bond_strength=effective_bond,
             bond_threshold=bond_threshold,
+            progressive=progressive,
         )
         if scopes:
             from soul_protocol.spec.scope import match_scope
@@ -894,6 +968,47 @@ class Soul:
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
         return results
+
+    async def smart_recall(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        candidate_pool: int = 15,
+        enabled: bool | None = None,
+    ) -> list[MemoryEntry]:
+        """Recall memories with optional LLM-based reranking for better relevance.
+
+        Fetches ``candidate_pool`` memories via heuristic recall, then optionally
+        uses the CognitiveEngine to select the top-N most relevant. The LLM
+        rerank is **off by default** — enable it per-soul via
+        ``MemorySettings.smart_recall_enabled`` or per-call via the ``enabled``
+        argument. When disabled (or when no engine is available), this falls
+        back to the first ``limit`` candidates in heuristic order.
+
+        Args:
+            query: Search text / current context.
+            limit: How many memories to return.
+            candidate_pool: How many candidates to fetch from heuristic recall
+                before reranking. Larger pools give the LLM more to work with
+                but cost more tokens per call.
+            enabled: Per-call override. When None (default), uses
+                ``self._memory.settings.smart_recall_enabled``. Pass ``True``
+                or ``False`` to force a specific behavior for this call.
+        """
+        candidates = await self.recall(query, limit=candidate_pool)
+
+        # Resolve the effective flag: explicit override > settings > off
+        effective_enabled = (
+            enabled if enabled is not None else self._memory.settings.smart_recall_enabled
+        )
+
+        if effective_enabled and self._engine and len(candidates) > limit:
+            from soul_protocol.runtime.memory.rerank import rerank_memories
+
+            return await rerank_memories(candidates, query, self._engine, limit)
+
+        return candidates[:limit]
 
     async def observe(self, interaction: Interaction) -> None:
         """Soul observes an interaction and learns from it.
@@ -915,6 +1030,9 @@ class Soul:
         """
         logger.debug("observe() started: input_len=%d", len(interaction.user_input))
 
+        # Decay skill XP for inactive skills before granting new XP
+        self._skills.decay_all()
+
         # Delegate to psychology-informed memory pipeline
         result = await self._memory.observe(interaction)
 
@@ -930,9 +1048,7 @@ class Soul:
                 }
                 relation = ent.get("relation")
                 if relation:
-                    graph_ent["relationships"].append(
-                        {"target": "user", "relation": relation}
-                    )
+                    graph_ent["relationships"].append({"target": "user", "relation": relation})
                 graph_entities.append(graph_ent)
 
             await self._memory.update_graph(graph_entities)
@@ -948,21 +1064,53 @@ class Soul:
             self._identity.bond.strengthen(amount=0.5)
 
         # Grant XP to skills matching extracted entities/topics
+        # Significance-weighted XP: range 5-30 based on interaction significance
+        sig_score = result.get("significance")
+        if sig_score is not None:
+            sig_value = sig_score.overall if hasattr(sig_score, "overall") else float(sig_score)
+        else:
+            sig_value = 0.5
+        xp_amount = max(5, int(sig_value * 30))
+
         for entity in raw_entities:
             entity_name = entity["name"].lower().replace(" ", "_")
             skill = self._skills.get(entity_name)
             if skill:
-                skill.add_xp(10)
+                skill.add_xp(xp_amount)
             else:
                 from .skills import Skill
 
                 new_skill = Skill(id=entity_name, name=entity["name"])
-                new_skill.add_xp(10)
+                new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
-        # Check for evolution triggers
+        # Evaluate the interaction to build evaluation history.
+        # This feeds the Evaluator._history which evolution triggers inspect.
+        # Without this, check_evolution_triggers() always returns [] because
+        # the history is empty (evaluate() was never called from observe()).
+        await self.evaluate(interaction)
+
+        # Check for evolution triggers (now has evaluation history to work with)
         evaluation_triggers = self._evaluator.check_evolution_triggers()
         await self._evolution.check_triggers(self._dna, interaction, evaluation_triggers)
+
+        # F5: Auto-consolidation — archive old memories + reflect every N interactions
+        self._interaction_count += 1
+        interval = self._memory.settings.consolidation_interval
+        if interval > 0 and self._interaction_count % interval == 0:
+            logger.info(
+                "Auto-consolidation triggered at interaction %d",
+                self._interaction_count,
+            )
+            await self._memory.archive_old_memories()
+            if self._engine is not None:
+                reflection = await self.reflect(apply=True)
+                if reflection:
+                    logger.info(
+                        "Auto-reflection applied: themes=%d, summaries=%d",
+                        len(reflection.themes),
+                        len(reflection.summaries),
+                    )
 
     async def forget_by_id(self, memory_id: str) -> bool:
         """Soul forgets a specific memory by ID.
@@ -1034,9 +1182,7 @@ class Soul:
         """Get the always-loaded core memory."""
         return self._memory.get_core()
 
-    async def edit_core_memory(
-        self, *, persona: str | None = None, human: str | None = None
-    ):
+    async def edit_core_memory(self, *, persona: str | None = None, human: str | None = None):
         """Edit core memory."""
         await self._memory.edit_core(persona=persona, human=human)
 
@@ -1083,6 +1229,65 @@ class Soul:
         if result is not None and apply:
             await self._memory.consolidate(result, soul_name=self.name)
         return result
+
+    async def dream(
+        self,
+        *,
+        since: datetime | None = None,
+        archive: bool = True,
+        detect_patterns: bool = True,
+        consolidate_graph: bool = True,
+        synthesize: bool = True,
+        dry_run: bool = False,
+    ) -> DreamReport:
+        """Run an offline dream cycle — batch consolidation of accumulated memories.
+
+        Dreaming is the offline counterpart to observe() (online). While observe()
+        processes interactions one-at-a-time, dream() reviews accumulated episodes
+        in batch to detect patterns, consolidate memory tiers, and synthesize
+        cross-tier insights.
+
+        Call this periodically (e.g., at session end, or after every N interactions)
+        for deeper memory optimization than auto-consolidation provides.
+
+        Args:
+            since: Only review episodes after this time. None = review all.
+            archive: Whether to archive old episodic memories.
+            detect_patterns: Whether to detect topic clusters and recurring procedures.
+            consolidate_graph: Whether to merge/prune knowledge graph.
+            synthesize: Whether to create procedural memories and evolution insights.
+            dry_run: When True, run analysis only — no archiving, no dedup,
+                no graph mutation, no new procedural memories. The returned
+                DreamReport shows what *would* happen so callers can preview
+                before committing.
+
+        Returns:
+            DreamReport with all findings and actions taken (or the preview
+            report when dry_run=True).
+        """
+        dreamer = Dreamer(
+            memory=self._memory,
+            graph=self._memory._graph,
+            skills=self._skills,
+            evolution=self._evolution,
+            dna=self._dna,
+        )
+        report = await dreamer.dream(
+            since=since,
+            archive=archive,
+            detect_patterns=detect_patterns,
+            consolidate_graph=consolidate_graph,
+            synthesize=synthesize,
+            dry_run=dry_run,
+        )
+
+        logger.info(
+            "Soul.dream() complete: episodes=%d, clusters=%d, procedures=%d",
+            report.episodes_reviewed,
+            len(report.topic_clusters),
+            report.procedures_created,
+        )
+        return report
 
     @property
     def general_events(self) -> list[GeneralEvent]:
@@ -1180,8 +1385,11 @@ class Soul:
         )
         self._skills.grant_xp_from_learning(event)
         self._learning_events.append(event)
-        logger.debug("Learning event created: domain=%s, score=%.2f",
-                      event.domain, event.evaluation_score or 0.0)
+        logger.debug(
+            "Learning event created: domain=%s, score=%.2f",
+            event.domain,
+            event.evaluation_score or 0.0,
+        )
         return event
 
     @property
@@ -1200,9 +1408,7 @@ class Soul:
 
     # ============ Evolution ============
 
-    async def propose_evolution(
-        self, trait: str, new_value: str, reason: str
-    ) -> Mutation:
+    async def propose_evolution(self, trait: str, new_value: str, reason: str) -> Mutation:
         """Propose a trait mutation."""
         return await self._evolution.propose(
             dna=self._dna,
@@ -1216,9 +1422,7 @@ class Soul:
         result = await self._evolution.approve(mutation_id)
         if result:
             self._dna = self._evolution.apply(self._dna, mutation_id)
-            logger.info(
-                "Evolution approved and applied: mutation_id=%s", mutation_id
-            )
+            logger.info("Evolution approved and applied: mutation_id=%s", mutation_id)
         return result
 
     async def reject_evolution(self, mutation_id: str) -> bool:
@@ -1259,7 +1463,35 @@ class Soul:
         await save_soul_flat(config, memory_data, Path(path))
         logger.info("Soul saved locally: name=%s, path=%s", self.name, path)
 
-    async def export(self, path: str | Path, *, password: str | None = None) -> None:
+    async def archive(self, tiers: list[str] | None = None) -> list:
+        """Archive this soul to eternal storage (Arweave/IPFS).
+
+        Args:
+            tiers: Storage tiers to archive to. None = all registered tiers.
+
+        Returns:
+            List of ArchiveResult objects from each tier.
+
+        Raises:
+            RuntimeError: If no eternal storage manager is configured.
+        """
+        if self._eternal is None:
+            raise RuntimeError(
+                "No eternal storage configured. Pass eternal= to Soul.birth() or Soul.awaken()."
+            )
+        import json
+
+        soul_data = json.dumps(self.serialize().model_dump(mode="json")).encode("utf-8")
+        return await self._eternal.archive(soul_data, self.did, tiers=tiers)
+
+    async def export(
+        self,
+        path: str | Path,
+        *,
+        password: str | None = None,
+        archive: bool = False,
+        archive_tiers: list[str] | None = None,
+    ) -> None:
         """Export soul as a portable .soul file with full memory data.
 
         Args:
@@ -1271,9 +1503,7 @@ class Soul:
 
         try:
             memory_data = self._memory.to_dict()
-            data = await pack_soul(
-                self.serialize(), memory_data=memory_data, password=password
-            )
+            data = await pack_soul(self.serialize(), memory_data=memory_data, password=password)
             Path(path).write_bytes(data)
             logger.info(
                 "Soul exported: name=%s, path=%s, size=%d bytes",
@@ -1288,9 +1518,11 @@ class Soul:
             logger.error("Export failed: path=%s, error=%s", path, e)
             raise SoulExportError(str(path), str(e)) from e
 
-    async def retire(
-        self, *, farewell: bool = False, preserve_memories: bool = True
-    ) -> None:
+        # F4 — Optional archival after export
+        if archive and self._eternal is not None:
+            await self.archive(tiers=archive_tiers)
+
+    async def retire(self, *, farewell: bool = False, preserve_memories: bool = True) -> None:
         """Retire this soul with dignity.
 
         If preserve_memories is True (default), saves all memories before
@@ -1328,4 +1560,7 @@ class Soul:
             state=self._state.current,
             evolution=self._evolution.config,
             lifecycle=self._lifecycle,
+            skills=[s.model_dump(mode="json") for s in self._skills.skills],
+            evaluation_history=[r.model_dump(mode="json") for r in self._evaluator._history],
+            interaction_count=self._interaction_count,
         )

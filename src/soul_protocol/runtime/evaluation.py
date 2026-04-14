@@ -1,5 +1,12 @@
 # runtime/evaluation.py — Rubric-based self-evaluation for soul interactions.
 # Created: 2026-03-18 — MVP: heuristic evaluator, default rubrics, domain stats.
+# Updated: 2026-03-26 — Recalibrated heuristic scoring for realistic conversation scores:
+#   - completeness: 20-word threshold (was 40), so 2-sentence responses score ~1.0
+#   - relevance: uses len(user_tokens) as denominator (was max), so thorough
+#     agent responses aren't penalized for extra context
+#   - specificity: counts 6+ char words as specific content, *2 multiplier
+#   - evolution trigger: streak threshold 0.55 (was 0.70), trigger avg 0.55 (was 0.75)
+#   A solid technical conversation now scores ~0.65-0.80 and can trigger evolution.
 # Updated: 2026-03-22 — Added create_learning_event() to Evaluator.
 
 from __future__ import annotations
@@ -22,12 +29,46 @@ LOW_SCORE_THRESHOLD: float = 0.3
 # Small set for relevance calculation. Intentionally self-contained to avoid
 # coupling with memory/self_model.py.
 
-STOP_WORDS: frozenset[str] = frozenset({
-    "a", "an", "the", "is", "it", "in", "on", "at", "to", "for",
-    "of", "and", "or", "but", "not", "with", "this", "that", "was",
-    "are", "be", "has", "had", "do", "did", "will", "can", "i", "you",
-    "he", "she", "we", "they", "my", "your", "me",
-})
+STOP_WORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "is",
+        "it",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "and",
+        "or",
+        "but",
+        "not",
+        "with",
+        "this",
+        "that",
+        "was",
+        "are",
+        "be",
+        "has",
+        "had",
+        "do",
+        "did",
+        "will",
+        "can",
+        "i",
+        "you",
+        "he",
+        "she",
+        "we",
+        "they",
+        "my",
+        "your",
+        "me",
+    }
+)
 
 # ============ Default Criteria ============
 
@@ -65,7 +106,8 @@ def _make_rubric(name: str, domain: str, extras: list[RubricCriterion]) -> Rubri
 
 DEFAULT_RUBRICS: dict[str, Rubric] = {
     "technical_helper": _make_rubric(
-        "technical_helper", "technical_helper",
+        "technical_helper",
+        "technical_helper",
         [
             RubricCriterion(
                 name="specificity",
@@ -74,7 +116,8 @@ DEFAULT_RUBRICS: dict[str, Rubric] = {
         ],
     ),
     "creative_writer": _make_rubric(
-        "creative_writer", "creative_writer",
+        "creative_writer",
+        "creative_writer",
         [
             RubricCriterion(
                 name="originality",
@@ -83,7 +126,8 @@ DEFAULT_RUBRICS: dict[str, Rubric] = {
         ],
     ),
     "knowledge_guide": _make_rubric(
-        "knowledge_guide", "knowledge_guide",
+        "knowledge_guide",
+        "knowledge_guide",
         [
             RubricCriterion(
                 name="clarity",
@@ -92,7 +136,8 @@ DEFAULT_RUBRICS: dict[str, Rubric] = {
         ],
     ),
     "problem_solver": _make_rubric(
-        "problem_solver", "problem_solver",
+        "problem_solver",
+        "problem_solver",
         [
             RubricCriterion(
                 name="specificity",
@@ -101,7 +146,8 @@ DEFAULT_RUBRICS: dict[str, Rubric] = {
         ],
     ),
     "creative_collaborator": _make_rubric(
-        "creative_collaborator", "creative_collaborator",
+        "creative_collaborator",
+        "creative_collaborator",
         [
             RubricCriterion(
                 name="originality",
@@ -110,7 +156,8 @@ DEFAULT_RUBRICS: dict[str, Rubric] = {
         ],
     ),
     "emotional_companion": _make_rubric(
-        "emotional_companion", "emotional_companion",
+        "emotional_companion",
+        "emotional_companion",
         [
             RubricCriterion(
                 name="empathy",
@@ -125,23 +172,28 @@ DEFAULT_RUBRICS: dict[str, Rubric] = {
 
 
 def _score_completeness(agent_output: str) -> float:
-    """Longer responses score higher, up to 40 words = 1.0."""
-    return min(1.0, len(agent_output.split()) / 40)
+    """Longer responses score higher, up to 20 words = 1.0.
+
+    Recalibrated: 40 words was too harsh — a solid 2-sentence response
+    (15-20 words) should score near 1.0, not 0.5.
+    """
+    return min(1.0, len(agent_output.split()) / 20)
 
 
 def _score_relevance(user_input: str, agent_output: str) -> float:
-    """Token overlap between input and output, excluding stop words."""
-    user_tokens = {
-        w.lower() for w in user_input.split() if w.lower() not in STOP_WORDS
-    }
-    agent_tokens = {
-        w.lower() for w in agent_output.split() if w.lower() not in STOP_WORDS
-    }
+    """Token overlap between input and output, excluding stop words.
+
+    Recalibrated: uses min(len) as denominator instead of max(len) so
+    that a thorough agent response with extra context doesn't get penalized
+    for having more tokens than the user's question.
+    """
+    user_tokens = {w.lower() for w in user_input.split() if w.lower() not in STOP_WORDS}
+    agent_tokens = {w.lower() for w in agent_output.split() if w.lower() not in STOP_WORDS}
     if not user_tokens or not agent_tokens:
         return 0.0
     shared = user_tokens & agent_tokens
-    max_tokens = max(len(user_tokens), len(agent_tokens))
-    return len(shared) / max_tokens
+    # Use user_tokens as denominator — did the agent address the user's terms?
+    return min(1.0, len(shared) / len(user_tokens))
 
 
 def _score_helpfulness(completeness: float, relevance: float, sentiment_positive: bool) -> float:
@@ -151,30 +203,50 @@ def _score_helpfulness(completeness: float, relevance: float, sentiment_positive
 
 
 def _score_specificity(agent_output: str) -> float:
-    """Count technical-looking tokens (uppercase, numbers, code-like chars)."""
+    """Score based on concrete/specific content markers.
+
+    Recalibrated: also counts longer words (6+ chars) as likely-specific
+    content, not just uppercase/digits/code-like tokens. Conversational
+    but substantive responses should score ~0.5-0.7, not ~0.05.
+    """
     words = agent_output.split()
     if not words:
         return 0.0
-    technical_count = 0
+    specific_count = 0
     for word in words:
         # Has uppercase letters (proper nouns, acronyms)
         if any(c.isupper() for c in word[1:] if c.isalpha()):
-            technical_count += 1
+            specific_count += 1
         # Has numbers
         elif any(c.isdigit() for c in word):
-            technical_count += 1
+            specific_count += 1
         # Code-like tokens
         elif any(ch in word for ch in (".", "()", "_")):
-            technical_count += 1
-    return min(1.0, technical_count / len(words))
+            specific_count += 1
+        # Longer words are more likely to be specific/technical
+        elif len(word) >= 6:
+            specific_count += 1
+    return min(1.0, specific_count / max(len(words), 1) * 2)
 
 
 def _score_empathy(agent_output: str) -> float:
     """Check for empathy marker words."""
     empathy_markers = {
-        "understand", "feel", "sorry", "glad", "appreciate",
-        "hear", "difficult", "tough", "hard", "care",
-        "support", "here", "listen", "valid", "okay",
+        "understand",
+        "feel",
+        "sorry",
+        "glad",
+        "appreciate",
+        "hear",
+        "difficult",
+        "tough",
+        "hard",
+        "care",
+        "support",
+        "here",
+        "listen",
+        "valid",
+        "okay",
     }
     output_lower = agent_output.lower()
     count = sum(1 for marker in empathy_markers if marker in output_lower)
@@ -183,8 +255,30 @@ def _score_empathy(agent_output: str) -> float:
 
 def _detect_positive_sentiment(text: str) -> bool:
     """Simple heuristic: more positive words than negative."""
-    positive = {"great", "good", "excellent", "helpful", "thanks", "love", "awesome", "perfect", "nice", "wonderful"}
-    negative = {"bad", "wrong", "terrible", "awful", "hate", "useless", "broken", "fail", "error", "bug"}
+    positive = {
+        "great",
+        "good",
+        "excellent",
+        "helpful",
+        "thanks",
+        "love",
+        "awesome",
+        "perfect",
+        "nice",
+        "wonderful",
+    }
+    negative = {
+        "bad",
+        "wrong",
+        "terrible",
+        "awful",
+        "hate",
+        "useless",
+        "broken",
+        "fail",
+        "error",
+        "bug",
+    }
     lower = text.lower()
     pos_count = sum(1 for w in positive if w in lower)
     neg_count = sum(1 for w in negative if w in lower)
@@ -286,9 +380,7 @@ class Evaluator:
         """
         if rubric is None:
             domain_key = domain or "technical_helper"
-            rubric = self._rubrics.get(
-                domain_key, self._rubrics.get("technical_helper")
-            )
+            rubric = self._rubrics.get(domain_key, self._rubrics.get("technical_helper"))
             # Final safety net — should never happen with DEFAULT_RUBRICS
             if rubric is None:  # pragma: no cover
                 rubric = list(self._rubrics.values())[0]
@@ -296,23 +388,24 @@ class Evaluator:
         result = heuristic_evaluate(interaction, rubric)
         self._history.append(result)
         if len(self._history) > self._max_history:
-            self._history = self._history[-self._max_history:]
+            self._history = self._history[-self._max_history :]
         return result
 
     def get_domain_stats(self, domain: str) -> dict:
         """Get average score, count, and streak for a domain."""
-        domain_results = [
-            r for r in self._history if r.rubric_id == domain
-        ]
+        domain_results = [r for r in self._history if r.rubric_id == domain]
         if not domain_results:
             return {"domain": domain, "count": 0, "avg_score": 0.0, "streak": 0}
 
         scores = [r.overall_score for r in domain_results]
 
-        # Calculate streak of consecutive high scores (>= 0.7)
+        # Calculate streak of consecutive above-average scores.
+        # Threshold 0.55 is calibrated for heuristic mode where a solid
+        # conversational exchange scores ~0.6-0.8. LLM evaluators
+        # naturally score higher, so this threshold works for both.
         streak = 0
         for score in reversed(scores):
-            if score >= 0.7:
+            if score >= 0.55:
                 streak += 1
             else:
                 break
@@ -333,18 +426,20 @@ class Evaluator:
 
         for domain in seen_domains:
             stats = self.get_domain_stats(domain)
-            if stats["streak"] >= 5 and stats["avg_score"] >= 0.75:
-                triggers.append({
-                    "domain": domain,
-                    "trigger": "high_performance_streak",
-                    "streak": stats["streak"],
-                    "avg_score": stats["avg_score"],
-                    "reason": (
-                        f"Consistently high performance in {domain} "
-                        f"({stats['streak']} consecutive high scores, "
-                        f"avg {stats['avg_score']:.2f})"
-                    ),
-                })
+            if stats["streak"] >= 5 and stats["avg_score"] >= 0.55:
+                triggers.append(
+                    {
+                        "domain": domain,
+                        "trigger": "high_performance_streak",
+                        "streak": stats["streak"],
+                        "avg_score": stats["avg_score"],
+                        "reason": (
+                            f"Consistently high performance in {domain} "
+                            f"({stats['streak']} consecutive high scores, "
+                            f"avg {stats['avg_score']:.2f})"
+                        ),
+                    }
+                )
         return triggers
 
     def create_learning_event(
@@ -380,9 +475,7 @@ class Evaluator:
         }
 
     @classmethod
-    def from_dict(
-        cls, data: dict, rubrics: dict[str, Rubric] | None = None
-    ) -> Evaluator:
+    def from_dict(cls, data: dict, rubrics: dict[str, Rubric] | None = None) -> Evaluator:
         """Restore evaluator from serialized state."""
         evaluator = cls(rubrics=rubrics)
         for entry in data.get("history", []):

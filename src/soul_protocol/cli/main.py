@@ -1,8 +1,16 @@
-# cli/main.py — Click CLI for the Soul Protocol (34 commands + org/user groups)
-# Updated: feat/paw-os-init — Registered `soul org init` (flat org group, no
-#   more paw/os nesting) and `soul user` sibling group. Command creates org
-#   dir, root soul, Ed25519 key, journal, and genesis events. RFC #164,
-#   Workstream A slice 3.
+# cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-04-14 — v0.3.1: `soul org init / status / destroy` and `soul template`
+#   land. Org init creates an org dir, root soul, Ed25519 key, journal, and
+#   genesis events. Destroy archives to ~/.soul-archives/ before wiping.
+# Updated: 2026-04-06 — Added `soul dream` command for offline batch memory
+#   consolidation. Detects topic clusters, recurring procedures, behavioral
+#   trends, consolidates graph, and proposes personality evolution.
+# Updated: 2026-03-27 — Added --full and --json flags to `soul recall` for untruncated
+#   and machine-readable output (v0.2.8).
+# Updated: 2026-03-26 — Added 3 soul maintenance commands: health, cleanup, repair.
+#   health: audit memory tiers, duplicates, orphan nodes, skills, bond sanity.
+#   cleanup: remove duplicates, stale evals, orphan graph nodes, low-importance memories.
+#   repair: reset energy/bond, rebuild graph, clear evals/skills/procedural.
 # Updated: 2026-03-24 — Added 13 commands for full runtime/MCP feature parity:
 #   observe, reflect, feel, prompt, forget, edit-core, evolve, evaluate, learn,
 #   skills, bond, events, context. Total: 34 commands.
@@ -29,7 +37,7 @@
 from __future__ import annotations
 
 import asyncio
-import io
+import builtins
 import json
 import sys
 import zipfile
@@ -102,7 +110,9 @@ cli.add_command(_user_group)
 @click.option("--agreeableness", type=float, help="OCEAN agreeableness (0.0-1.0)")
 @click.option("--neuroticism", type=float, help="OCEAN neuroticism (0.0-1.0)")
 @click.option(
-    "--traits", "-t", type=str,
+    "--traits",
+    "-t",
+    type=str,
     help='Compact OCEAN traits: "O:0.9,C:0.8,E:0.4,A:0.6,N:0.2"',
 )
 @click.option("--output", "-o", type=click.Path(), help="Output path for .soul file")
@@ -132,12 +142,17 @@ def birth(
 
     # Parse --traits shorthand before entering async (avoids closure scope issues)
     _trait_keys = {
-        "O": "openness", "C": "conscientiousness",
-        "E": "extraversion", "A": "agreeableness", "N": "neuroticism",
+        "O": "openness",
+        "C": "conscientiousness",
+        "E": "extraversion",
+        "A": "agreeableness",
+        "N": "neuroticism",
     }
     ocean_flags = {
-        "openness": openness, "conscientiousness": conscientiousness,
-        "extraversion": extraversion, "agreeableness": agreeableness,
+        "openness": openness,
+        "conscientiousness": conscientiousness,
+        "extraversion": extraversion,
+        "agreeableness": agreeableness,
         "neuroticism": neuroticism,
     }
     if traits:
@@ -270,8 +285,7 @@ def init(name, archetype, values, from_file, soul_dir, soul_format, setup_target
                 )
             soul = await Soul.awaken(str(soul_path))
             console.print(
-                f"\n[green]Found[/green] existing soul [bold]{soul.name}[/bold] "
-                f"in {soul_path}/\n"
+                f"\n[green]Found[/green] existing soul [bold]{soul.name}[/bold] in {soul_path}/\n"
             )
         else:
             # Create new soul
@@ -298,13 +312,17 @@ def init(name, archetype, values, from_file, soul_dir, soul_format, setup_target
 
             if soul_format == "zip":
                 # ZIP format: append .soul extension if not already there
-                zip_path = soul_path if str(soul_path).endswith(".soul") else Path(f"{soul_path}.soul")
+                zip_path = (
+                    soul_path if str(soul_path).endswith(".soul") else Path(f"{soul_path}.soul")
+                )
                 zip_path.parent.mkdir(parents=True, exist_ok=True)
                 await soul.export(str(zip_path))
                 console.print(f"\n[green]OK[/green] Soul exported to [bold]{zip_path}[/bold]\n")
             else:
                 await soul.save_local(str(soul_path))
-                console.print(f"\n[green]OK[/green] Soul initialized in [bold]{soul_path}/[/bold]\n")
+                console.print(
+                    f"\n[green]OK[/green] Soul initialized in [bold]{soul_path}/[/bold]\n"
+                )
 
             console.print(f"  Name:      [bold]{soul.name}[/bold]")
             console.print(f"  Archetype: {soul.archetype or '(none)'}")
@@ -519,7 +537,9 @@ def status(path):
 
 @cli.command("export")
 @click.argument("source", type=click.Path(exists=True))
-@click.option("--output", "-o", type=click.Path(), default=None, help="Output path (default: <name>.<format>)")
+@click.option(
+    "--output", "-o", type=click.Path(), default=None, help="Output path (default: <name>.<format>)"
+)
 @click.option(
     "--format",
     "-f",
@@ -544,9 +564,7 @@ def export_cmd(source, output, fmt):
         elif fmt == "yaml":
             import yaml
 
-            Path(out).write_text(
-                yaml.dump(soul.serialize().model_dump(), default_flow_style=False)
-            )
+            Path(out).write_text(yaml.dump(soul.serialize().model_dump(), default_flow_style=False))
         elif fmt == "md":
             from soul_protocol.runtime.dna.prompt import dna_to_markdown
 
@@ -559,7 +577,9 @@ def export_cmd(source, output, fmt):
 
 @cli.command("unpack")
 @click.argument("source", type=click.Path(exists=True))
-@click.option("--dir", "-d", "soul_dir", default=None, help="Target directory (default: .soul/<name>/)")
+@click.option(
+    "--dir", "-d", "soul_dir", default=None, help="Target directory (default: .soul/<name>/)"
+)
 def unpack_cmd(source, soul_dir):
     """Unpack a .soul file into a browsable directory.
 
@@ -822,13 +842,13 @@ def archive(path, tiers):
     tier_list = [t for t in tiers] if tiers else None
 
     async def _archive():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.runtime.eternal.manager import EternalStorageManager
         from soul_protocol.runtime.eternal.providers import (
-            MockIPFSProvider,
             MockArweaveProvider,
             MockBlockchainProvider,
+            MockIPFSProvider,
         )
+        from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
         soul_data = Path(path).read_bytes()
@@ -878,9 +898,9 @@ def recover(reference, tier, output):
         from soul_protocol.runtime.eternal.manager import EternalStorageManager
         from soul_protocol.runtime.eternal.protocol import RecoverySource
         from soul_protocol.runtime.eternal.providers import (
-            MockIPFSProvider,
             MockArweaveProvider,
             MockBlockchainProvider,
+            MockIPFSProvider,
         )
 
         manager = EternalStorageManager()
@@ -894,8 +914,7 @@ def recover(reference, tier, output):
             data = await manager.recover([source])
             Path(output).write_bytes(data)
             console.print(
-                f"[green]Recovered[/green] soul from {tier} to {output} "
-                f"({len(data)} bytes)"
+                f"[green]Recovered[/green] soul from {tier} to {output} ({len(data)} bytes)"
             )
         except RuntimeError as exc:
             console.print(f"[red]Recovery failed:[/red] {exc}")
@@ -973,15 +992,33 @@ def eternal_status(path):
     help="Importance score 1-10 (default: 5)",
 )
 @click.option("--emotion", "-e", type=str, default=None, help="Emotion tag (e.g. happy, sad)")
-def remember_cmd(path, text, importance, emotion):
+@click.option(
+    "--type",
+    "-t",
+    "memory_type",
+    type=click.Choice(["episodic", "semantic", "procedural"], case_sensitive=False),
+    default="semantic",
+    help="Memory tier (default: semantic). Use episodic for events, procedural for skills.",
+)
+def remember_cmd(path, text, importance, emotion, memory_type):
     """Store a memory in a Soul.
+
+    \b
+    Memory tiers:
+      episodic   — events that happened (what, when, where)
+      semantic   — facts the soul knows (default)
+      procedural — skills and how-to knowledge
 
     \b
     Examples:
       soul remember aria.soul "User prefers dark mode"
       soul remember aria.soul "Likes Python" --importance 7
       soul remember aria.soul "Had a great day" --emotion happy
+      soul remember aria.soul "Shipped v0.3" --type episodic --importance 8
     """
+    from soul_protocol.runtime.types import MemoryType
+
+    tier = MemoryType(memory_type.lower())
 
     async def _remember():
         from soul_protocol.runtime.soul import Soul
@@ -989,6 +1026,7 @@ def remember_cmd(path, text, importance, emotion):
         soul = await Soul.awaken(path)
         memory_id = await soul.remember(
             text,
+            type=tier,
             importance=importance,
             emotion=emotion,
         )
@@ -1001,6 +1039,7 @@ def remember_cmd(path, text, importance, emotion):
             Panel(
                 f"[bold]{soul.name}[/bold] will remember:\n\n"
                 f"  [cyan]{text}[/cyan]\n\n"
+                f"  Tier        [magenta]{tier.value}[/magenta]\n"
                 f"  Importance  [yellow]{importance}/10[/yellow]\n"
                 f"  Emotion     {emotion or '[dim]none[/dim]'}\n"
                 f"  ID          [dim]{memory_id}[/dim]",
@@ -1036,7 +1075,20 @@ def remember_cmd(path, text, importance, emotion):
     default=0,
     help="Minimum importance threshold (0 = no filter)",
 )
-def recall_cmd(path, query, recent, limit, min_importance):
+@click.option(
+    "--full",
+    is_flag=True,
+    default=False,
+    help="Show complete memory content without truncation",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output results as a JSON array (machine-readable)",
+)
+def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
     """Query a Soul's memories.
 
     \b
@@ -1044,6 +1096,8 @@ def recall_cmd(path, query, recent, limit, min_importance):
       soul recall aria.soul "user preferences"
       soul recall aria.soul --recent 10
       soul recall aria.soul "python" --min-importance 5
+      soul recall aria.soul "python" --full
+      soul recall aria.soul --recent 5 --json
     """
 
     async def _recall():
@@ -1076,9 +1130,41 @@ def recall_cmd(path, query, recent, limit, min_importance):
             raise SystemExit(1)
 
         if not entries:
-            console.print(f"[dim]No memories found for {soul.name}.[/dim]")
+            if as_json:
+                click.echo("[]")
+            else:
+                console.print(f"[dim]No memories found for {soul.name}.[/dim]")
             return
 
+        # --json: machine-readable JSON array
+        if as_json:
+            items = [
+                {
+                    "type": entry.type.value,
+                    "content": entry.content,
+                    "importance": entry.importance,
+                    "emotion": entry.emotion,
+                    "created": entry.created_at.isoformat(),
+                }
+                for entry in entries
+            ]
+            click.echo(json.dumps(items, indent=2))
+            return
+
+        # --full: untruncated plain text output
+        if full:
+            for idx, entry in enumerate(entries, 1):
+                created = entry.created_at.strftime("%Y-%m-%d")
+                click.echo(
+                    f"--- Memory {idx} ({entry.type.value}, "
+                    f"importance: {entry.importance}, "
+                    f"created: {created}) ---"
+                )
+                click.echo(entry.content)
+                click.echo()
+            return
+
+        # Default: Rich table with truncation
         table = Table(title=title, border_style="blue")
         table.add_column("#", style="dim", width=3)
         table.add_column("Type", style="cyan", width=10)
@@ -1101,9 +1187,7 @@ def recall_cmd(path, query, recent, limit, min_importance):
             )
 
         console.print(table)
-        console.print(
-            f"[dim]{len(entries)} memor{'y' if len(entries) == 1 else 'ies'} found[/dim]"
-        )
+        console.print(f"[dim]{len(entries)} memor{'y' if len(entries) == 1 else 'ies'} found[/dim]")
 
     asyncio.run(_recall())
 
@@ -1116,7 +1200,9 @@ def recall_cmd(path, query, recent, limit, min_importance):
         case_sensitive=False,
     ),
 )
-@click.option("--soul", "soul_name", default=None, help="Soul name to inject (default: first found)")
+@click.option(
+    "--soul", "soul_name", default=None, help="Soul name to inject (default: first found)"
+)
 @click.option(
     "--dir",
     "-d",
@@ -1240,9 +1326,7 @@ def export_soulspec_cmd(source, output):
         soul = await Soul.awaken(source)
         out = output or f"{_safe_name(soul.name)}-soulspec"
         result = await SoulSpecImporter.to_soulspec(soul, out)
-        console.print(
-            f"[green]Exported[/green] {soul.name} to SoulSpec directory -> {result}/"
-        )
+        console.print(f"[green]Exported[/green] {soul.name} to SoulSpec directory -> {result}/")
 
     asyncio.run(_export())
 
@@ -1287,7 +1371,9 @@ def import_tavernai_cmd(source, output):
 @cli.command("export-tavernai")
 @click.argument("source", type=click.Path(exists=True))
 @click.option("--output", "-o", type=click.Path(), default=None, help="Output JSON path")
-@click.option("--png", type=click.Path(), default=None, help="Also export as PNG with embedded card")
+@click.option(
+    "--png", type=click.Path(), default=None, help="Also export as PNG with embedded card"
+)
 def export_tavernai_cmd(source, output, png):
     """Export a soul to TavernAI Character Card V2 format.
 
@@ -1309,15 +1395,11 @@ def export_tavernai_cmd(source, output, png):
 
         out = output or f"{_safe_name(soul.name)}-card.json"
         Path(out).write_text(json.dumps(card, indent=2, ensure_ascii=False))
-        console.print(
-            f"[green]Exported[/green] {soul.name} to TavernAI Card V2 -> {out}"
-        )
+        console.print(f"[green]Exported[/green] {soul.name} to TavernAI Card V2 -> {out}")
 
         if png:
             png_path = await TavernAIImporter.to_png(soul, png)
-            console.print(
-                f"[green]Exported[/green] TavernAI PNG with embedded card -> {png_path}"
-            )
+            console.print(f"[green]Exported[/green] TavernAI PNG with embedded card -> {png_path}")
 
     asyncio.run(_export())
 
@@ -1352,7 +1434,6 @@ def export_a2a_cmd(source, output, url):
         console.print(f"[green]Exported[/green] A2A Agent Card for {soul.name} → {out}")
 
     asyncio.run(_export())
-
 
 
 @cli.command("import-a2a")
@@ -1447,7 +1528,9 @@ def observe_cmd(path, user_input, agent_output, channel):
 
 @cli.command("reflect")
 @click.argument("path", type=click.Path(exists=True))
-@click.option("--no-apply", is_flag=True, default=False, help="Don't consolidate results into memory")
+@click.option(
+    "--no-apply", is_flag=True, default=False, help="Don't consolidate results into memory"
+)
 def reflect_cmd(path, no_apply):
     """Trigger memory consolidation and reflection.
 
@@ -1510,10 +1593,170 @@ def reflect_cmd(path, no_apply):
     asyncio.run(_reflect())
 
 
+@cli.command("dream")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--since", type=click.DateTime(), default=None, help="Only review episodes after this datetime"
+)
+@click.option("--no-archive", is_flag=True, default=False, help="Skip archiving old memories")
+@click.option(
+    "--no-synthesize",
+    is_flag=True,
+    default=False,
+    help="Skip creating procedural memories and evolution insights",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Preview what would change without mutating the soul. Shows planned archives, dedups, and graph merges.",
+)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON")
+def dream_cmd(path, since, no_archive, no_synthesize, dry_run, as_json):
+    """Run an offline dream cycle — batch memory consolidation.
+
+    Dreaming reviews accumulated episodes to detect topic patterns,
+    extract recurring procedures, consolidate the knowledge graph,
+    and propose personality evolution from behavioral trends.
+
+    Unlike reflect (which only summarizes recent episodes), dream
+    performs cross-tier synthesis: episodes → procedures, entities →
+    evolution, and graph → cleanup.
+
+    \b
+    Examples:
+      soul dream .soul/
+      soul dream pocketpaw.soul --since 2026-04-01
+      soul dream .soul/ --dry-run          # Preview without mutating
+      soul dream .soul/ --json
+      soul dream .soul/ --no-archive
+    """
+
+    async def _dream():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        report = await soul.dream(
+            since=since,
+            archive=not no_archive,
+            synthesize=not no_synthesize,
+            dry_run=dry_run,
+        )
+
+        # Save changes — skip on dry run so nothing hits disk
+        if not dry_run:
+            if Path(path).is_dir():
+                await soul.save_local(path)
+            else:
+                await soul.export(path)
+
+        if as_json:
+            import dataclasses
+
+            def _serialize(obj):
+                if isinstance(obj, datetime):
+                    return obj.isoformat()
+                if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+                    return dataclasses.asdict(obj)
+                return str(obj)
+
+            console.print_json(json.dumps(dataclasses.asdict(report), default=_serialize))
+            return
+
+        # Rich output
+        lines = []
+
+        # Header
+        if dry_run:
+            lines.append("[yellow bold]DRY RUN — no changes applied[/yellow bold]")
+            lines.append("")
+        lines.append(f"[bold]Episodes reviewed:[/bold] {report.episodes_reviewed}")
+
+        # Topic clusters
+        if report.topic_clusters:
+            lines.append("")
+            lines.append("[cyan bold]Topic Clusters[/cyan bold]")
+            for tc in report.topic_clusters[:8]:
+                time_range = ""
+                if tc.first_seen and tc.last_seen:
+                    time_range = (
+                        f" ({tc.first_seen.strftime('%m/%d')}-{tc.last_seen.strftime('%m/%d')})"
+                    )
+                lines.append(
+                    f"  • [bold]{tc.topic}[/bold] — {tc.episode_count} episodes{time_range}"
+                )
+
+        # Detected procedures
+        if report.detected_procedures:
+            lines.append("")
+            lines.append("[cyan bold]Recurring Patterns[/cyan bold]")
+            for dp in report.detected_procedures[:5]:
+                conf = f"[green]{'●' * int(dp.confidence * 5)}{'○' * (5 - int(dp.confidence * 5))}[/green]"
+                lines.append(f"  • {dp.description} {conf}")
+
+        # Behavioral trends
+        if report.behavioral_trends:
+            lines.append("")
+            lines.append("[cyan bold]Behavioral Trends[/cyan bold]")
+            for bt in report.behavioral_trends[:5]:
+                lines.append(f"  • {bt}")
+
+        # Consolidation stats
+        stats = []
+        if report.archived_count:
+            stats.append(f"archived={report.archived_count}")
+        if report.deduplicated_count:
+            stats.append(f"deduped={report.deduplicated_count}")
+        gc = report.graph_consolidation
+        if gc.merged_entities:
+            stats.append(f"entities_merged={len(gc.merged_entities)}")
+        if gc.pruned_edges:
+            stats.append(f"edges_pruned={gc.pruned_edges}")
+        if report.procedures_created:
+            stats.append(f"procedures_created={report.procedures_created}")
+
+        if stats:
+            lines.append("")
+            header = "Consolidation Preview" if dry_run else "Consolidation"
+            lines.append(f"[cyan bold]{header}[/cyan bold]")
+            lines.append(f"  {', '.join(stats)}")
+
+        # Evolution insights
+        if report.evolution_insights:
+            lines.append("")
+            lines.append("[cyan bold]Evolution Insights[/cyan bold]")
+            for ei in report.evolution_insights:
+                arrow = "↑" if ei.direction == "increase" else "↓"
+                lines.append(f"  • {ei.trait} {arrow} ({ei.magnitude:.2f}) — {ei.evidence}")
+
+        lines.append("")
+        lines.append(f"[dim]Duration: {report.duration_ms}ms[/dim]")
+
+        if not report.episodes_reviewed:
+            lines = ["[dim]No episodes to dream about.[/dim]"]
+
+        console.print(
+            Panel(
+                "\n".join(lines),
+                title=f"Dream Report — {soul.name}",
+                border_style="magenta",
+            )
+        )
+
+    asyncio.run(_dream())
+
+
 @cli.command("feel")
 @click.argument("path", type=click.Path(exists=True))
-@click.option("--mood", type=str, default=None, help="Set mood (neutral, curious, focused, tired, excited, contemplative, satisfied, concerned)")
-@click.option("--energy", type=float, default=None, help="Adjust energy (can be negative, e.g. -10)")
+@click.option(
+    "--mood",
+    type=str,
+    default=None,
+    help="Set mood (neutral, curious, focused, tired, excited, contemplative, satisfied, concerned)",
+)
+@click.option(
+    "--energy", type=float, default=None, help="Adjust energy (can be negative, e.g. -10)"
+)
 def feel_cmd(path, mood, energy):
     """Update a soul's emotional state.
 
@@ -1592,7 +1835,9 @@ def prompt_cmd(path):
 @click.argument("query", required=False, default=None)
 @click.option("--entity", type=str, default=None, help="Delete by entity name instead of query")
 @click.option("--before", type=str, default=None, help="Delete before ISO timestamp")
-@click.option("--confirm", "skip_confirm", is_flag=True, default=False, help="Skip confirmation prompt")
+@click.option(
+    "--confirm", "skip_confirm", is_flag=True, default=False, help="Skip confirmation prompt"
+)
 def forget_cmd(path, query, entity, before, skip_confirm):
     """Delete memories by query, entity, or timestamp (GDPR-compliant).
 
@@ -1628,17 +1873,13 @@ def forget_cmd(path, query, entity, before, skip_confirm):
                 console.print(f"[red]Invalid ISO timestamp:[/red] '{before}'")
                 raise SystemExit(1)
             description = f"memories before {before}"
-            if not skip_confirm and not click.confirm(
-                f"Delete all {description}?"
-            ):
+            if not skip_confirm and not click.confirm(f"Delete all {description}?"):
                 console.print("[dim]Cancelled.[/dim]")
                 return
             result = await soul.forget_before(timestamp)
         elif query:
             description = f"query '{query}'"
-            if not skip_confirm and not click.confirm(
-                f"Delete memories matching {description}?"
-            ):
+            if not skip_confirm and not click.confirm(f"Delete memories matching {description}?"):
                 console.print("[dim]Cancelled.[/dim]")
                 return
             result = await soul.forget(query)
@@ -1716,9 +1957,19 @@ def edit_core_cmd(path, persona, human):
 @click.option("--trait", type=str, default=None, help="Trait to mutate (with --propose)")
 @click.option("--value", type=str, default=None, help="New value for trait (with --propose)")
 @click.option("--reason", type=str, default=None, help="Reason for mutation (with --propose)")
-@click.option("--approve", "approve_id", type=str, default=None, help="Approve a pending mutation by ID")
-@click.option("--reject", "reject_id", type=str, default=None, help="Reject a pending mutation by ID")
-@click.option("--list", "list_mutations", is_flag=True, default=False, help="List pending mutations and history")
+@click.option(
+    "--approve", "approve_id", type=str, default=None, help="Approve a pending mutation by ID"
+)
+@click.option(
+    "--reject", "reject_id", type=str, default=None, help="Reject a pending mutation by ID"
+)
+@click.option(
+    "--list",
+    "list_mutations",
+    is_flag=True,
+    default=False,
+    help="List pending mutations and history",
+)
 def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_mutations):
     """Manage soul evolution — propose, approve, reject, or list mutations.
 
@@ -1797,7 +2048,9 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
                 for m in history:
                     status = "[green]Approved[/]" if m.approved else "[red]Rejected[/]"
                     date = m.approved_at.strftime("%Y-%m-%d") if m.approved_at else ""
-                    htable.add_row(m.id[:12], m.trait, f"{m.old_value} → {m.new_value}", status, date)
+                    htable.add_row(
+                        m.id[:12], m.trait, f"{m.old_value} → {m.new_value}", status, date
+                    )
                 console.print(htable)
             else:
                 console.print("[dim]No evolution history.[/dim]")
@@ -2012,9 +2265,7 @@ def bond_cmd(path, strengthen):
             f"  Since:        {bond.bonded_at.strftime('%Y-%m-%d %H:%M')}",
         ]
 
-        console.print(
-            Panel("\n".join(lines), title=f"Bond — {soul.name}", border_style="blue")
-        )
+        console.print(Panel("\n".join(lines), title=f"Bond — {soul.name}", border_style="blue"))
 
     asyncio.run(_bond())
 
@@ -2071,11 +2322,17 @@ def events_cmd(path, recent):
 @click.argument("path", type=click.Path(exists=True), required=False, default=None)
 @click.option("--ingest", is_flag=True, default=False, help="Ingest a message into context")
 @click.option("--role", type=str, default=None, help="Message role (with --ingest)")
-@click.option("--content", "msg_content", type=str, default=None, help="Message content (with --ingest)")
+@click.option(
+    "--content", "msg_content", type=str, default=None, help="Message content (with --ingest)"
+)
 @click.option("--assemble", is_flag=True, default=False, help="Assemble context window")
 @click.option("--max-tokens", type=int, default=None, help="Token budget (with --assemble)")
-@click.option("--grep", "grep_pattern", type=str, default=None, help="Search context history by pattern")
-@click.option("--describe", "describe_flag", is_flag=True, default=False, help="Show context store metadata")
+@click.option(
+    "--grep", "grep_pattern", type=str, default=None, help="Search context history by pattern"
+)
+@click.option(
+    "--describe", "describe_flag", is_flag=True, default=False, help="Show context store metadata"
+)
 def context_cmd(path, ingest, role, msg_content, assemble, max_tokens, grep_pattern, describe_flag):
     """LCM (Lossless Context Management) — ingest, assemble, search, and describe context.
 
@@ -2150,6 +2407,339 @@ def context_cmd(path, ingest, role, msg_content, assemble, max_tokens, grep_patt
             raise SystemExit(1)
 
     asyncio.run(_context())
+
+
+# ---------------------------------------------------------------------------
+# soul health / cleanup / repair — soul maintenance commands (v0.2.7)
+# ---------------------------------------------------------------------------
+
+
+@cli.command("health")
+@click.argument("path", type=click.Path(exists=True))
+def health_cmd(path):
+    """Audit a soul's health — memory tiers, duplicates, skills, graph, bond."""
+
+    async def _health():
+        from soul_protocol.runtime.memory.compression import MemoryCompressor
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        mm = soul._memory
+
+        episodic = builtins.list(mm._episodic.entries())
+        semantic = builtins.list(mm._semantic.facts())
+        procedural = builtins.list(mm._procedural.entries())
+        graph_nodes = mm._graph.entities()
+        skills = soul.skills.skills
+        evals = soul.evaluator._history
+        total = len(episodic) + len(semantic) + len(procedural)
+
+        # Detect duplicates
+        compressor = MemoryCompressor()
+        all_mems = episodic + semantic + procedural
+        deduped = compressor.deduplicate(all_mems, similarity_threshold=0.8)
+        dup_count = len(all_mems) - len(deduped)
+
+        # Detect low-importance memories
+        low_imp = [m for m in all_mems if m.importance <= 2]
+
+        # Detect stale procedural (evaluation scores)
+        stale_proc = [p for p in procedural if p.content.startswith("Scored ")]
+
+        # Orphan graph nodes (nodes not referenced in any memory)
+        all_content = " ".join(m.content for m in all_mems)
+        orphan_nodes = [
+            n for n in graph_nodes if n.lower() not in all_content.lower() and len(n) > 2
+        ]
+
+        # Bond sanity
+        bond = soul.bond
+        bond_issues = []
+        if bond.bond_strength > 100:
+            bond_issues.append(f"Bond strength {bond.bond_strength:.0f} exceeds 100")
+        if bond.bond_strength < 0:
+            bond_issues.append(f"Bond strength {bond.bond_strength:.0f} is negative")
+
+        # Skill sanity
+        skill_issues = []
+        for s in skills:
+            if s.xp < 0:
+                skill_issues.append(f"Skill {s.id} has negative XP ({s.xp})")
+            if s.level < 1 or s.level > 10:
+                skill_issues.append(f"Skill {s.id} has invalid level ({s.level})")
+
+        # Build report
+        lines = [
+            f"[bold]{soul.name}[/bold] — Soul Health Report",
+            "",
+            "[bold]Memory Tiers[/bold]",
+            f"  Episodic:    {len(episodic):>5}",
+            f"  Semantic:    {len(semantic):>5}",
+            f"  Procedural:  {len(procedural):>5}",
+            f"  [bold]Total:       {total:>5}[/bold]",
+            "",
+            "[bold]Knowledge & Skills[/bold]",
+            f"  Graph nodes: {len(graph_nodes):>5}",
+            f"  Skills:      {len(skills):>5}",
+            f"  Eval history:{len(evals):>5}",
+            "",
+            "[bold]Bond[/bold]",
+            f"  Strength:    {bond.bond_strength:>5.1f}",
+            f"  Interactions:{bond.interaction_count:>5}",
+            "",
+            "[bold]Issues Found[/bold]",
+        ]
+
+        issues_found = 0
+        if dup_count > 0:
+            lines.append(f"  [yellow]⚠ {dup_count} duplicate memories (>80% overlap)[/]")
+            issues_found += 1
+        if low_imp:
+            lines.append(f"  [dim]ℹ {len(low_imp)} low-importance memories (≤2)[/]")
+        if stale_proc:
+            lines.append(f"  [dim]ℹ {len(stale_proc)} evaluation procedural entries[/]")
+        if orphan_nodes and len(orphan_nodes) > 10:
+            lines.append(
+                f"  [yellow]⚠ {len(orphan_nodes)} orphan graph nodes (not in any memory)[/]"
+            )
+            issues_found += 1
+        for issue in bond_issues:
+            lines.append(f"  [red]✗ {issue}[/]")
+            issues_found += 1
+        for issue in skill_issues:
+            lines.append(f"  [red]✗ {issue}[/]")
+            issues_found += 1
+
+        if issues_found == 0 and not low_imp and not stale_proc:
+            lines.append("  [green]✓ No issues found — soul is healthy[/]")
+        elif issues_found == 0:
+            lines.append("  [green]✓ No critical issues[/]")
+
+        color = "green" if issues_found == 0 else "yellow" if issues_found < 3 else "red"
+        console.print(Panel("\n".join(lines), title="Soul Health", border_style=color))
+
+    asyncio.run(_health())
+
+
+@cli.command("cleanup")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--auto", "auto_mode", is_flag=True, help="Apply all cleanups without prompting.")
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be cleaned without changing anything."
+)
+@click.option("--dedup/--no-dedup", default=True, help="Remove near-duplicate memories.")
+@click.option(
+    "--stale-evals/--no-stale-evals", default=True, help="Remove low-value evaluation procedurals."
+)
+@click.option("--orphan-nodes/--no-orphan-nodes", default=True, help="Remove orphan graph nodes.")
+@click.option(
+    "--low-importance", type=int, default=0, help="Remove memories with importance ≤ N (0=skip)."
+)
+def cleanup_cmd(path, auto_mode, dry_run, dedup, stale_evals, orphan_nodes, low_importance):
+    """Clean up a soul — remove duplicates, stale evals, orphan nodes."""
+
+    async def _cleanup():
+        from soul_protocol.runtime.memory.compression import MemoryCompressor
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        mm = soul._memory
+        actions = []
+
+        # 1. Deduplicate
+        if dedup:
+            compressor = MemoryCompressor()
+            for tier_name, store in [
+                ("episodic", mm._episodic),
+                ("semantic", mm._semantic),
+                ("procedural", mm._procedural),
+            ]:
+                if tier_name == "semantic":
+                    entries = builtins.list(store.facts())
+                else:
+                    entries = builtins.list(store.entries())
+                if not entries:
+                    continue
+                deduped = compressor.deduplicate(entries, similarity_threshold=0.8)
+                removed_ids = {m.id for m in entries} - {m.id for m in deduped}
+                if removed_ids:
+                    actions.append(("dedup", tier_name, removed_ids))
+
+        # 2. Stale evaluation procedurals
+        if stale_evals:
+            procedural = builtins.list(mm._procedural.entries())
+            stale = [p for p in procedural if p.content.startswith("Scored ") and p.importance <= 5]
+            if stale:
+                actions.append(("stale_evals", "procedural", {p.id for p in stale}))
+
+        # 3. Orphan graph nodes
+        if orphan_nodes:
+            all_mems = (
+                builtins.list(mm._episodic.entries())
+                + builtins.list(mm._semantic.facts())
+                + builtins.list(mm._procedural.entries())
+            )
+            all_content = " ".join(m.content for m in all_mems).lower()
+            nodes = mm._graph.entities()
+            orphans = [n for n in nodes if n.lower() not in all_content and len(n) > 2]
+            if orphans:
+                actions.append(("orphan_nodes", "graph", orphans))
+
+        # 4. Low importance
+        if low_importance > 0:
+            for tier_name, store in [("episodic", mm._episodic), ("semantic", mm._semantic)]:
+                if tier_name == "semantic":
+                    entries = builtins.list(store.facts())
+                else:
+                    entries = builtins.list(store.entries())
+                low = [m for m in entries if m.importance <= low_importance]
+                if low:
+                    actions.append(("low_importance", tier_name, {m.id for m in low}))
+
+        if not actions:
+            console.print("[green]✓ Nothing to clean up — soul is tidy[/]")
+            return
+
+        # Show plan
+        total_removals = 0
+        for action_type, target, items in actions:
+            count = len(items)
+            total_removals += count
+            if action_type == "dedup":
+                console.print(f"  [yellow]Remove {count} duplicates from {target}[/]")
+            elif action_type == "stale_evals":
+                console.print(f"  [yellow]Remove {count} stale evaluation entries[/]")
+            elif action_type == "orphan_nodes":
+                console.print(f"  [yellow]Remove {count} orphan graph nodes[/]")
+                if count <= 10:
+                    for n in items:
+                        console.print(f"    - {n}")
+            elif action_type == "low_importance":
+                console.print(f"  [yellow]Remove {count} low-importance memories from {target}[/]")
+
+        console.print(f"\n  [bold]Total: {total_removals} items to remove[/]")
+
+        if dry_run:
+            console.print("\n[dim]Dry run — no changes made.[/]")
+            return
+
+        # Confirm
+        if not auto_mode:
+            if not click.confirm("\nProceed with cleanup?"):
+                console.print("[dim]Cancelled.[/]")
+                return
+
+        # Execute
+        removed = 0
+        for action_type, target, items in actions:
+            if action_type == "orphan_nodes":
+                for node in items:
+                    mm._graph.remove_entity(node)
+                    removed += 1
+            elif action_type in ("dedup", "stale_evals", "low_importance"):
+                for mid in items:
+                    if target == "episodic":
+                        await mm._episodic.remove(mid)
+                    elif target == "semantic":
+                        await mm._semantic.remove(mid)
+                    elif target == "procedural":
+                        await mm._procedural.remove(mid)
+                    removed += 1
+
+        # Save
+        await soul.export(path)
+        console.print(f"\n[green]✓ Cleaned {removed} items. Soul saved.[/]")
+
+    asyncio.run(_cleanup())
+
+
+@cli.command("repair")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--reset-energy", is_flag=True, help="Reset energy and social battery to 100%.")
+@click.option("--reset-bond", is_flag=True, help="Reset bond strength to 50.0.")
+@click.option("--rebuild-graph", is_flag=True, help="Rebuild knowledge graph from memory content.")
+@click.option("--clear-evals", is_flag=True, help="Clear evaluation history.")
+@click.option("--clear-skills", is_flag=True, help="Clear all learned skills.")
+@click.option("--clear-procedural", is_flag=True, help="Clear all procedural memories.")
+def repair_cmd(
+    path, reset_energy, reset_bond, rebuild_graph, clear_evals, clear_skills, clear_procedural
+):
+    """Repair a soul — reset state, rebuild graph, clear stale data."""
+
+    async def _repair():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        changes = []
+
+        if reset_energy:
+            soul._state.current.energy = 100.0
+            soul._state.current.social_battery = 100.0
+            changes.append("Reset energy and social battery to 100%")
+
+        if reset_bond:
+            soul._identity.bond.bond_strength = 50.0
+            changes.append("Reset bond strength to 50.0")
+
+        if rebuild_graph:
+            # Clear and rebuild from all memories
+            mm = soul._memory
+            old_count = len(mm._graph.entities())
+            mm._graph._entities.clear()
+            mm._graph._edges.clear()
+
+            all_mems = builtins.list(mm._episodic.entries()) + builtins.list(mm._semantic.facts())
+            from soul_protocol.runtime.types import Interaction
+
+            for mem in all_mems:
+                # Extract entities from memory content using the heuristic extractor
+                interaction = Interaction(user_input=mem.content, agent_output="")
+                entities = mm.extract_entities(interaction)
+                if entities:
+                    graph_entities = []
+                    for ent in entities:
+                        graph_ent = {
+                            "name": ent["name"],
+                            "entity_type": ent.get("type", "unknown"),
+                        }
+                        graph_entities.append(graph_ent)
+                    await mm.update_graph(graph_entities)
+
+            new_count = len(mm._graph.entities())
+            changes.append(f"Rebuilt graph: {old_count} → {new_count} nodes")
+
+        if clear_evals:
+            count = len(soul.evaluator._history)
+            soul.evaluator._history.clear()
+            changes.append(f"Cleared {count} evaluation entries")
+
+        if clear_skills:
+            count = len(soul.skills.skills)
+            soul.skills.skills.clear()
+            changes.append(f"Cleared {count} skills")
+
+        if clear_procedural:
+            mm = soul._memory
+            procs = builtins.list(mm._procedural.entries())
+            for p in procs:
+                await mm._procedural.remove(p.id)
+            changes.append(f"Cleared {len(procs)} procedural memories")
+
+        if not changes:
+            console.print("[yellow]No repair actions specified. Use --help to see options.[/]")
+            return
+
+        # Save
+        await soul.export(path)
+
+        lines = [f"[bold]{soul.name}[/bold] — Repairs Applied", ""]
+        for change in changes:
+            lines.append(f"  [green]✓[/] {change}")
+        lines.append(f"\n  Soul saved to {path}")
+
+        console.print(Panel("\n".join(lines), title="Soul Repair", border_style="green"))
+
+    asyncio.run(_repair())
 
 
 if __name__ == "__main__":

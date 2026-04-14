@@ -11,7 +11,7 @@ license: MIT
 compatibility: "Python 3.11+. CLI requires soul-protocol[engine]. MCP server requires soul-protocol[mcp]."
 metadata:
   author: OCEAN Foundation
-  version: 0.2.5
+  version: 0.2.9
   repository: https://github.com/qbtrix/soul-protocol
   pypi: https://pypi.org/project/soul-protocol/
 ---
@@ -58,10 +58,18 @@ soul list
 ### Memory operations
 
 ```bash
-# Store a memory (fast — direct write, no server round-trip)
+# Store a memory — semantic by default (facts the soul knows)
 soul remember .soul/aria.soul "User prefers concise answers" --importance 8
 soul remember .soul/aria.soul "User is a senior Python developer" --importance 9
 soul remember .soul/aria.soul "Had a productive session" --emotion happy
+
+# Store an episodic memory — events that happened (sessions, decisions, shipped work)
+soul remember .soul/aria.soul "Shipped v0.3 today" --type episodic --importance 8
+soul remember .soul/aria.soul "Signed the contract with Acme" --type episodic --importance 9
+
+# Store a procedural memory — skills and how-tos
+soul remember .soul/aria.soul "To deploy: run make deploy then verify /health" --type procedural
+soul remember .soul/aria.soul "Debug Claude SDK: set ANTHROPIC_DEBUG=1" --type procedural
 
 # Recall memories by query
 soul recall .soul/aria.soul "user preferences"
@@ -69,6 +77,68 @@ soul recall .soul/aria.soul "python" --limit 5 --min-importance 7
 
 # Show recent memories
 soul recall .soul/aria.soul --recent 10
+
+# LLM-friendly output (v0.2.8) — use these when agents need full content
+soul recall .soul/aria.soul "query" --full          # Complete text, no truncation
+soul recall .soul/aria.soul "query" --json          # Machine-readable JSON array
+soul recall .soul/aria.soul --recent 5 --json       # Recent memories as JSON
+```
+
+**Memory tier guide** (v0.2.9+):
+- **episodic** — what happened (events, sessions, shipped work, decisions). Use when the memory answers "when did that happen?"
+- **semantic** — what the soul knows (facts, preferences, project knowledge). Default tier. Use when the memory answers "what do I know about X?"
+- **procedural** — how to do things (commands, recipes, debugging tips). Use when the memory answers "how do I...?"
+
+If you omit `--type`, the memory lands in semantic. Core memory (persona) is edited separately via `soul edit-core`.
+
+### Runtime operations (v0.2.6)
+
+```bash
+# Process interaction through full cognitive pipeline
+soul observe .soul/ --user-input "Hello" --agent-output "Hi there!" --channel discord
+
+# Memory consolidation and reflection
+soul reflect .soul/
+soul reflect aria.soul --no-apply
+
+# Offline batch consolidation (dream cycle)
+soul dream .soul/
+soul dream pocketpaw.soul --since 2026-04-01
+soul dream .soul/ --json
+
+# Update emotional state
+soul feel .soul/ --mood excited --energy 5
+
+# Generate system prompt (pipe-friendly, no Rich formatting)
+soul prompt .soul/ > prompt.txt
+
+# Delete memories (GDPR-compliant)
+soul forget .soul/ "credit card"
+soul forget aria.soul --entity "John Doe"
+
+# Edit core memory
+soul edit-core .soul/ --persona "I am a helpful coding assistant"
+soul edit-core aria.soul --human "User prefers Python"
+
+# Evolution system
+soul evolve .soul/ --propose --trait communication.warmth --value high --reason "User prefers warmth"
+soul evolve .soul/ --list
+soul evolve .soul/ --approve abc123
+
+# Evaluation and learning
+soul evaluate .soul/ --user-input "Explain recursion" --agent-output "Recursion is..."
+soul learn .soul/ --user-input "Fix this bug" --agent-output "Here's the fix" --domain coding
+
+# Skills, bonds, events (v0.2.7: skills + eval history now persist across sessions)
+soul skills .soul/
+soul bond .soul/ --strengthen 5.0
+soul events .soul/ --recent 20
+
+# LCM context management
+soul context --ingest --role user --content "Hello there"
+soul context --assemble --max-tokens 4000
+soul context --grep "hello"
+soul context --describe
 ```
 
 ### Export and portability
@@ -131,35 +201,71 @@ soul export .soul/myagent.soul --output .soul/myagent.soul
 |------|-------|-----|
 | Store a memory | `soul remember path "text" -i 8` | `soul_remember(content, importance)` |
 | Search memories | `soul recall path "query" -n 5` | `soul_recall(query, limit)` |
+| Search (full text) | `soul recall path "query" --full` | `soul_recall(query)` (returns full content) |
+| Search (JSON) | `soul recall path "query" --json` | `soul_recall(query)` (already JSON) |
 | Check status | `soul status path` | `soul_state()` |
 | Create soul | `soul birth "Name"` | `soul_birth(name)` |
 | Inspect soul | `soul inspect path` | `soul_prompt()` + `soul_state()` |
 | Export | `soul export path -o out.soul` | `soul_export(path)` |
 | List souls | `soul list` | `soul_list()` |
 | Configure agent | `soul inject --target X` | N/A (manual config) |
+| Process interaction | `soul observe path --user-input X --agent-output Y` | `soul_observe(user_input, agent_output)` |
+| Reflect | `soul reflect path` | `soul_reflect()` |
+| Dream | `soul dream path` | `soul_dream()` |
+| Update mood/energy | `soul feel path --mood X --energy Y` | `soul_feel(mood, energy)` |
+| System prompt | `soul prompt path` | `soul_prompt()` |
+| Delete memories | `soul forget path "query"` | `soul_forget(query)` |
+| Edit core memory | `soul edit-core path --persona X` | `soul_edit_core(persona, human)` |
+| Evolution | `soul evolve path --propose ...` | `soul_evolve(action, trait, new_value, reason)` |
+| Evaluate | `soul evaluate path --user-input X --agent-output Y` | `soul_evaluate(user_input, agent_output)` |
+| Learn | `soul learn path --user-input X --agent-output Y` | `soul_learn(user_input, agent_output)` |
+| Skills | `soul skills path` | `soul_skills()` |
+| Bond | `soul bond path` | `soul_bond(strengthen)` |
+| Events | `soul events path` | N/A (Python API) |
+| Health audit | `soul health path` | `soul_health()` |
+| Cleanup | `soul cleanup path --auto` | `soul_cleanup(auto)` |
+| Repair | `soul repair path --reset-energy` | N/A (CLI only) |
+| Ingest context | `soul context --ingest --role X --content Y` | `soul_context_ingest(role, content)` |
+| Assemble context | `soul context --assemble --max-tokens N` | `soul_context_assemble(max_tokens)` |
+| Search context | `soul context --grep PATTERN` | `soul_context_grep(pattern)` |
+| Expand node | N/A | `soul_context_expand(node_id)` |
+| Context metadata | `soul context --describe` | `soul_context_describe()` |
 
 **Rule of thumb:** if the agent has Bash access, always prefer CLI. It's a direct process call — no JSON-RPC serialization, no MCP protocol overhead, no server needed.
 
 ## MCP Server (for agents without shell access)
 
-18 tools available. Only set this up if the agent can't run shell commands.
+24 tools available (14 soul/memory + 5 context + 5 psychology). Only set this up if the agent can't run shell commands.
 
 ```bash
-# Start server (auto-detects .soul/ directory)
+# Start server (auto-detects .soul/ directory — no env vars needed)
 soul-mcp
 
 # Or with explicit path
 SOUL_DIR=.soul soul-mcp
 ```
 
+**Auto-detect:** When no `SOUL_DIR` or `SOUL_PATH` env var is set, the server looks for `.soul/` in CWD first, then falls back to `~/.soul/`. Just run `soul-mcp` in a project with a `.soul/` folder and it works.
+
+**MCP Sampling Engine:** The server delegates cognitive tasks (sentiment, fact extraction, reflection, context compaction) to the host LLM via `ctx.sample()`. No API key needed — the host provides the model. Wired lazily on the first tool call.
+
 ### Soul tools (9)
 `soul_birth`, `soul_list`, `soul_switch`, `soul_state`, `soul_feel`, `soul_save`, `soul_export`, `soul_reload`, `soul_prompt`
 
 ### Memory tools (4)
-`soul_observe`, `soul_remember`, `soul_recall`, `soul_reflect`
+`soul_observe`, `soul_remember`, `soul_recall`, `soul_reflect`, `soul_dream`
 
 ### Context tools — LCM (5)
-`soul_context_ingest`, `soul_context_assemble`, `soul_context_grep`, `soul_context_expand`, `soul_context_describe`
+| Tool | Purpose |
+|------|---------|
+| `soul_context_ingest` | Ingest a message (role + content) into the immutable context store |
+| `soul_context_assemble` | Assemble a context window within a token budget (auto-compacts) |
+| `soul_context_grep` | Regex search across all context history (even compacted messages) |
+| `soul_context_expand` | Expand a compacted node back to original messages (lossless recovery) |
+| `soul_context_describe` | Metadata snapshot: message count, tokens, date range, compaction stats |
+
+### Psychology tools (5)
+`soul_evolve`, `soul_evaluate`, `soul_learn`, `soul_skills`, `soul_bond`
 
 ### Resources (3)
 `soul://identity`, `soul://memory/core`, `soul://state`
@@ -228,7 +334,7 @@ Messages go into an immutable SQLite store. Three-level compaction when the wind
 
 After compaction, `grep` still searches originals and `expand` recovers them. Nothing is lost.
 
-LCM is currently MCP-only (no CLI commands yet). Use `soul_context_ingest`, `soul_context_assemble`, `soul_context_grep`, `soul_context_expand`, `soul_context_describe`.
+LCM is available via both MCP (`soul_context_*` tools) and CLI (`soul context --ingest`, `--assemble`, `--grep`, `--describe`). The CLI uses an in-memory SQLite store per invocation; the MCP server maintains a persistent per-soul context store across the session.
 
 ## Python API (for building on top)
 
@@ -263,10 +369,17 @@ await soul.export("aria.soul")
 ## .soul File Format
 
 A `.soul` file is a ZIP archive containing:
-- `soul.json` — Identity, DNA (OCEAN personality), state
-- `memory.json` — All memory tiers
-- `graph.json` — Knowledge graph (if present)
-- `metadata.json` — Version, timestamps
+- `manifest.json` — Version, timestamps, format metadata
+- `soul.json` — Identity, DNA (OCEAN personality), config
+- `state.json` — Runtime state (mood, energy, lifecycle)
+- `dna.md` — Human-readable personality snapshot
+- `memory/core.json` — Core memory (persona + human knowledge)
+- `memory/episodic.json` — Interaction history with sentiment
+- `memory/semantic.json` — Extracted facts
+- `memory/procedural.json` — Learned patterns
+- `memory/graph.json` — Knowledge graph (entity relationships)
+- `memory/self_model.json` — Self-image and reflection data
+- `memory/general_events.json` — General event log
 
 Portable across platforms. `soul inject` writes MCP config for any supported agent.
 

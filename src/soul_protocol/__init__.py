@@ -1,5 +1,14 @@
 # __init__.py — Public API for the soul-protocol package
-# Updated: 2026-03-23 (v0.2.5 release) — Bumped __version__ to 0.2.5.
+# Updated: 2026-04-14 (v0.3.1 release) — Bumped __version__ to 0.3.1.
+#   New features: org-layer (journal + SQLite WAL engine, root agent,
+#   retrieval router + credential broker, decision traces, soul org CLI),
+#   scope tags on MemoryEntry, RetrievalTrace receipts, bundled role
+#   archetype templates. Fix: bare pip install now produces a working CLI.
+# Updated: 2026-04-09 (v0.3.0 release) — Bumped __version__ to 0.3.0.
+#   New features: dream cycle (offline batch consolidation), smart recall
+#   (LLM-reranked memory retrieval, opt-in), significance short-circuit
+#   (skip expensive steps on trivial interactions), soul remember --type flag.
+# Updated: 2026-03-29 (v0.2.9 release) — Bumped __version__ to 0.2.9.
 # Updated: feat/spec-multi-participant — Added Participant, BondTarget exports
 #   for multi-participant Interaction and multi-bond Identity support.
 # Updated: feat/soul-encryption — Added SoulEncryptedError and SoulDecryptionError
@@ -26,6 +35,12 @@ from __future__ import annotations
 
 from .runtime.bond import Bond
 from .runtime.cognitive.engine import CognitiveEngine, HeuristicEngine
+from .runtime.eternal import (
+    ArchiveResult,
+    EternalStorageManager,
+    EternalStorageProvider,
+    RecoverySource,
+)
 from .runtime.exceptions import (
     SoulCorruptError,
     SoulDecryptionError,
@@ -68,7 +83,6 @@ from .runtime.types import (
     SoulManifest,
     SoulState,
 )
-from .runtime.eternal import ArchiveResult, EternalStorageManager, EternalStorageProvider, RecoverySource
 
 # Core primitives from spec/ (always available — only requires pydantic)
 from .spec.identity import BondTarget as CoreBondTarget
@@ -88,8 +102,8 @@ from .spec.manifest import Manifest as CoreManifest
 from .spec.memory import DictMemoryStore, MemoryStore
 from .spec.memory import Interaction as CoreInteraction
 from .spec.memory import MemoryEntry as CoreMemoryEntry
-from .spec.template import SoulTemplate
 from .spec.memory import Participant as CoreParticipant
+from .spec.template import SoulTemplate
 
 __all__ = [
     "Bond",
@@ -170,4 +184,4 @@ __all__ = [
     "cluster_correction_patterns",
 ]
 
-__version__ = "0.2.5"
+__version__ = "0.3.1"

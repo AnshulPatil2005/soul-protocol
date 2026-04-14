@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from .a2a import A2AAgentCard, A2ASkill, SoulExtension
 from .container import SoulContainer
 from .context import (
     AssembleResult,
@@ -35,7 +36,6 @@ from .embeddings import (
     euclidean_distance,
 )
 from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
-from .a2a import A2AAgentCard, A2ASkill, SoulExtension
 from .identity import BondTarget, Identity
 from .decisions import (
     AgentProposal,
@@ -49,13 +49,20 @@ from .decisions import (
     trace_decision_chain,
 )
 from .journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
+from .learning import LearningEvent
 from .manifest import Manifest
-from .memory import DictMemoryStore, Interaction, MemoryEntry, MemoryStore, MemoryVisibility, Participant
+from .memory import (
+    DictMemoryStore,
+    Interaction,
+    MemoryEntry,
+    MemoryStore,
+    MemoryVisibility,
+    Participant,
+)
 from .scope import match_scope, normalise_scopes
+from .soul_file import pack_soul, unpack_soul, unpack_to_container
 from .template import SoulTemplate
 from .trace import RetrievalTrace, TraceCandidate
-from .learning import LearningEvent
-from .soul_file import pack_soul, unpack_soul, unpack_to_container
 
 __all__ = [
     # A2A Agent Card

@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -199,7 +199,8 @@ class TestLabelMoodMapping:
 class TestEnergyOverride:
     def test_low_energy_overrides_sentiment_mood(self):
         """TIRED override fires when energy < 20, regardless of somatic signal."""
-        manager = StateManager(_make_state(energy=21.0))
+        bio = Biorhythms(energy_drain_rate=2.0, tired_threshold=20.0, auto_regen=False)
+        manager = StateManager(_make_state(energy=21.0), biorhythms=bio)
         interaction = _make_interaction()
 
         # Drain energy to below 20
@@ -211,7 +212,8 @@ class TestEnergyOverride:
 
     def test_positive_sentiment_does_not_override_tired(self):
         """Strong positive signal should not clear TIRED when energy is low."""
-        manager = StateManager(_make_state(energy=20.0))
+        bio = Biorhythms(energy_drain_rate=2.0, tired_threshold=20.0, auto_regen=False)
+        manager = StateManager(_make_state(energy=20.0), biorhythms=bio)
         manager.on_interaction(
             _make_interaction(),
             somatic=_make_somatic(valence=0.9, arousal=0.8, label="excitement"),
@@ -241,18 +243,18 @@ class TestBiorhythmsConfig:
     # Constructor: default Biorhythms when none supplied
     # ------------------------------------------------------------------
 
-    def test_default_biorhythms_applied_when_not_supplied(self):
-        """StateManager(state) uses Biorhythms() defaults — 2 energy drain per interaction."""
+    def test_default_biorhythms_no_drain(self):
+        """StateManager(state) uses Biorhythms() defaults — 0 drain (always-on mode)."""
         manager = StateManager(_make_state())
         manager.on_interaction(_make_interaction())
-        # Default energy_drain_rate=2.0; energy starts at 100 → 98
-        assert manager.current.energy == pytest.approx(98.0)
+        # Default drain rates are 0.0 — energy stays at 100
+        assert manager.current.energy == pytest.approx(100.0)
 
-    def test_default_biorhythms_social_drain(self):
-        """Default social_drain_rate=5 → social_battery drops from 100 to 95."""
+    def test_default_biorhythms_no_social_drain(self):
+        """Default social_drain_rate=0 → social_battery stays at 100."""
         manager = StateManager(_make_state())
         manager.on_interaction(_make_interaction())
-        assert manager.current.social_battery == pytest.approx(95.0)
+        assert manager.current.social_battery == pytest.approx(100.0)
 
     def test_biorhythms_attribute_accessible(self):
         """biorhythms property returns the configured Biorhythms instance."""
@@ -467,7 +469,7 @@ class TestAutoRegen:
 
     def test_auto_regen_recovers_energy_after_gap(self):
         """2 hours elapsed at 10/hr regen → +20 energy before next drain."""
-        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
         t2 = t1 + timedelta(hours=2)
 
         bio = Biorhythms(energy_drain_rate=2.0, energy_regen_rate=10.0, auto_regen=True)
@@ -484,7 +486,7 @@ class TestAutoRegen:
 
     def test_auto_regen_recovers_social_battery_after_gap(self):
         """Social battery recovers at half the energy_regen_rate per hour."""
-        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
         t2 = t1 + timedelta(hours=4)
 
         bio = Biorhythms(
@@ -496,7 +498,6 @@ class TestAutoRegen:
 
         # First interaction: social drops from 100 → 95
         manager.on_interaction(_make_interaction_at(t1))
-        battery_after_first = manager.current.social_battery  # 95
 
         # Second interaction: regen = 10/2 * 4 = +20 social, then drain -5 → 95 + 20 - 5 = 110 → clamped 100
         manager.on_interaction(_make_interaction_at(t2))
@@ -505,7 +506,7 @@ class TestAutoRegen:
 
     def test_auto_regen_capped_at_100(self):
         """Energy recovery is clamped at 100 even after a very long gap."""
-        t1 = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
         t2 = t1 + timedelta(hours=24)
 
         bio = Biorhythms(
@@ -524,7 +525,7 @@ class TestAutoRegen:
 
     def test_auto_regen_disabled_no_recovery(self):
         """Biorhythms(auto_regen=False) → no energy recovery between interactions."""
-        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
         t2 = t1 + timedelta(hours=8)
 
         bio = Biorhythms(
@@ -543,7 +544,7 @@ class TestAutoRegen:
 
     def test_auto_regen_skipped_on_first_interaction(self):
         """No last_interaction → auto-regen does not run on the very first interaction."""
-        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
         bio = Biorhythms(energy_drain_rate=2.0, energy_regen_rate=10.0, auto_regen=True)
         manager = StateManager(_make_state(energy=80.0), biorhythms=bio)
 
@@ -554,7 +555,7 @@ class TestAutoRegen:
 
     def test_auto_regen_same_timestamp_no_recovery(self):
         """Two consecutive interactions at the same timestamp → zero elapsed → no regen."""
-        t = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+        t = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
         bio = Biorhythms(energy_drain_rate=2.0, energy_regen_rate=10.0, auto_regen=True)
         manager = StateManager(_make_state(energy=50.0), biorhythms=bio)
 
@@ -567,7 +568,7 @@ class TestAutoRegen:
 
     def test_auto_regen_zero_regen_rate_no_recovery(self):
         """energy_regen_rate=0 with auto_regen=True → no recovery even with large gap."""
-        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
         t2 = t1 + timedelta(hours=10)
 
         bio = Biorhythms(energy_drain_rate=2.0, energy_regen_rate=0.0, auto_regen=True)
@@ -582,7 +583,7 @@ class TestAutoRegen:
 
     def test_auto_regen_last_interaction_timestamp_updated(self):
         """last_interaction is updated to each interaction's timestamp."""
-        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
         t2 = t1 + timedelta(hours=1)
 
         bio = Biorhythms(auto_regen=True)

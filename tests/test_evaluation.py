@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import pytest
+from datetime import UTC
 
 from soul_protocol.runtime.evaluation import (
     DEFAULT_RUBRICS,
@@ -11,7 +11,6 @@ from soul_protocol.runtime.evaluation import (
     heuristic_evaluate,
 )
 from soul_protocol.runtime.types import (
-    CriterionResult,
     Interaction,
     Rubric,
     RubricCriterion,
@@ -41,10 +40,7 @@ def _simple_rubric(name: str = "test_rubric", domain: str = "test") -> Rubric:
 
 def _rubric_with_criteria(*names: str) -> Rubric:
     """Build a rubric with multiple named criteria, all weight=1.0."""
-    criteria = [
-        RubricCriterion(name=n, description=f"Criterion {n}", weight=1.0)
-        for n in names
-    ]
+    criteria = [RubricCriterion(name=n, description=f"Criterion {n}", weight=1.0) for n in names]
     return Rubric(name="multi_rubric", domain="test", criteria=criteria)
 
 
@@ -81,7 +77,6 @@ def test_rubric_explicit_id_preserved():
 
 def test_rubric_result_timestamp():
     """RubricResult gets a UTC timestamp by default."""
-    from datetime import timezone
 
     result = RubricResult(
         rubric_id="test",
@@ -89,7 +84,7 @@ def test_rubric_result_timestamp():
         criterion_results=[],
     )
     assert result.timestamp is not None
-    assert result.timestamp.tzinfo == timezone.utc
+    assert result.timestamp.tzinfo == UTC
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +218,8 @@ def test_heuristic_evaluate_low_specificity():
     )
     result = heuristic_evaluate(interaction, rubric)
     specificity_result = next(r for r in result.criterion_results if r.criterion == "specificity")
-    assert specificity_result.score == 0.0
+    # With recalibrated specificity (counts 6+ char words), "wonderful" scores.
+    assert specificity_result.score < 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +242,9 @@ def test_heuristic_overall_score_is_weighted_average():
     interaction = _interaction(user_input="quantum", agent_output="hello world")
     result = heuristic_evaluate(interaction, rubric)
 
-    completeness_score = next(r for r in result.criterion_results if r.criterion == "completeness").score
+    completeness_score = next(
+        r for r in result.criterion_results if r.criterion == "completeness"
+    ).score
     relevance_score = next(r for r in result.criterion_results if r.criterion == "relevance").score
 
     expected = (completeness_score * 2.0 + relevance_score * 1.0) / (2.0 + 1.0)
@@ -450,7 +448,7 @@ def test_evaluator_streak_detection():
 def test_evaluator_streak_breaks_on_low_score():
     """A low score in the middle resets the streak count."""
     evaluator = Evaluator()
-    from soul_protocol.runtime.types import CriterionResult, RubricResult
+    from soul_protocol.runtime.types import RubricResult
 
     # Inject results directly to avoid evaluator logic
     # Pattern: 3 high, 1 low, 2 high → streak should be 2
@@ -532,7 +530,7 @@ def test_evaluator_evolution_trigger():
 
 
 def test_evaluator_evolution_trigger_requires_high_avg():
-    """A streak of 5 is not enough if avg_score is below 0.75."""
+    """A streak of 5 is not enough if avg_score is below the trigger threshold (0.55)."""
     evaluator = Evaluator()
 
     def _make_result(score: float) -> RubricResult:
@@ -542,8 +540,8 @@ def test_evaluator_evolution_trigger_requires_high_avg():
             criterion_results=[],
         )
 
-    # 5 scores at exactly 0.7 → streak=5, avg=0.7 < 0.75 → no trigger
-    evaluator._history = [_make_result(0.7) for _ in range(5)]
+    # 5 scores at exactly 0.50 → streak=0 (below 0.55), avg=0.50 < 0.55 → no trigger
+    evaluator._history = [_make_result(0.50) for _ in range(5)]
 
     triggers = evaluator.check_evolution_triggers()
     assert triggers == []

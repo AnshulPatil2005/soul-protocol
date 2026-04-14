@@ -1,4 +1,20 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-04-04 — Added significance-based short-circuit in observe().
+#   When skip_deep_processing_on_low_significance is True (default) and the
+#   interaction is not significant (including after fact-based promotion in 4b),
+#   steps 5 (entity extraction) and 6 (self-model update) are skipped, saving
+#   2 LLM calls per low-value interaction. Return dict still includes all keys
+#   with empty defaults for skipped data.
+# Updated: 2026-03-29 — F2: Wired ArchivalMemoryStore into MemoryManager. Added
+#   archive_old_memories() to compress old episodic memories into ConversationArchive.
+#   Archives persist through to_dict/from_dict. Recall filters archived entries.
+# Updated: 2026-03-29 — Added progressive parameter to recall(), passed through
+#   to RecallEngine for F1 progressive disclosure support.
+# Updated: 2026-03-26 — Added _TOPIC_PATTERNS for richer entity extraction from
+#   natural speech ("I'm a data scientist", "I work on X", "we're building Y").
+#   Integrated topic extraction pass into extract_entities() before the existing
+#   first-person relation pass. Fixes dead knowledge graph + empty skills from
+#   conversations that lack capitalized proper nouns or KNOWN_TECH words.
 # Updated: fix/contradiction-pipeline — Added step 4d (raw-text contradiction scan)
 #   to observe() pipeline. When FACT_PATTERNS misses a location/employer/role update
 #   (e.g. "I moved to Amsterdam"), stored_facts is empty and step 4c never fires.
@@ -61,15 +77,16 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from soul_protocol.runtime.memory.archival import ArchivalMemoryStore, ConversationArchive
 from soul_protocol.runtime.memory.attention import (
     is_significant,
     overall_significance,
 )
-from soul_protocol.runtime.memory.core import CoreMemoryManager
 from soul_protocol.runtime.memory.contradiction import ContradictionDetector
+from soul_protocol.runtime.memory.core import CoreMemoryManager
 from soul_protocol.runtime.memory.dedup import reconcile_fact
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
@@ -125,9 +142,7 @@ FACT_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
         "User uses {0}",
     ),
     (
-        re.compile(
-            r"i(?:'m| am) (?:building|creating|making) (\w[\w\s]{2,30})", re.IGNORECASE
-        ),
+        re.compile(r"i(?:'m| am) (?:building|creating|making) (\w[\w\s]{2,30})", re.IGNORECASE),
         7,
         "User is building {0}",
     ),
@@ -299,6 +314,58 @@ ENTITY_RELATIONS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 # ---------------------------------------------------------------------------
+# Topic extraction patterns — capture concepts/topics from natural speech
+# Each pattern yields (name, type, relation).
+# ---------------------------------------------------------------------------
+# Max ~5 words per topic capture to prevent greedy runaway matches.
+# The pattern (?:\w[\w-]*)(?:\s+\w[\w-]*){0,4} captures 1-5 hyphenated words.
+_TOPIC_CAPTURE = r"(\w[\w-]*(?:\s+\w[\w-]*){0,4})"
+
+_TOPIC_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
+    # "I'm a backend engineer" / "I am a data scientist"
+    (re.compile(r"i(?:'m| am) (?:a |an )" + _TOPIC_CAPTURE, re.IGNORECASE), "role", "is"),
+    # "I work on the API layer" / "I work on machine learning"
+    (re.compile(r"i work on " + _TOPIC_CAPTURE, re.IGNORECASE), "topic", "works_on"),
+    # "I'm interested in distributed systems"
+    (
+        re.compile(r"i(?:'m| am) interested in " + _TOPIC_CAPTURE, re.IGNORECASE),
+        "topic",
+        "interested_in",
+    ),
+    # "I'm working on a new feature" / "I'm working on soul protocol"
+    (re.compile(r"i(?:'m| am) working on " + _TOPIC_CAPTURE, re.IGNORECASE), "topic", "works_on"),
+    # "at Google" / "at Acme Corp" (organization)
+    (
+        re.compile(r"(?:work|working) (?:at|for) ((?:[A-Z][\w]*(?:\s+[A-Z][\w]*){0,3}))"),
+        "organization",
+        "works_at",
+    ),
+    # "my project is called X" / "the project is X"
+    (
+        re.compile(
+            r"(?:project|app|tool|product) (?:is |called |named )([\w][\w\-]+)", re.IGNORECASE
+        ),
+        "project",
+        "builds",
+    ),
+    # "I manage a team" / "I lead the engineering team"
+    (
+        re.compile(r"i (?:manage|lead|run|own) (?:a |the )?" + _TOPIC_CAPTURE, re.IGNORECASE),
+        "topic",
+        "manages",
+    ),
+    # "we're building X" / "we are building X"
+    (
+        re.compile(
+            r"we(?:'re| are) (?:building|creating|making|developing) " + _TOPIC_CAPTURE,
+            re.IGNORECASE,
+        ),
+        "project",
+        "builds",
+    ),
+]
+
+# ---------------------------------------------------------------------------
 # Third-person relationship patterns between two named entities.
 # Each tuple: (compiled_regex, relation_type)
 # Group 1 = subject entity, Group 2 = object entity.
@@ -316,9 +383,7 @@ _THIRD_PERSON_RELATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "leads",
     ),
     (
-        re.compile(
-            r"(\w+)\s+(?:works?\s+(?:at|for)|joined?)\s+(\w+)", re.IGNORECASE
-        ),
+        re.compile(r"(\w+)\s+(?:works?\s+(?:at|for)|joined?)\s+(\w+)", re.IGNORECASE),
         "works_at",
     ),
     (
@@ -336,21 +401,76 @@ _THIRD_PERSON_RELATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 _STOP_WORDS: set[str] = {
-    "i", "the", "a", "an", "is", "are", "was", "were", "be", "been",
-    "it", "its", "my", "we", "our", "you", "your", "he", "she", "they",
-    "this", "that", "these", "those", "what", "which", "who", "how",
-    "can", "could", "will", "would", "should", "do", "does", "did",
-    "but", "and", "or", "not", "no", "yes", "so", "if", "then",
-    "also", "just", "very", "really", "well", "here", "there",
-    "user", "agent", "let", "me", "hi", "hello", "hey",
-    "thanks", "thank", "please", "sure", "okay", "ok",
+    "i",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "it",
+    "its",
+    "my",
+    "we",
+    "our",
+    "you",
+    "your",
+    "he",
+    "she",
+    "they",
+    "this",
+    "that",
+    "these",
+    "those",
+    "what",
+    "which",
+    "who",
+    "how",
+    "can",
+    "could",
+    "will",
+    "would",
+    "should",
+    "do",
+    "does",
+    "did",
+    "but",
+    "and",
+    "or",
+    "not",
+    "no",
+    "yes",
+    "so",
+    "if",
+    "then",
+    "also",
+    "just",
+    "very",
+    "really",
+    "well",
+    "here",
+    "there",
+    "user",
+    "agent",
+    "let",
+    "me",
+    "hi",
+    "hello",
+    "hey",
+    "thanks",
+    "thank",
+    "please",
+    "sure",
+    "okay",
+    "ok",
 }
 
 
 _FACT_PREFIXES: list[str] = [
-    template.split("{")[0].strip()
-    for _, _, template in FACT_PATTERNS
-    if "{" in template
+    template.split("{")[0].strip() for _, _, template in FACT_PATTERNS if "{" in template
 ]
 
 
@@ -409,6 +529,9 @@ class MemoryManager:
         self._contradiction_detector = ContradictionDetector(engine=engine)
         self._general_events: dict[str, GeneralEvent] = {}
 
+        # F2 — Archival memory store for compressed conversation archives
+        self._archival = ArchivalMemoryStore()
+
         # v0.3.0 — GDPR deletion audit trail
         # TODO(#51): Persist audit trail through .soul pack/unpack cycle for GDPR compliance
         self._deletion_audit: list[dict] = []
@@ -433,7 +556,7 @@ class MemoryManager:
                 entity_extractor=self.extract_entities,
             )
 
-    def set_engine(self, engine: "CognitiveEngine") -> None:
+    def set_engine(self, engine: CognitiveEngine) -> None:
         """Swap the CognitiveEngine at runtime without re-initializing the MemoryManager.
 
         Called by Soul.set_engine() when a new engine becomes available after
@@ -470,9 +593,7 @@ class MemoryManager:
     def set_core(self, persona: str, human: str) -> None:
         self._core_manager.set(persona=persona, human=human)
 
-    async def edit_core(
-        self, persona: str | None = None, human: str | None = None
-    ) -> None:
+    async def edit_core(self, persona: str | None = None, human: str | None = None) -> None:
         """Replace core memory fields (provided values overwrite existing)."""
         self._core_manager.edit(persona=persona, human=human)
 
@@ -539,9 +660,7 @@ class MemoryManager:
         token_count = len(tokenize(combined_text))
         sig_value = overall_significance(sig_score, token_count=token_count)
         significant = is_significant(sig_score, token_count=token_count)
-        logger.debug(
-            "Significance assessed: score=%.3f, significant=%s", sig_value, significant
-        )
+        logger.debug("Significance assessed: score=%.3f, significant=%s", sig_value, significant)
 
         # --- 3. Conditional episodic storage ---
         episodic_id: str | None = None
@@ -562,7 +681,9 @@ class MemoryManager:
 
         # --- 4. Extract and store semantic facts ---
         facts = await self._cognitive.extract_facts(
-            interaction, self._semantic.facts(), significance=sig_score,
+            interaction,
+            self._semantic.facts(),
+            significance=sig_score,
         )
         await self._resolve_fact_conflicts(facts)
         # Phase 2: dedup pipeline before storing
@@ -581,7 +702,8 @@ class MemoryManager:
                         ef.superseded_by = fact.id
                         logger.debug(
                             "Dedup MERGE: old id=%s superseded by %s",
-                            merge_id, fact.id,
+                            merge_id,
+                            fact.id,
                         )
                         break
                 stored_facts.append(fact)
@@ -623,9 +745,7 @@ class MemoryManager:
         if detect_contradictions and stored_facts:
             all_semantic = self._semantic.facts(include_superseded=False)
             for fact in stored_facts:
-                cresults = await self._contradiction_detector.detect(
-                    fact.content, all_semantic
-                )
+                cresults = await self._contradiction_detector.detect(fact.content, all_semantic)
                 for cr in cresults:
                     if cr.is_contradiction and cr.old_memory_id:
                         # Mark old memory as superseded
@@ -635,15 +755,19 @@ class MemoryManager:
                                 existing_fact.superseded_by = fact.id
                                 logger.debug(
                                     "Contradiction: old_id=%s superseded by new_id=%s reason=%s",
-                                    cr.old_memory_id, fact.id, cr.reason,
+                                    cr.old_memory_id,
+                                    fact.id,
+                                    cr.reason,
                                 )
                                 break
-                        contradictions.append({
-                            "old_id": cr.old_memory_id,
-                            "new_id": fact.id,
-                            "reason": cr.reason,
-                            "confidence": cr.confidence,
-                        })
+                        contradictions.append(
+                            {
+                                "old_id": cr.old_memory_id,
+                                "new_id": fact.id,
+                                "reason": cr.reason,
+                                "confidence": cr.confidence,
+                            }
+                        )
 
         # --- 4d. Raw-text contradiction scan (verb-fact fallback) ---
         # When the heuristic extractor misses a fact update (e.g. "I moved to
@@ -671,31 +795,49 @@ class MemoryManager:
                         existing_fact.superseded_by = "raw-text-contradiction"
                         logger.debug(
                             "Raw-text contradiction: old_id=%s superseded, reason=%s",
-                            cr.old_memory_id, cr.reason,
+                            cr.old_memory_id,
+                            cr.reason,
                         )
                         break
                 already_superseded.add(cr.old_memory_id)
-                contradictions.append({
-                    "old_id": cr.old_memory_id,
-                    "new_id": "raw-text-contradiction",
-                    "reason": cr.reason,
-                    "confidence": cr.confidence,
-                })
-
+                contradictions.append(
+                    {
+                        "old_id": cr.old_memory_id,
+                        "new_id": "raw-text-contradiction",
+                        "reason": cr.reason,
+                        "confidence": cr.confidence,
+                    }
+                )
 
         # --- 5. Extract entities (with provenance metadata) ---
-        entities = await self._cognitive.extract_entities(
-            interaction, source_memory_id=episodic_id,
-        )
-        if entities:
-            logger.debug(
-                "Entities extracted: %s",
-                [e.get("name") for e in entities],
-            )
-
         # --- 6. Update self-model ---
-        await self._cognitive.update_self_model(interaction, facts, self._self_model)
-        logger.debug("Self-model updated")
+        # Short-circuit: skip expensive LLM steps 5 & 6 for low-significance
+        # interactions when the config flag is enabled. The `significant` flag
+        # accounts for both the initial significance gate (step 2) AND
+        # fact-based promotion (step 4b), so we only skip when the interaction
+        # truly had no meaningful content.
+        skip_deep = not significant and self._settings.skip_deep_processing_on_low_significance
+
+        entities: list[dict] = []
+        if skip_deep:
+            logger.debug(
+                "Low-significance short-circuit: skipping entity extraction "
+                "and self-model update (sig=%.3f)",
+                sig_value,
+            )
+        else:
+            entities = await self._cognitive.extract_entities(
+                interaction,
+                source_memory_id=episodic_id,
+            )
+            if entities:
+                logger.debug(
+                    "Entities extracted: %s",
+                    [e.get("name") for e in entities],
+                )
+
+            await self._cognitive.update_self_model(interaction, facts, self._self_model)
+            logger.debug("Self-model updated")
 
         return {
             "somatic": somatic,
@@ -716,6 +858,7 @@ class MemoryManager:
         requester_id: str | None = None,
         bond_strength: float = 100.0,
         bond_threshold: float = 30.0,
+        progressive: bool = False,
     ) -> list[MemoryEntry]:
         results = await self._recall_engine.recall(
             query=query,
@@ -725,6 +868,7 @@ class MemoryManager:
             requester_id=requester_id,
             bond_strength=bond_strength,
             bond_threshold=bond_threshold,
+            progressive=progressive,
         )
         logger.debug("Recall query_len=%d returned %d results", len(query), len(results))
         return results
@@ -737,6 +881,84 @@ class MemoryManager:
         if await self._procedural.remove(memory_id):
             return True
         return False
+
+    # ---- Archival memory (F2) ----
+
+    @property
+    def archival(self) -> ArchivalMemoryStore:
+        """Access the archival memory store."""
+        return self._archival
+
+    async def archive_old_memories(self, max_age_hours: float = 48.0) -> ConversationArchive | None:
+        """Compress old episodic memories into a ConversationArchive.
+
+        Gathers episodic memories older than ``max_age_hours``, generates a
+        heuristic summary (first sentence of each), extracts key moments
+        (importance >= 7), and stores the archive. Archived entries are
+        marked with ``archived=True`` so recall can filter them.
+
+        Args:
+            max_age_hours: Age threshold in hours. Entries older than this
+                are candidates for archival.
+
+        Returns:
+            The created ConversationArchive, or None if too few entries to archive.
+        """
+        now = datetime.now()
+        cutoff = now.timestamp() - (max_age_hours * 3600)
+
+        # Gather old, non-archived episodic entries
+        old_entries = [
+            entry
+            for entry in self._episodic.entries()
+            if entry.created_at.timestamp() < cutoff and not entry.archived
+        ]
+
+        if len(old_entries) < 3:
+            logger.debug(
+                "archive_old_memories: only %d old entries, skipping (need >= 3)",
+                len(old_entries),
+            )
+            return None
+
+        # Sort by time for coherent summary
+        old_entries.sort(key=lambda e: e.created_at)
+
+        # Heuristic summary: first sentence of each entry
+        sentences = []
+        for entry in old_entries:
+            first_sentence = entry.content.split(".")[0].strip()
+            if first_sentence:
+                sentences.append(first_sentence)
+        summary = ". ".join(sentences[:10]) + "." if sentences else "Archived memories."
+
+        # Key moments: high-importance entries
+        key_moments = [entry.content[:200] for entry in old_entries if entry.importance >= 7]
+
+        # Memory refs for provenance tracking
+        memory_refs = [entry.id for entry in old_entries]
+
+        archive = ConversationArchive(
+            id=uuid.uuid4().hex[:12],
+            start_time=old_entries[0].created_at,
+            end_time=old_entries[-1].created_at,
+            summary=summary,
+            key_moments=key_moments,
+            memory_refs=memory_refs,
+        )
+
+        self._archival.archive_conversation(archive)
+
+        # Mark entries as archived
+        for entry in old_entries:
+            entry.archived = True
+
+        logger.info(
+            "Archived %d episodic memories into archive %s",
+            len(old_entries),
+            archive.id,
+        )
+        return archive
 
     # ---- GDPR-compliant deletion (v0.3.0) ----
 
@@ -768,7 +990,7 @@ class MemoryManager:
         if total > 0:
             self._deletion_audit.append(
                 {
-                    "deleted_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": datetime.now(UTC).isoformat(),
                     "count": total,
                     "reason": f"forget(query='{query}')",
                     "tiers": {
@@ -818,7 +1040,7 @@ class MemoryManager:
         if total > 0:
             self._deletion_audit.append(
                 {
-                    "deleted_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": datetime.now(UTC).isoformat(),
                     "count": total,
                     "reason": f"forget_entity(entity='{entity}')",
                     "tiers": {
@@ -865,7 +1087,7 @@ class MemoryManager:
         if total > 0:
             self._deletion_audit.append(
                 {
-                    "deleted_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": datetime.now(UTC).isoformat(),
                     "count": total,
                     "reason": f"forget_before(timestamp='{timestamp.isoformat()}')",
                     "tiers": {
@@ -922,8 +1144,7 @@ class MemoryManager:
                     continue
 
                 is_duplicate = any(
-                    _token_overlap_score(content, existing) > 0.7
-                    for existing in existing_facts
+                    _token_overlap_score(content, existing) > 0.7 for existing in existing_facts
                 )
                 if is_duplicate:
                     continue
@@ -983,6 +1204,28 @@ class MemoryManager:
                         "relationships": [],
                     }
 
+        # --- Topic extraction pass: capture concepts from natural speech ---
+        for topic_pattern, entity_type, relation in _TOPIC_PATTERNS:
+            for match in topic_pattern.finditer(combined):
+                raw_name = match.group(1).strip().rstrip(".,;:!?")
+                # Trim trailing stop words (regex may capture "X and I", "X the", etc.)
+                words = raw_name.split()
+                while words and words[-1].lower() in _STOP_WORDS:
+                    words.pop()
+                raw_name = " ".join(words)
+                # Limit to reasonable length and skip overly generic results
+                if len(raw_name) < 2 or len(raw_name) > 60:
+                    continue
+                key = raw_name.lower().replace(" ", "_")
+                if key in entities or key in _STOP_WORDS:
+                    continue
+                entities[key] = {
+                    "name": raw_name,
+                    "type": entity_type,
+                    "relation": relation,
+                    "relationships": [],
+                }
+
         # --- First-person relation pass (existing behaviour, backward compat) ---
         for entity_info in entities.values():
             name = entity_info["name"]
@@ -1038,8 +1281,7 @@ class MemoryManager:
                 # Add directed edge from subject to object
                 subj_rels = entities[subj_key]["relationships"]
                 if not any(
-                    r["target"] == obj_raw and r["relation"] == relation_type
-                    for r in subj_rels
+                    r["target"] == obj_raw and r["relation"] == relation_type for r in subj_rels
                 ):
                     subj_rels.append({"target": obj_raw, "relation": relation_type})
 
@@ -1047,8 +1289,7 @@ class MemoryManager:
                 if relation_type == "colleague":
                     obj_rels = entities[obj_key]["relationships"]
                     if not any(
-                        r["target"] == subj_raw and r["relation"] == "colleague"
-                        for r in obj_rels
+                        r["target"] == subj_raw and r["relation"] == "colleague" for r in obj_rels
                     ):
                         obj_rels.append({"target": subj_raw, "relation": "colleague"})
 
@@ -1072,7 +1313,10 @@ class MemoryManager:
                 relation = rel.get("relation", "related_to")
                 if target:
                     self._graph.add_relationship(
-                        name, target, relation, metadata=edge_metadata,
+                        name,
+                        target,
+                        relation,
+                        metadata=edge_metadata,
                     )
 
     @property
@@ -1090,9 +1334,7 @@ class MemoryManager:
 
     # ---- Consolidation ----
 
-    async def consolidate(
-        self, result: ReflectionResult, soul_name: str = "soul"
-    ) -> dict:
+    async def consolidate(self, result: ReflectionResult, soul_name: str = "soul") -> dict:
         applied: dict = {
             "summaries": 0,
             "general_events": 0,
@@ -1119,9 +1361,7 @@ class MemoryManager:
                 applied["general_events"] += 1
 
         if result.self_insight:
-            self._self_model._relationship_notes["self_insight"] = (
-                result.self_insight
-            )
+            self._self_model._relationship_notes["self_insight"] = result.self_insight
             applied["self_insight"] = True
 
         if result.emotional_patterns:
@@ -1176,16 +1416,11 @@ class MemoryManager:
                 for fact in existing_facts:
                     if fact.superseded_by is not None:
                         continue
-                    if (
-                        fact.content.startswith(prefix)
-                        and fact.content != new_content
-                    ):
+                    if fact.content.startswith(prefix) and fact.content != new_content:
                         return fact
         return None
 
-    async def _resolve_fact_conflicts(
-        self, new_facts: list[MemoryEntry]
-    ) -> list[MemoryEntry]:
+    async def _resolve_fact_conflicts(self, new_facts: list[MemoryEntry]) -> list[MemoryEntry]:
         existing = self._semantic.facts()
         for fact in new_facts:
             conflict = self._find_conflict(fact.content, existing)
@@ -1201,9 +1436,7 @@ class MemoryManager:
     # ---- Lifecycle ----
 
     async def clear(self) -> None:
-        self._episodic = EpisodicStore(
-            max_entries=self._settings.episodic_max_entries
-        )
+        self._episodic = EpisodicStore(max_entries=self._settings.episodic_max_entries)
         self._semantic = SemanticStore(max_facts=self._settings.semantic_max_facts)
         self._procedural = ProceduralStore()
         self._graph = KnowledgeGraph()
@@ -1235,20 +1468,17 @@ class MemoryManager:
     def to_dict(self) -> dict:
         return {
             "core": self._core_manager.get().model_dump(),
-            "episodic": [
-                entry.model_dump(mode="json") for entry in self._episodic.entries()
-            ],
+            "episodic": [entry.model_dump(mode="json") for entry in self._episodic.entries()],
             "semantic": [
                 fact.model_dump(mode="json")
                 for fact in self._semantic.facts(include_superseded=True)
             ],
-            "procedural": [
-                proc.model_dump(mode="json") for proc in self._procedural.entries()
-            ],
+            "procedural": [proc.model_dump(mode="json") for proc in self._procedural.entries()],
             "graph": self._graph.to_dict(),
             "self_model": self._self_model.to_dict(),
-            "general_events": [
-                ge.model_dump(mode="json") for ge in self._general_events.values()
+            "general_events": [ge.model_dump(mode="json") for ge in self._general_events.values()],
+            "archives": [
+                archive.model_dump(mode="json") for archive in self._archival.all_archives()
             ],
         }
 
@@ -1310,6 +1540,10 @@ class MemoryManager:
         for ge_data in data.get("general_events", []):
             ge = GeneralEvent.model_validate(ge_data)
             manager._general_events[ge.id] = ge
+
+        for archive_data in data.get("archives", []):
+            archive = ConversationArchive.model_validate(archive_data)
+            manager._archival._archives.append(archive)
 
         logger.debug(
             "MemoryManager restored: episodic=%d, semantic=%d, procedural=%d",

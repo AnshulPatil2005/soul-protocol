@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -126,7 +126,6 @@ class TestAsOfDate:
     def test_point_in_time_query(self, graph: KnowledgeGraph):
         t0 = datetime(2026, 1, 1)
         t1 = datetime(2026, 3, 1)
-        t2 = datetime(2026, 6, 1)
 
         # Alice used Python from Jan to Mar
         graph.add_relationship("Alice", "Python", "uses", valid_from=t0, valid_to=t1)
@@ -144,9 +143,7 @@ class TestAsOfDate:
         assert apr[0]["target"] == "Rust"
 
     def test_no_results_before_any_edges(self, graph: KnowledgeGraph):
-        graph.add_relationship(
-            "A", "B", "uses", valid_from=datetime(2026, 6, 1)
-        )
+        graph.add_relationship("A", "B", "uses", valid_from=datetime(2026, 6, 1))
         result = graph.as_of_date(datetime(2026, 1, 1))
         assert result == []
 

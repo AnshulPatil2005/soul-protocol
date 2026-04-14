@@ -46,6 +46,7 @@ async def rich_soul() -> Soul:
             "neuroticism": 0.2,
         },
         communication={"warmth": "high", "verbosity": "moderate"},
+        biorhythms={"energy_drain_rate": 2.0, "social_drain_rate": 5.0},
     )
 
     # Seed some memories
@@ -110,7 +111,9 @@ class TestFullLifecycle:
         # by "prefers type hints" due to shared "prefers" token).
         results = await rich_soul.recall("Docker Kubernetes")
         assert len(results) >= 1
-        assert any("docker" in r.content.lower() or "kubernetes" in r.content.lower() for r in results)
+        assert any(
+            "docker" in r.content.lower() or "kubernetes" in r.content.lower() for r in results
+        )
 
     async def test_full_export_awaken_cycle(self, rich_soul: Soul, tmp_path):
         """Full lifecycle: the big one."""

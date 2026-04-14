@@ -72,9 +72,10 @@ async def test_observe():
     )
     await soul.observe(interaction)
 
-    # Energy and social battery should drain after interaction
-    assert soul.state.energy < initial_energy
-    assert soul.state.social_battery < initial_social
+    # With default biorhythms (no drain), energy stays at 100%.
+    # Drain is opt-in for companion souls via Biorhythms config.
+    assert soul.state.energy == initial_energy
+    assert soul.state.social_battery == initial_social
     assert soul.state.last_interaction is not None
 
 
@@ -352,6 +353,8 @@ async def test_self_model_property():
 async def test_self_model_persists_through_export(tmp_path):
     """Self-model survives export → awaken round-trip."""
     soul = await Soul.birth("Aria", values=["helping"])
+    # Disable short-circuit so self-model update runs on trivial interactions
+    soul._memory._settings.skip_deep_processing_on_low_significance = False
 
     # Build up self-model
     await soul.observe(
@@ -388,6 +391,8 @@ async def test_save_load_preserves_self_model(tmp_path):
     from soul_protocol.runtime.storage.file import load_soul_full
 
     soul = await Soul.birth("Aria")
+    # Disable short-circuit so self-model update runs on trivial interactions
+    soul._memory._settings.skip_deep_processing_on_low_significance = False
     await soul.observe(
         Interaction(
             user_input="Help me write a Python script for data analysis",
@@ -461,10 +466,12 @@ async def test_bond_strengthens_on_observe():
     initial_strength = soul.bond.bond_strength
     initial_count = soul.bond.interaction_count
 
-    await soul.observe(Interaction(
-        user_input="Help me with Python",
-        agent_output="Sure, here's how to use list comprehensions.",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="Help me with Python",
+            agent_output="Sure, here's how to use list comprehensions.",
+        )
+    )
 
     assert soul.bond.bond_strength > initial_strength
     assert soul.bond.interaction_count > initial_count
@@ -475,10 +482,12 @@ async def test_skills_created_from_entities():
     soul = await Soul.birth("Aria", values=["coding"])
     assert len(soul.skills.skills) == 0
 
-    await soul.observe(Interaction(
-        user_input="I love Python programming",
-        agent_output="Python is great for data science and web dev.",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="I love Python programming",
+            agent_output="Python is great for data science and web dev.",
+        )
+    )
 
     # observe() extracts entities and creates skills from them
     assert len(soul.skills.skills) > 0
@@ -489,10 +498,12 @@ async def test_skills_accumulate_xp():
     soul = await Soul.birth("Aria", values=["coding"])
 
     for _ in range(5):
-        await soul.observe(Interaction(
-            user_input="Tell me about Python",
-            agent_output="Python is a versatile language.",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input="Tell me about Python",
+                agent_output="Python is a versatile language.",
+            )
+        )
 
     # Find a skill that was created (entity extraction is heuristic-based)
     if soul.skills.skills:

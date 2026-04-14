@@ -1,4 +1,6 @@
 # tests.test_mcp.test_server — MCP server integration tests
+# Updated: 2026-03-27 — Added tests for 4 new tools: soul_forget, soul_edit_core,
+#   soul_health, soul_cleanup (v0.2.8).
 # Updated: feat/mcp-sampling-engine — soul_reflect now returns "reflected" (not "skipped")
 #   because MCPSamplingEngine is lazily wired, which activates HeuristicEngine fallback.
 #   Updated test_soul_reflect to accept both outcomes.
@@ -16,7 +18,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("fastmcp", reason="fastmcp required for MCP server tests — pip install soul-protocol[mcp]")
+pytest.importorskip(
+    "fastmcp", reason="fastmcp required for MCP server tests — pip install soul-protocol[mcp]"
+)
 
 from fastmcp import Client  # noqa: E402
 
@@ -52,21 +56,25 @@ async def _birth(client: Client, name: str = "TestBot") -> dict:
 
 def _env_context(key: str, value: str | None):
     """Helper to set/unset env vars with cleanup."""
+
     class _Ctx:
         def __init__(self):
             self.old = os.environ.get(key)
+
         def __enter__(self):
             if value is not None:
                 os.environ[key] = value
             else:
                 os.environ.pop(key, None)
             return self
+
         def __exit__(self, *_):
             if self.old is None:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = self.old
             server_module._registry.clear()
+
     return _Ctx()
 
 
@@ -408,8 +416,7 @@ async def test_multi_soul_autosave(tmp_path):
     dir_b = tmp_path / "beta"
     await soul_b.save_local(str(dir_b))
 
-    with _env_context("SOUL_DIR", str(tmp_path)), \
-         _env_context("SOUL_PATH", None):
+    with _env_context("SOUL_DIR", str(tmp_path)), _env_context("SOUL_PATH", None):
         async with Client(mcp) as client:
             # Only modify Alpha
             await client.call_tool(
@@ -438,8 +445,7 @@ async def test_soul_dir_loads_mixed_formats(tmp_path):
     zip_path = tmp_path / "zipsoul.soul"
     await soul_zip.export(str(zip_path))
 
-    with _env_context("SOUL_DIR", str(tmp_path)), \
-         _env_context("SOUL_PATH", None):
+    with _env_context("SOUL_DIR", str(tmp_path)), _env_context("SOUL_PATH", None):
         async with Client(mcp) as client:
             result = await client.call_tool("soul_list", {})
             data = json.loads(result.data)
@@ -593,8 +599,7 @@ async def test_lifespan_loads_soul_from_path(tmp_path):
     soul_file = tmp_path / "test.soul"
     await soul.export(str(soul_file))
 
-    with _env_context("SOUL_PATH", str(soul_file)), \
-         _env_context("SOUL_DIR", None):
+    with _env_context("SOUL_PATH", str(soul_file)), _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             result = await client.call_tool("soul_state", {})
             data = json.loads(result.data)
@@ -604,8 +609,10 @@ async def test_lifespan_loads_soul_from_path(tmp_path):
 
 async def test_lifespan_handles_bad_path(tmp_path):
     """Bad SOUL_PATH degrades gracefully — server starts without soul."""
-    with _env_context("SOUL_PATH", str(tmp_path / "nonexistent.soul")), \
-         _env_context("SOUL_DIR", None):
+    with (
+        _env_context("SOUL_PATH", str(tmp_path / "nonexistent.soul")),
+        _env_context("SOUL_DIR", None),
+    ):
         async with Client(mcp) as client:
             with pytest.raises(Exception):
                 await client.call_tool("soul_state", {})
@@ -620,8 +627,7 @@ async def test_lifespan_loads_from_directory(tmp_path):
     soul_dir = tmp_path / "dir_soul"
     await soul.save_local(str(soul_dir))
 
-    with _env_context("SOUL_PATH", str(soul_dir)), \
-         _env_context("SOUL_DIR", None):
+    with _env_context("SOUL_PATH", str(soul_dir)), _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             result = await client.call_tool("soul_state", {})
             data = json.loads(result.data)
@@ -645,8 +651,7 @@ async def test_autosave_to_soul_file(tmp_path):
     soul_file = tmp_path / "autosave.soul"
     await soul.export(str(soul_file))
 
-    with _env_context("SOUL_PATH", str(soul_file)), \
-         _env_context("SOUL_DIR", None):
+    with _env_context("SOUL_PATH", str(soul_file)), _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             await client.call_tool(
                 "soul_remember",
@@ -666,8 +671,7 @@ async def test_autosave_to_directory(tmp_path):
     soul_dir = tmp_path / "guardian"
     await soul.save_local(str(soul_dir))
 
-    with _env_context("SOUL_PATH", str(soul_dir)), \
-         _env_context("SOUL_DIR", None):
+    with _env_context("SOUL_PATH", str(soul_dir)), _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             await client.call_tool(
                 "soul_remember",
@@ -687,8 +691,7 @@ async def test_soul_dir_autosave_zip(tmp_path):
     zip_path = tmp_path / "zipsoul.soul"
     await soul.export(str(zip_path))
 
-    with _env_context("SOUL_DIR", str(tmp_path)), \
-         _env_context("SOUL_PATH", None):
+    with _env_context("SOUL_DIR", str(tmp_path)), _env_context("SOUL_PATH", None):
         async with Client(mcp) as client:
             await client.call_tool(
                 "soul_remember",
@@ -715,8 +718,7 @@ async def test_auto_reload_on_external_change(tmp_path):
     zip_path = tmp_path / "autoreload.soul"
     await soul.export(str(zip_path))
 
-    with _env_context("SOUL_PATH", str(zip_path)), \
-         _env_context("SOUL_DIR", None):
+    with _env_context("SOUL_PATH", str(zip_path)), _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             # Recall should return nothing initially
             result = await client.call_tool(
@@ -757,10 +759,12 @@ async def test_background_watcher_reloads_on_change(tmp_path):
     zip_path = tmp_path / "watcher.soul"
     await soul.export(str(zip_path))
 
-    with _env_context("SOUL_POLL_INTERVAL", "0.1"), \
-         _env_context("SOUL_PATH", str(zip_path)), \
-         _env_context("SOUL_DIR", None):
-        async with Client(mcp) as client:
+    with (
+        _env_context("SOUL_POLL_INTERVAL", "0.1"),
+        _env_context("SOUL_PATH", str(zip_path)),
+        _env_context("SOUL_DIR", None),
+    ):
+        async with Client(mcp):
             # Verify initial soul has no extra memories
             initial_soul = server_module._registry.get("WatcherTest")
             initial_count = initial_soul.memory_count
@@ -839,3 +843,157 @@ class TestAutoDetectSoulDir:
             data = json.loads(result.data)
             names = [s["name"] for s in data["souls"]]
             assert "AutoHome" in names, f"Expected AutoHome in {names}"
+
+
+# --- Maintenance Tool Tests (v0.2.8) ---
+
+
+async def test_soul_forget_preview():
+    """soul_forget with confirm=false returns a preview without deleting."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        await client.call_tool(
+            "soul_remember",
+            {"content": "User credit card is 1234", "importance": 5},
+        )
+        result = await client.call_tool(
+            "soul_forget",
+            {"query": "credit card", "confirm": False},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "preview"
+        assert data["matching_count"] >= 1
+        assert "hint" in data
+
+
+async def test_soul_forget_confirmed():
+    """soul_forget with confirm=true actually deletes memories."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        await client.call_tool(
+            "soul_remember",
+            {"content": "Sensitive data to forget", "importance": 5},
+        )
+        result = await client.call_tool(
+            "soul_forget",
+            {"query": "Sensitive data", "confirm": True},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "deleted"
+        assert data["total_deleted"] >= 0
+
+
+async def test_soul_edit_core_read():
+    """soul_edit_core with no args returns current core memory."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool("soul_edit_core", {})
+        data = json.loads(result.data)
+        assert "persona" in data
+        assert "human" in data
+        assert "hint" in data
+
+
+async def test_soul_edit_core_update_persona():
+    """soul_edit_core updates persona text."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool(
+            "soul_edit_core",
+            {"persona": "I am a test assistant."},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "updated"
+        assert data["persona"] == "I am a test assistant."
+
+
+async def test_soul_edit_core_update_human():
+    """soul_edit_core updates human knowledge text."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool(
+            "soul_edit_core",
+            {"human": "User prefers Python and dark mode."},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "updated"
+        assert data["human"] == "User prefers Python and dark mode."
+
+
+async def test_soul_edit_core_update_both():
+    """soul_edit_core updates both persona and human."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool(
+            "soul_edit_core",
+            {"persona": "New persona", "human": "New human"},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "updated"
+        assert data["persona"] == "New persona"
+        assert data["human"] == "New human"
+
+
+async def test_soul_health():
+    """soul_health returns a structured health report."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool("soul_health", {})
+        data = json.loads(result.data)
+        assert "tiers" in data
+        assert "episodic" in data["tiers"]
+        assert "semantic" in data["tiers"]
+        assert "procedural" in data["tiers"]
+        assert "total" in data["tiers"]
+        assert "graph_nodes" in data
+        assert "skills" in data
+        assert "bond_strength" in data
+        assert "duplicates" in data
+        assert "issues" in data
+        assert "healthy" in data
+        assert isinstance(data["healthy"], bool)
+
+
+async def test_soul_health_with_memories():
+    """soul_health reports memory counts after storing some."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        await client.call_tool(
+            "soul_remember",
+            {"content": "Test memory for health", "importance": 7},
+        )
+        result = await client.call_tool("soul_health", {})
+        data = json.loads(result.data)
+        assert data["tiers"]["total"] >= 1
+
+
+async def test_soul_cleanup_dry_run():
+    """soul_cleanup with dry_run=true reports without changing anything."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool(
+            "soul_cleanup",
+            {"dry_run": True},
+        )
+        data = json.loads(result.data)
+        assert data["status"] in ("dry_run", "clean")
+        assert "total_items" in data
+        assert "actions" in data
+
+
+async def test_soul_cleanup_execute():
+    """soul_cleanup with dry_run=false actually cleans up."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        # Store a memory — even if there's nothing to clean, it should not error
+        await client.call_tool(
+            "soul_remember",
+            {"content": "Memory for cleanup test", "importance": 5},
+        )
+        result = await client.call_tool(
+            "soul_cleanup",
+            {"dry_run": False},
+        )
+        data = json.loads(result.data)
+        assert data["status"] in ("cleaned", "clean")
+        assert "soul" in data

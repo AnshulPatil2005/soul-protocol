@@ -5,18 +5,15 @@
 
 from __future__ import annotations
 
-import asyncio
-import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from soul_protocol import Soul
-from soul_protocol.runtime.cognitive.adapters._callable import CallableEngine
 from soul_protocol.runtime.cognitive.adapters._auto import engine_from_env
-from soul_protocol.runtime.cognitive.engine import HeuristicEngine, CognitiveProcessor
-from soul_protocol.runtime.types import Interaction, SignificanceScore
-
+from soul_protocol.runtime.cognitive.adapters._callable import CallableEngine
+from soul_protocol.runtime.cognitive.engine import CognitiveProcessor, HeuristicEngine
+from soul_protocol.runtime.types import Interaction
 
 # ---------------------------------------------------------------------------
 # CallableEngine
@@ -29,7 +26,10 @@ class TestCallableEngine:
     @pytest.mark.asyncio
     async def test_callable_engine_sync(self):
         """Sync lambda is invoked and returns its value."""
-        fn = lambda prompt: f"echo:{prompt}"
+
+        def fn(prompt: str) -> str:
+            return f"echo:{prompt}"
+
         engine = CallableEngine(fn)
         result = await engine.think("hello")
         assert result == "echo:hello"
@@ -37,6 +37,7 @@ class TestCallableEngine:
     @pytest.mark.asyncio
     async def test_callable_engine_async(self):
         """Async function is awaited and returns its value."""
+
         async def async_fn(prompt: str) -> str:
             return f"async:{prompt}"
 
@@ -91,6 +92,7 @@ class TestEngineFromEnv:
         with patch.dict("sys.modules", {"anthropic": fake_anthropic}):
             engine = engine_from_env()
             from soul_protocol.runtime.cognitive.adapters.anthropic import AnthropicEngine
+
             assert isinstance(engine, AnthropicEngine)
 
     def test_engine_from_env_openai(self, monkeypatch):
@@ -105,6 +107,7 @@ class TestEngineFromEnv:
         with patch.dict("sys.modules", {"openai": fake_openai}):
             engine = engine_from_env()
             from soul_protocol.runtime.cognitive.adapters.openai import OpenAIEngine
+
             assert isinstance(engine, OpenAIEngine)
 
     def test_engine_from_env_ollama(self, monkeypatch):
@@ -115,6 +118,7 @@ class TestEngineFromEnv:
 
         engine = engine_from_env()
         from soul_protocol.runtime.cognitive.adapters.ollama import OllamaEngine
+
         assert isinstance(engine, OllamaEngine)
         assert engine._host == "http://localhost:11434"
 
@@ -139,12 +143,16 @@ class TestEngineFromEnv:
         fake_openai = MagicMock()
         fake_openai.AsyncOpenAI.return_value = MagicMock()
 
-        with patch(
-            "soul_protocol.runtime.cognitive.adapters.anthropic.AnthropicEngine.__init__",
-            side_effect=ImportError("anthropic not installed"),
-        ), patch.dict("sys.modules", {"openai": fake_openai}):
+        with (
+            patch(
+                "soul_protocol.runtime.cognitive.adapters.anthropic.AnthropicEngine.__init__",
+                side_effect=ImportError("anthropic not installed"),
+            ),
+            patch.dict("sys.modules", {"openai": fake_openai}),
+        ):
             engine = engine_from_env()
             from soul_protocol.runtime.cognitive.adapters.openai import OpenAIEngine
+
             assert isinstance(engine, OpenAIEngine)
 
 
@@ -159,15 +167,20 @@ class TestSoulEngineIntegration:
     @pytest.mark.asyncio
     async def test_soul_birth_engine_callable(self):
         """Soul.birth() with a sync lambda wraps it in CallableEngine."""
-        fn = lambda p: '{"valence": 0.5, "arousal": 0.5, "label": "neutral"}'
+
+        def fn(_p: str) -> str:
+            return '{"valence": 0.5, "arousal": 0.5, "label": "neutral"}'
+
         soul = await Soul.birth(name="Aria", engine=fn)
         # The engine stored internally should be a CallableEngine
         from soul_protocol.runtime.cognitive.adapters._callable import CallableEngine
+
         assert isinstance(soul._engine, CallableEngine)
 
     @pytest.mark.asyncio
     async def test_soul_birth_engine_async_callable(self):
         """Soul.birth() with an async function wraps it in CallableEngine."""
+
         async def my_llm(prompt: str) -> str:
             return '{"valence": 0.5, "arousal": 0.5, "label": "neutral"}'
 
@@ -205,6 +218,7 @@ class TestSoulEngineIntegration:
         with patch.dict("sys.modules", {"anthropic": fake_anthropic}):
             soul = await Soul.birth(name="Aria", engine="auto")
             from soul_protocol.runtime.cognitive.adapters.anthropic import AnthropicEngine
+
             assert isinstance(soul._engine, AnthropicEngine)
 
     @pytest.mark.asyncio
@@ -215,7 +229,9 @@ class TestSoulEngineIntegration:
         soul_path = tmp_path / "test.soul"
         await soul.export(str(soul_path))
 
-        fn = lambda p: '{"valence": 0.0, "arousal": 0.0, "label": "neutral"}'
+        def fn(_p: str) -> str:
+            return '{"valence": 0.0, "arousal": 0.0, "label": "neutral"}'
+
         awakened = await Soul.awaken(str(soul_path), engine=fn)
         assert isinstance(awakened._engine, CallableEngine)
 
@@ -268,9 +284,7 @@ class TestCognitiveProcessorWithRealEngine:
     @pytest.mark.asyncio
     async def test_cognitive_processor_calls_engine_for_sentiment(self):
         """detect_sentiment() calls the engine's think() method."""
-        engine = TrackingEngine(
-            response='{"valence": 0.8, "arousal": 0.6, "label": "joy"}'
-        )
+        engine = TrackingEngine(response='{"valence": 0.8, "arousal": 0.6, "label": "joy"}')
         processor = CognitiveProcessor(engine=engine)
 
         result = await processor.detect_sentiment("I feel great today!")
@@ -294,9 +308,7 @@ class TestCognitiveProcessorWithRealEngine:
     @pytest.mark.asyncio
     async def test_cognitive_processor_calls_engine_for_fact_extraction(self):
         """extract_facts() calls the engine's think() method."""
-        engine = TrackingEngine(
-            response='[{"content": "User prefers Python", "importance": 7}]'
-        )
+        engine = TrackingEngine(response='[{"content": "User prefers Python", "importance": 7}]')
         processor = CognitiveProcessor(engine=engine)
         interaction = Interaction(
             user_input="I love Python", agent_output="Python is a great choice!"
@@ -321,7 +333,7 @@ class TestCognitiveProcessorWithRealEngine:
         processor = CognitiveProcessor(engine=engine, fact_extractor=dummy_extractor)
         interaction = Interaction(user_input="hello", agent_output="hi")
 
-        facts = await processor.extract_facts(interaction)
+        await processor.extract_facts(interaction)
         # Engine was called but parsing failed, fallback was used
         assert len(engine.calls) == 1
         assert fallback_called  # fallback extractor was invoked
@@ -338,7 +350,6 @@ class TestAdapterImportSafety:
     def test_anthropic_engine_import_error_on_missing_package(self):
         """AnthropicEngine raises ImportError with helpful message if anthropic not installed."""
         with patch.dict("sys.modules", {"anthropic": None}):
-            from importlib import reload
             import soul_protocol.runtime.cognitive.adapters.anthropic as mod
 
             # Force re-evaluation by calling with sys.modules patched
@@ -374,6 +385,7 @@ class TestOllamaEngine:
     async def test_ollama_engine_posts_to_correct_endpoint(self):
         """OllamaEngine POSTs to /api/generate and returns the response field."""
         import httpx
+
         from soul_protocol.runtime.cognitive.adapters.ollama import OllamaEngine
 
         engine = OllamaEngine(model="llama3.2", host="http://localhost:11434")
@@ -399,7 +411,6 @@ class TestOllamaEngine:
     @pytest.mark.asyncio
     async def test_ollama_engine_uses_custom_host(self):
         """OllamaEngine respects the custom host parameter."""
-        import httpx
         from soul_protocol.runtime.cognitive.adapters.ollama import OllamaEngine
 
         engine = OllamaEngine(model="mistral", host="http://192.168.1.100:11434")

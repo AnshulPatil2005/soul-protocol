@@ -1,7 +1,14 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-03-23 (v0.2.5) — updated test count to 1851, added cognitive adapters/MCP sampling/
-     LCM/visibility tiers/A2A bridge/format importers to features, expanded install extras table,
-     added engine="auto" quick-start example. -->
+<!-- Updated: 2026-04-09 (v0.3.0) — bumped test count badge to 2105, noted the
+     four v0.3.0 features in this header block: dream cycle (offline batch
+     memory consolidation), smart recall (opt-in LLM reranking with prompt
+     injection defense and timeout), significance short-circuit (skip expensive
+     steps on trivial interactions), and soul remember --type flag fix.
+     Updated: 2026-04-06 — Added dream feature (offline batch consolidation).
+     CLI: 37 → 38 commands. MCP: 23 → 24 tools.
+     Updated: 2026-03-29 (v0.2.9) — bumped test count to 2010, version to 0.2.9.
+     5 new features: skills decay, progressive recall, archival memory,
+     auto-consolidation, eternal storage wiring. -->
 
 # Soul Protocol
 
@@ -9,7 +16,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 1851 passing](https://img.shields.io/badge/tests-1851%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 2105 passing](https://img.shields.io/badge/tests-2105%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
@@ -65,8 +72,8 @@ Full methodology: [research/EVAL-FRAMEWORK.md](research/EVAL-FRAMEWORK.md)
 soul_protocol/
 ├── spec/      695 lines   The protocol. Portable, minimal, no opinions.
 ├── runtime/  9,693 lines  Reference implementation. Opinionated, batteries-included.
-├── cli/                    15-command CLI
-└── mcp/                    MCP server (12 tools, 3 resources)
+├── cli/                    38-command CLI
+└── mcp/                    MCP server (24 tools, 3 resources)
 ```
 
 **`spec/`** defines what any runtime must implement: Identity, MemoryStore, MemoryEntry, SoulContainer, `.soul` file format, EmbeddingProvider, EternalStorageProvider. Depends on Pydantic only.
@@ -100,8 +107,9 @@ Like HTTP and nginx. The spec defines the contract. The runtime is one implement
 | **Eternal storage** | Archive to decentralized storage (mock providers, production planned) |
 | **Portability** | `.soul` ZIP archive. JSON inside. Rename to .zip and read it. |
 | **Cross-language** | JSON Schemas auto-generated from spec. Validate `.soul` files in any language. |
-| **CLI** | 17 commands. Rich TUI output. |
-| **MCP** | 12 tools + 3 resources for Claude Code, Cursor, or any MCP client |
+| **Dream** | Offline batch consolidation — topic clustering, procedure detection, graph cleanup, personality drift |
+| **CLI** | 38 commands. Rich TUI output. |
+| **MCP** | 24 tools + 3 resources for Claude Code, Cursor, or any MCP client |
 
 ---
 
@@ -318,6 +326,8 @@ Archive souls to decentralized storage (local, IPFS, Arweave, blockchain). Curre
 soul <command> [options]
 ```
 
+See [CLI Reference](docs/cli-reference.md) for all 37 commands. Highlights:
+
 | Command | Description |
 |---|---|
 | `init` | Initialize a .soul/ folder (like .git/) |
@@ -345,7 +355,7 @@ pip install soul-protocol[mcp]
 SOUL_PATH=aria.soul soul-mcp
 ```
 
-12 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client. See [integrations](docs/integrations.md).
+23 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client. See [integrations](docs/integrations.md).
 
 ---
 
@@ -400,7 +410,7 @@ await soul.observe(Interaction(
 git clone https://github.com/qbtrix/soul-protocol.git
 cd soul-protocol
 pip install -e ".[dev]"
-pytest tests/   # 1851 tests
+pytest tests/   # 2105 tests
 ```
 
 ---

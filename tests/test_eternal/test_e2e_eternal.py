@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.runtime.soul import Soul
 from soul_protocol.runtime.eternal.manager import EternalStorageManager
 from soul_protocol.runtime.eternal.protocol import RecoverySource
 from soul_protocol.runtime.eternal.providers import (
@@ -14,6 +13,7 @@ from soul_protocol.runtime.eternal.providers import (
     MockBlockchainProvider,
     MockIPFSProvider,
 )
+from soul_protocol.runtime.soul import Soul
 
 
 class TestEternalE2E:
@@ -57,9 +57,7 @@ class TestEternalE2E:
 
         for source in sources:
             recovered_data = await manager.recover([source])
-            assert recovered_data == original_data, (
-                f"Data mismatch recovering from {source.tier}"
-            )
+            assert recovered_data == original_data, f"Data mismatch recovering from {source.tier}"
 
         # 5. Recover using fallback chain (all sources)
         recovered = await manager.recover(sources)
@@ -98,8 +96,7 @@ class TestEternalE2E:
         await soul.export(str(soul_path))
         data = soul_path.read_bytes()
 
-        results = await mgr.archive(data, soul.did, tiers=["ipfs"])
-        cid = results[0].reference
+        await mgr.archive(data, soul.did, tiers=["ipfs"])
 
         # Verify passes
         status = await mgr.verify_all(soul.did)
@@ -119,7 +116,7 @@ class TestEternalE2E:
         await soul.export(str(soul_path))
         data = soul_path.read_bytes()
 
-        results = await manager.archive(data, soul.did)
+        await manager.archive(data, soul.did)
 
         # Get sources and mark some as broken
         sources = await manager.get_recovery_sources(soul.did)

@@ -9,19 +9,14 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from soul_protocol.runtime.types import (
-    DNA,
-    CommunicationStyle,
-    CoreMemory,
-    Identity,
-    LifecycleState,
-    MemoryEntry,
     MemoryType,
-    Personality,
-    SoulConfig,
 )
+
+if TYPE_CHECKING:
+    from soul_protocol.runtime.soul import Soul
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +65,15 @@ def _map_traits_to_ocean(traits: dict[str, Any]) -> dict[str, float]:
             elif isinstance(value, str):
                 # Try to parse string values
                 level_map = {
-                    "very low": 0.1, "low": 0.25, "below average": 0.35,
-                    "average": 0.5, "moderate": 0.5, "medium": 0.5,
-                    "above average": 0.65, "high": 0.75, "very high": 0.9,
+                    "very low": 0.1,
+                    "low": 0.25,
+                    "below average": 0.35,
+                    "average": 0.5,
+                    "moderate": 0.5,
+                    "medium": 0.5,
+                    "above average": 0.65,
+                    "high": 0.75,
+                    "very high": 0.9,
                 }
                 if value.lower() in level_map:
                     ocean[dimension] = level_map[value.lower()]
@@ -115,7 +116,7 @@ class SoulSpecImporter:
     """
 
     @staticmethod
-    async def from_directory(path: str | Path) -> "Soul":
+    async def from_directory(path: str | Path) -> Soul:
         """Read a SoulSpec directory and create a Soul.
 
         Expected directory contents:
@@ -213,9 +214,13 @@ class SoulSpecImporter:
             if "verbosity" in style_meta:
                 comm_fields["verbosity"] = style_meta["verbosity"]
             if "humor" in style_meta or "humor_style" in style_meta:
-                comm_fields["humor_style"] = style_meta.get("humor_style", style_meta.get("humor", "none"))
+                comm_fields["humor_style"] = style_meta.get(
+                    "humor_style", style_meta.get("humor", "none")
+                )
             if "emoji" in style_meta or "emoji_usage" in style_meta:
-                comm_fields["emoji_usage"] = style_meta.get("emoji_usage", style_meta.get("emoji", "none"))
+                comm_fields["emoji_usage"] = style_meta.get(
+                    "emoji_usage", style_meta.get("emoji", "none")
+                )
             if comm_fields:
                 communication = comm_fields
 
@@ -250,7 +255,7 @@ class SoulSpecImporter:
         return soul
 
     @staticmethod
-    async def from_soul_json(data: dict[str, Any]) -> "Soul":
+    async def from_soul_json(data: dict[str, Any]) -> Soul:
         """Create a Soul from parsed soul.json data.
 
         Args:
@@ -305,7 +310,7 @@ class SoulSpecImporter:
         return soul
 
     @staticmethod
-    async def to_soulspec(soul: "Soul", output_dir: str | Path) -> Path:
+    async def to_soulspec(soul: Soul, output_dir: str | Path) -> Path:
         """Export a Soul back to SoulSpec directory format.
 
         Creates:

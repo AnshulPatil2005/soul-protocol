@@ -1,5 +1,7 @@
 <!-- Covers: Installation, optional extras, soul init quickstart, soul inject, first soul walkthrough,
      observe() pipeline explanation, next steps.
+     Updated: 2026-03-27 — v0.2.8: Fixed CLI command count (9 → 37), updated energy drain text
+       to reflect always-on defaults, fixed example output (energy 96 → 100).
      Updated: 2026-03-24 — v0.2.5: Added LLM engine extras (anthropic, openai, ollama, litellm, llm),
        embedding extras (embeddings-st, embeddings-openai, embeddings-ollama), [all] meta-extra,
        and engine="auto" quick start example.
@@ -149,6 +151,8 @@ async def main():
     ))
 
     # 4. Remember something directly
+    # Default tier is semantic (facts the soul knows).
+    # Use MemoryType.EPISODIC for events, MemoryType.PROCEDURAL for how-tos.
     await soul.remember("User prefers concise code examples", importance=8)
 
     # 5. Recall memories
@@ -189,12 +193,12 @@ Born: Aria (DID: did:soul:aria-a3f2b1)
   [semantic] User prefers concise code examples
   [semantic] User is building a Python web app
   [semantic] User's favorite framework is FastAPI
-Mood: neutral, Energy: 96.0
+Mood: neutral, Energy: 100.0
 System prompt: 847 chars
 Awakened: Aria, memories preserved!
 ```
 
-Notice that energy dropped from 100 to 96. Each `observe()` call drains 2 energy and 5 social battery, simulating the cost of social interaction.
+With default biorhythms (always-on), energy stays at 100%. Drain only occurs when `energy_drain_rate` is configured above zero (e.g., for companion souls).
 
 
 ## What Happened Behind the Scenes
@@ -270,10 +274,33 @@ See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 ## Next Steps
 
 - **[Core Concepts](core-concepts.md)** -- Identity, DNA, OCEAN personality, state management, evolution
-- **[Memory Architecture](memory-architecture.md)** -- Deep dive into 5-tier memory, ACT-R decay, LIDA gating, somatic markers
+- **[Memory Architecture](memory-architecture.md)** -- Deep dive into 5-tier memory, ACT-R decay, LIDA gating, somatic markers, archival compression, progressive recall, auto-consolidation, skill decay
 - **[CognitiveEngine Guide](cognitive-engine.md)** -- Plug in any LLM, custom search strategies, prompt templates
 - **[API Reference](api-reference.md)** -- Complete Soul class API, all types and models
 - **[MCP Server](mcp-server.md)** -- FastMCP server for agent integration
 - **[Integrations](integrations.md)** -- Give Claude Code, Cursor, or any agent a `.soul`
-- **[CLI Reference](cli-reference.md)** -- All 9 commands including `soul inject` for fast agent integration
+- **[CLI Reference](cli-reference.md)** -- All 37 commands including `soul inject` for fast agent integration
 - **[Org management](org.md)** -- Bootstrap a governance journal for a team of souls with `soul org init`
+
+### What's new in v0.3.1
+
+- `soul org init / status / destroy` -- bootstrap a governance journal with a root agent
+- Decision traces -- `agent.proposed` → `human.corrected` → `decision.graduated` event chains
+- `Soul.last_retrieval` -- every recall now produces a `RetrievalTrace` receipt you can introspect
+- Scope tags on memories -- filter recalls by `org:*`, `agent:<id>`, `session:<id>`
+- Bundled role archetypes -- Arrow, Flash, Cyborg, Analyst via `soul template`
+- Bare `pip install soul-protocol` now produces a working CLI (#157)
+
+### What's new in v0.3.0
+
+- `soul.dream()` -- offline batch consolidation (sleep-style memory processing)
+- `soul.smart_recall()` -- LLM-reranked memory retrieval (opt-in via `MemorySettings.smart_recall_enabled`)
+- Significance short-circuit -- skip expensive pipeline steps on trivial interactions
+- `soul remember --type <episodic|semantic|procedural>` -- target a specific memory tier
+
+### What's new in v0.2.9
+
+- `soul skills` -- view learned skills with level, XP, and decay status
+- `soul reflect` -- trigger memory consolidation (also runs automatically every 20 interactions)
+- `recall(progressive=True)` -- get overflow entries with L0 abstracts for token-budgeted context
+- `Soul.archive(tiers=["ipfs"])` -- archive to eternal storage (mock providers included)

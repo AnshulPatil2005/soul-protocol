@@ -1,4 +1,5 @@
 # test_cli.py — Tests for the CLI interface using click.testing.CliRunner.
+# Updated: 2026-03-27 — Added tests for recall --full and --json flags (v0.2.8).
 # Updated: 2026-03-13 — Added --format option tests for soul init (TDD: dir, zip, default).
 
 from __future__ import annotations
@@ -74,9 +75,7 @@ def test_remember_command(tmp_path):
     # Birth a soul first
     runner.invoke(cli, ["birth", "MemBot", "-o", soul_path])
 
-    result = runner.invoke(
-        cli, ["remember", soul_path, "User prefers dark mode", "-i", "7"]
-    )
+    result = runner.invoke(cli, ["remember", soul_path, "User prefers dark mode", "-i", "7"])
 
     assert result.exit_code == 0
     assert "Memory Stored" in result.output
@@ -91,12 +90,100 @@ def test_remember_with_emotion(tmp_path):
 
     runner.invoke(cli, ["birth", "EmoBot", "-o", soul_path])
 
-    result = runner.invoke(
-        cli, ["remember", soul_path, "Had a great conversation", "-e", "happy"]
-    )
+    result = runner.invoke(cli, ["remember", soul_path, "Had a great conversation", "-e", "happy"])
 
     assert result.exit_code == 0
     assert "happy" in result.output
+
+
+def test_remember_episodic_type(tmp_path):
+    """remember --type episodic routes memory to the episodic tier."""
+    import json
+    import zipfile
+
+    runner = CliRunner()
+    soul_path = str(tmp_path / "episodic-test.soul")
+
+    runner.invoke(cli, ["birth", "EpBot", "-o", soul_path])
+
+    result = runner.invoke(
+        cli,
+        ["remember", soul_path, "Shipped v0.3 today", "--type", "episodic", "-i", "8"],
+    )
+
+    assert result.exit_code == 0
+    assert "episodic" in result.output.lower()
+
+    # Verify the memory is actually in the episodic tier, not semantic.
+    # Episodic memories are wrapped in the interaction format ("User: ... Agent: ...")
+    with zipfile.ZipFile(soul_path) as zf:
+        episodic = json.loads(zf.read("memory/episodic.json"))
+        semantic = json.loads(zf.read("memory/semantic.json"))
+
+    assert len(episodic) == 1
+    assert "Shipped v0.3 today" in episodic[0]["content"]
+    assert len(semantic) == 0
+
+
+def test_remember_procedural_type(tmp_path):
+    """remember --type procedural routes memory to the procedural tier."""
+    import json
+    import zipfile
+
+    runner = CliRunner()
+    soul_path = str(tmp_path / "procedural-test.soul")
+
+    runner.invoke(cli, ["birth", "ProcBot", "-o", soul_path])
+
+    result = runner.invoke(
+        cli,
+        ["remember", soul_path, "How to deploy the app", "--type", "procedural"],
+    )
+
+    assert result.exit_code == 0
+
+    with zipfile.ZipFile(soul_path) as zf:
+        procedural = json.loads(zf.read("memory/procedural.json"))
+        semantic = json.loads(zf.read("memory/semantic.json"))
+
+    assert len(procedural) == 1
+    assert procedural[0]["content"] == "How to deploy the app"
+    assert len(semantic) == 0
+
+
+def test_remember_default_is_semantic(tmp_path):
+    """remember without --type defaults to semantic (backward compat)."""
+    import json
+    import zipfile
+
+    runner = CliRunner()
+    soul_path = str(tmp_path / "default-type-test.soul")
+
+    runner.invoke(cli, ["birth", "DefBot", "-o", soul_path])
+
+    result = runner.invoke(cli, ["remember", soul_path, "A plain fact"])
+
+    assert result.exit_code == 0
+
+    with zipfile.ZipFile(soul_path) as zf:
+        semantic = json.loads(zf.read("memory/semantic.json"))
+        episodic = json.loads(zf.read("memory/episodic.json"))
+
+    assert len(semantic) == 1
+    assert len(episodic) == 0
+
+
+def test_remember_rejects_invalid_type(tmp_path):
+    """remember --type with an invalid value exits with an error."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "invalid-type-test.soul")
+
+    runner.invoke(cli, ["birth", "InvBot", "-o", soul_path])
+
+    result = runner.invoke(cli, ["remember", soul_path, "Some text", "--type", "core"])
+
+    # core is a valid MemoryType but not allowed via CLI (core is persona-level)
+    assert result.exit_code != 0
 
 
 def test_recall_with_query(tmp_path):
@@ -171,9 +258,7 @@ def test_init_setup_preserves_existing_soul(tmp_path, monkeypatch):
     before = json.loads(soul_json_path.read_text())
 
     # Now run init --setup on the same dir — should NOT overwrite
-    result2 = runner.invoke(
-        cli, ["init", "-d", soul_dir, "--setup", "claude-code"]
-    )
+    result2 = runner.invoke(cli, ["init", "-d", soul_dir, "--setup", "claude-code"])
     assert result2.exit_code == 0
     assert "Found" in result2.output and "TestBot" in result2.output
 
@@ -224,3 +309,112 @@ def test_init_format_default_is_dir(tmp_path):
     soul_json = tmp_path / ".soul" / "defaultbot" / "soul.json"
     assert soul_json.exists(), f"soul.json not found at {soul_json} (default format should be dir)"
     assert (tmp_path / ".soul" / "defaultbot").is_dir()
+
+
+# --- recall --full / --json tests (v0.2.8) ---
+
+
+def test_recall_full_flag(tmp_path):
+    """recall --full shows complete memory content without truncation."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "full-test.soul")
+
+    runner.invoke(cli, ["birth", "FullBot", "-o", soul_path])
+    long_text = (
+        "User preferences for dark mode and Python programming " * 4
+    )  # exceeds 80-char limit
+    runner.invoke(cli, ["remember", soul_path, long_text.strip()])
+
+    # Use --recent to avoid search matching issues
+    result = runner.invoke(cli, ["recall", soul_path, "--recent", "5", "--full"])
+
+    assert result.exit_code == 0
+    # --full should show the complete text, not truncated
+    assert long_text.strip() in result.output
+    # Should have the "--- Memory N (...) ---" header format
+    assert "--- Memory" in result.output
+    assert "importance:" in result.output
+    assert "created:" in result.output
+
+
+def test_recall_full_recent(tmp_path):
+    """recall --recent N --full shows untruncated recent memories."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "fullrecent-test.soul")
+
+    runner.invoke(cli, ["birth", "FullRecentBot", "-o", soul_path])
+    runner.invoke(cli, ["remember", soul_path, "Remember this specific fact"])
+
+    result = runner.invoke(cli, ["recall", soul_path, "--recent", "5", "--full"])
+
+    assert result.exit_code == 0
+    assert "--- Memory" in result.output
+
+
+def test_recall_json_flag(tmp_path):
+    """recall --json outputs valid JSON array."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "json-test.soul")
+
+    runner.invoke(cli, ["birth", "JsonBot", "-o", soul_path])
+    runner.invoke(cli, ["remember", soul_path, "User likes dark mode", "-i", "8"])
+
+    result = runner.invoke(cli, ["recall", soul_path, "dark mode", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert isinstance(data, list)
+    assert len(data) >= 1
+    item = data[0]
+    assert "type" in item
+    assert "content" in item
+    assert "importance" in item
+    assert "emotion" in item
+    assert "created" in item
+    assert "dark mode" in item["content"]
+
+
+def test_recall_json_empty(tmp_path):
+    """recall --json with no matches outputs empty JSON array."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "jsonempty-test.soul")
+
+    runner.invoke(cli, ["birth", "JsonEmptyBot", "-o", soul_path])
+
+    result = runner.invoke(cli, ["recall", soul_path, "xyznonexistent", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data == []
+
+
+def test_recall_json_recent(tmp_path):
+    """recall --recent N --json outputs valid JSON array."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "jsonrecent-test.soul")
+
+    runner.invoke(cli, ["birth", "JsonRecentBot", "-o", soul_path])
+    runner.invoke(cli, ["remember", soul_path, "A fact to recall"])
+
+    result = runner.invoke(cli, ["recall", soul_path, "--recent", "5", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert isinstance(data, list)
+
+
+def test_recall_default_table_unchanged(tmp_path):
+    """recall without --full or --json still uses Rich table (existing behavior)."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "table-test.soul")
+
+    runner.invoke(cli, ["birth", "TableBot", "-o", soul_path])
+    runner.invoke(cli, ["remember", soul_path, "Table test memory"])
+
+    result = runner.invoke(cli, ["recall", soul_path, "Table test"])
+
+    assert result.exit_code == 0
+    # Default output should have the "memor" count footer and not JSON
+    assert "found" in result.output.lower() or "memor" in result.output.lower()
+    # Should NOT be raw JSON
+    assert not result.output.strip().startswith("[")

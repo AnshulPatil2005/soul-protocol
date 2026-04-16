@@ -470,3 +470,23 @@ def test_append_returned_entry_equals_queried_entry(journal: Journal) -> None:
     assert len(queried) == 1
     assert queried[0].id == committed.id
     assert queried[0].action == committed.action
+
+
+def test_query_returns_entries_with_seq_populated(journal: Journal) -> None:
+    """Reads surface seq too — not just Journal.append writes. Otherwise
+    callers that want to order by seq after a query fall back to MAX(seq)
+    or lose the ordering primitive entirely."""
+    committed = [journal.append(_make_entry()) for _ in range(3)]
+    queried = journal.query(limit=100)
+    assert len(queried) == 3
+    assert all(q.seq is not None for q in queried)
+    assert {q.seq for q in queried} == {c.seq for c in committed}
+
+
+def test_replay_returns_entries_with_seq_populated(journal: Journal) -> None:
+    """replay_from surfaces seq too — consumers rebuilding projections need it."""
+    committed = [journal.append(_make_entry()) for _ in range(3)]
+    replayed = list(journal.replay_from(0))
+    assert len(replayed) == 3
+    assert all(e.seq is not None for e in replayed)
+    assert [e.seq for e in replayed] == sorted(c.seq for c in committed)

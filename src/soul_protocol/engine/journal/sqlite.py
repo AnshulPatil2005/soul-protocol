@@ -256,5 +256,6 @@ class SQLiteJournalBackend(JournalBackend):
             payload=_decode_payload(payload_json),
             prev_hash=prev_hash,
             sig=sig,
+            seq=int(seq),
         )
         return entry, int(seq)

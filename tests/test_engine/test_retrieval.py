@@ -432,3 +432,139 @@ def test_dataref_source_triggers_broker(journal: Journal) -> None:
     _, cred = mock.calls[0]
     assert cred is not None
     assert cred.source == "drive"
+
+
+# ---------- primitive #4: RetrievalRequest.point_in_time --------------
+
+
+def test_point_in_time_round_trips(journal: Journal) -> None:
+    """Unit: the field is tz-aware UTC and survives model validation."""
+    pit = datetime.now(UTC)
+    req = RetrievalRequest(
+        query="q",
+        actor=_actor(),
+        scopes=["org:s"],
+        point_in_time=pit,
+    )
+    assert req.point_in_time == pit
+
+
+def test_point_in_time_naive_raises() -> None:
+    """Unit: naive datetimes rejected at validation time."""
+    from pydantic import ValidationError
+
+    naive = datetime.now()  # no tzinfo
+    with pytest.raises(ValidationError):
+        RetrievalRequest(
+            query="q",
+            actor=_actor(),
+            scopes=["org:s"],
+            point_in_time=naive,
+        )
+
+
+def test_point_in_time_defaults_to_none() -> None:
+    """Unit: pre-0.3.2 callers keep working — field is optional."""
+    req = RetrievalRequest(query="q", actor=_actor(), scopes=["org:s"])
+    assert req.point_in_time is None
+
+
+def test_point_in_time_emitted_on_journal_event(
+    journal: Journal,
+) -> None:
+    """E2E: when point_in_time is set, the retrieval.query event records it."""
+    from soul_protocol.engine.retrieval import InMemoryCredentialBroker
+
+    router = RetrievalRouter(journal=journal, broker=InMemoryCredentialBroker())
+    mock = MockAdapter(candidates=[_candidate("drive", 0.9)])
+    router.register_source(
+        CandidateSource(
+            name="drive", kind="projection", scopes=["org:sales:*"], adapter_ref="drive"
+        ),
+        mock,
+    )
+    pit = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+    router.dispatch(_request(point_in_time=pit))
+
+    events = journal.query(action="retrieval.query")
+    assert len(events) == 1
+    payload = events[0].payload
+    assert payload["point_in_time"] == pit.isoformat()
+
+
+def test_point_in_time_absent_omitted_from_payload(
+    journal: Journal,
+) -> None:
+    """E2E: when point_in_time is None (default), it's not in the payload
+    — avoids stuffing the payload with null fields for 99% of retrievals."""
+    from soul_protocol.engine.retrieval import InMemoryCredentialBroker
+
+    router = RetrievalRouter(journal=journal, broker=InMemoryCredentialBroker())
+    mock = MockAdapter(candidates=[_candidate("kb", 0.7)])
+    router.register_source(
+        CandidateSource(
+            name="kb", kind="projection", scopes=["org:sales:*"], adapter_ref="kb"
+        ),
+        mock,
+    )
+    router.dispatch(_request())
+
+    events = journal.query(action="retrieval.query")
+    assert "point_in_time" not in events[0].payload
+
+
+def test_point_in_time_not_supported_error_exists() -> None:
+    """Smoke: the sentinel exception for adapters that can't honor
+    time-travel is exported and usable."""
+    from soul_protocol.spec.retrieval import PointInTimeNotSupported
+
+    exc = PointInTimeNotSupported("drive doesn't support AT")
+    assert isinstance(exc, Exception)
+    assert "drive" in str(exc)
+
+
+def test_point_in_time_realworld_drive_adapter_pattern(
+    journal: Journal,
+) -> None:
+    """Real-world sim: replays how pocketpaw's connectors/drive/source.py
+    should look after 0.3.2. Pre-0.3.2 it used @at=<iso>|<query> string
+    prefixes. Post-0.3.2 the adapter reads request.point_in_time directly.
+    """
+    from soul_protocol.engine.retrieval import InMemoryCredentialBroker
+
+    class DriveLikeAdapter:
+        """Mock adapter that honors point_in_time."""
+
+        supports_dataref = True
+
+        def __init__(self) -> None:
+            self.resolved_at: datetime | None = None
+
+        def query(self, request, credential):
+            # Real driver would pass point_in_time to the Drive API's
+            # `revisions.get` endpoint. Here we just record it.
+            self.resolved_at = request.point_in_time
+            return [
+                RetrievalCandidate(
+                    source="drive",
+                    content={"hit": "doc123", "revision": "r42"},
+                    as_of=request.point_in_time or datetime.now(UTC),
+                )
+            ]
+
+    adapter = DriveLikeAdapter()
+    router = RetrievalRouter(journal=journal, broker=InMemoryCredentialBroker())
+    router.register_source(
+        CandidateSource(
+            name="drive",
+            kind="dataref",
+            scopes=["org:sales:*"],
+            adapter_ref="drive",
+        ),
+        adapter,  # type: ignore[arg-type]
+    )
+
+    pit = datetime(2024, 6, 1, 9, 0, 0, tzinfo=UTC)
+    router.dispatch(_request(point_in_time=pit))
+
+    assert adapter.resolved_at == pit

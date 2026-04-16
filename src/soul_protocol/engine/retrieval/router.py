@@ -232,6 +232,14 @@ class RetrievalRouter:
                     {"source": s, "reason": r} for s, r in result.sources_failed
                 ],
                 "candidate_count": len(result.candidates),
+                # point_in_time: record as ISO for downstream consumers that
+                # want to replay the exact time-travel intent. Only present
+                # when the caller asked for a historical snapshot.
+                **(
+                    {"point_in_time": request.point_in_time.isoformat()}
+                    if request.point_in_time is not None
+                    else {}
+                ),
             },
         )
         try:

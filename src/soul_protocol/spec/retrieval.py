@@ -1,14 +1,9 @@
 # retrieval.py — Retrieval router request/result models.
-# Created: feat/retrieval-router — Workstream C1 of Org Architecture RFC (#164).
-# Describes the request envelope, candidate-source registration, and result
-# shape the `RetrievalRouter` uses. Source-specific payload stays opaque so
-# the router doesn't need to know about Drive, Salesforce, soul memory, etc.
-# Zero-Copy federation is expressed by `CandidateSource.kind == "dataref"`
-# sources — their adapters return candidates whose payload points at live
-# external data rather than copying it.
-# Updated: feat/retrieval-trace-spec — Wired the `trace` field on
-# `RetrievalResult` to the `RetrievalTrace` receipt model from
-# ``soul_protocol.spec.trace`` (closes the v0.3 TODO from PR #161).
+# Updated: feat/0.3.2-spike — added RetrievalRequest.point_in_time for
+# adapters that support time-travel queries (Drive revisions, Salesforce
+# AT, Snowflake TIME TRAVEL). First-class field replaces the
+# @at=<iso>|<query> string-prefix workaround pocketpaw's Drive adapter
+# used pre-0.3.2. (Primitive #4 of 5 additive gaps.)
 
 from __future__ import annotations
 
@@ -73,6 +68,38 @@ class RetrievalRequest(BaseModel):
     limit: int = 20
     strategy: Literal["first", "parallel", "sequential"] = "parallel"
     timeout_s: float = 10.0
+    point_in_time: datetime | None = None
+    """Point-in-time query target for adapters that support time travel.
+
+    When set, adapters that can resolve against a historical snapshot
+    (Drive revisions, Salesforce ``AT``, Snowflake TIME TRAVEL, etc.) should
+    honor it. Adapters that can't have two choices: best-effort current data
+    with a warning recorded in ``RetrievalResult.sources_failed``, or raise
+    a ``PointInTimeNotSupported`` exception. The router logs the intent on
+    the emitted ``retrieval.query`` journal event either way so downstream
+    consumers can see that a time-travel query was requested.
+
+    Must be timezone-aware UTC. Naive datetimes raise. (Added in 0.3.2.)
+    """
+
+    @field_validator("point_in_time")
+    @classmethod
+    def _point_in_time_must_be_utc(cls, v: datetime | None) -> datetime | None:
+        if v is None:
+            return v
+        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
+            raise ValueError(
+                "RetrievalRequest.point_in_time must be timezone-aware (UTC)"
+            )
+        return v
+
+
+class PointInTimeNotSupported(Exception):
+    """Raised by a source adapter when the request asks for a historical
+    snapshot but the adapter can't honor it. The router catches this,
+    records the source in ``sources_failed``, and continues with other
+    sources. (Added in 0.3.2.)
+    """
 
 
 class RetrievalCandidate(BaseModel):

@@ -22,6 +22,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import UTC, datetime
@@ -98,6 +100,99 @@ class RetrievalRouter:
         )
         self._emit_query_event(request, result)
         return result
+
+    async def adispatch(self, request: RetrievalRequest) -> RetrievalResult:
+        """Async dispatch — prefers ``aquery`` per adapter, falls back to
+        threading the sync ``query``.
+
+        Added in 0.3.2 (primitive #5). Adapters backed by async SDKs can
+        participate in cooperative multitasking without bridging through
+        ``asyncio.run``. Sync-only adapters keep working — the router
+        wraps their ``query`` in ``asyncio.to_thread``.
+
+        Strategy is parallel with per-source timeout (matching the default
+        sync dispatch). ``first`` and ``sequential`` strategies fall back
+        to the sync path for now — async variants are a future slice.
+        """
+        if request.strategy in ("first", "sequential"):
+            # No async win for sequential strategies — they serialize by
+            # design. Use the sync path to avoid duplicating logic.
+            return await asyncio.to_thread(self.dispatch, request)
+
+        request_id = uuid4()
+        started = time.perf_counter()
+
+        selected = self._select_sources(request)
+        if not selected:
+            raise NoSourcesError(
+                f"no registered source matches scopes {request.scopes} "
+                f"(sources filter: {request.sources})"
+            )
+
+        queried = [s.name for s, _ in selected]
+        failed: list[tuple[str, str]] = []
+        collected: list[RetrievalCandidate] = []
+
+        async def _run_one(
+            source: CandidateSource, adapter: SourceAdapter
+        ) -> tuple[str, list[RetrievalCandidate] | None, str | None]:
+            try:
+                out = await asyncio.wait_for(
+                    self._acall_adapter(request, source, adapter),
+                    timeout=request.timeout_s,
+                )
+                return source.name, out, None
+            except asyncio.TimeoutError:
+                return (
+                    source.name,
+                    None,
+                    f"source {source.name} timed out after {request.timeout_s}s",
+                )
+            except Exception as e:
+                return source.name, None, f"{type(e).__name__}: {e}"
+
+        outcomes = await asyncio.gather(
+            *(_run_one(s, a) for s, a in selected)
+        )
+        for name, out, err in outcomes:
+            if err is not None:
+                failed.append((name, err))
+            elif out is not None:
+                collected.extend(out)
+
+        merged = _merge_and_truncate(collected, request.limit)
+        total_ms = (time.perf_counter() - started) * 1000.0
+
+        result = RetrievalResult(
+            request_id=request_id,
+            candidates=merged,
+            sources_queried=queried,
+            sources_failed=failed,
+            total_latency_ms=total_ms,
+            trace=None,
+        )
+        self._emit_query_event(request, result)
+        return result
+
+    async def _acall_adapter(
+        self,
+        request: RetrievalRequest,
+        source: CandidateSource,
+        adapter: SourceAdapter,
+    ) -> list[RetrievalCandidate]:
+        """Async version of _call_adapter — prefer aquery, fall back to thread."""
+        credential = None
+        if source.kind == "dataref" and self._broker is not None:
+            credential = self._broker.acquire(source.name, request.scopes)
+            self._broker.ensure_usable(credential, request.scopes)
+            self._broker.mark_used(credential)
+
+        # Adapter has a concrete async implementation? Use it. Otherwise
+        # thread the sync query.
+        aquery = getattr(adapter, "aquery", None)
+        if aquery is not None and inspect.iscoroutinefunction(aquery):
+            return await aquery(request, credential)
+        return await asyncio.to_thread(adapter.query, request, credential)
 
     # -- internals --------------------------------------------------------
 

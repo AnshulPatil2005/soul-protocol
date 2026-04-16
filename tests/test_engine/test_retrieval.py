@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -703,3 +704,220 @@ def test_dataref_realworld_drive_candidate_pattern() -> None:
     assert ref.id == "1abc-file-xyz"
     assert ref.revision_id == "rev_0042"
     assert ref.extra["mimeType"].startswith("application/")
+
+
+# ---------- primitive #5: async SourceAdapter.aquery + adispatch ------
+
+
+class AsyncMockAdapter:
+    """Async-native adapter for testing adispatch's aquery path."""
+
+    supports_dataref = False
+
+    def __init__(self, candidates: list[RetrievalCandidate]) -> None:
+        self._candidates = candidates
+        self.sync_calls = 0
+        self.async_calls = 0
+
+    def query(self, request, credential):
+        self.sync_calls += 1
+        return list(self._candidates)
+
+    async def aquery(self, request, credential):
+        self.async_calls += 1
+        return list(self._candidates)
+
+
+class SyncOnlyAdapter:
+    """Pure sync adapter — no aquery defined at all."""
+
+    supports_dataref = False
+
+    def __init__(self, candidates: list[RetrievalCandidate]) -> None:
+        self._candidates = candidates
+        self.call_count = 0
+
+    def query(self, request, credential):
+        self.call_count += 1
+        return list(self._candidates)
+
+
+@pytest.mark.asyncio
+async def test_adispatch_prefers_aquery_when_available(journal: Journal) -> None:
+    """Unit: an adapter with aquery has its async path taken."""
+    from soul_protocol.engine.retrieval import InMemoryCredentialBroker
+
+    router = RetrievalRouter(journal=journal, broker=InMemoryCredentialBroker())
+    adapter = AsyncMockAdapter([_candidate("drive", 0.9)])
+    router.register_source(
+        CandidateSource(
+            name="drive", kind="projection", scopes=["org:sales:*"], adapter_ref="drive"
+        ),
+        adapter,  # type: ignore[arg-type]
+    )
+
+    result = await router.adispatch(_request())
+    assert len(result.candidates) == 1
+    assert adapter.async_calls == 1
+    assert adapter.sync_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_adispatch_falls_back_to_thread_for_sync_only(journal: Journal) -> None:
+    """Unit: sync-only adapter still works under adispatch — threaded."""
+    from soul_protocol.engine.retrieval import InMemoryCredentialBroker
+
+    router = RetrievalRouter(journal=journal, broker=InMemoryCredentialBroker())
+    adapter = SyncOnlyAdapter([_candidate("kb", 0.5)])
+    router.register_source(
+        CandidateSource(
+            name="kb", kind="projection", scopes=["org:sales:*"], adapter_ref="kb"
+        ),
+        adapter,  # type: ignore[arg-type]
+    )
+
+    result = await router.adispatch(_request())
+    assert len(result.candidates) == 1
+    assert adapter.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_adispatch_sequential_strategy_delegates_to_sync(journal: Journal) -> None:
+    """Smoke: non-parallel strategies run on the sync path via to_thread.
+    Still gets a RetrievalResult back."""
+    from soul_protocol.engine.retrieval import InMemoryCredentialBroker
+
+    router = RetrievalRouter(journal=journal, broker=InMemoryCredentialBroker())
+    router.register_source(
+        CandidateSource(
+            name="kb", kind="projection", scopes=["org:sales:*"], adapter_ref="kb"
+        ),
+        MockAdapter(candidates=[_candidate("kb", 0.5)]),
+    )
+
+    result = await router.adispatch(_request(strategy="sequential"))
+    assert len(result.candidates) == 1
+
+
+@pytest.mark.asyncio
+async def test_adispatch_timeout_fires_per_source(journal: Journal) -> None:
+    """E2E: a slow adapter hits the per-source timeout; others still succeed."""
+    from soul_protocol.engine.retrieval import InMemoryCredentialBroker
+
+    class SlowAsyncAdapter:
+        supports_dataref = False
+
+        async def query(self, request, credential):
+            return []
+
+        async def aquery(self, request, credential):
+            await asyncio.sleep(5.0)  # way beyond test timeout
+            return [_candidate("slow")]
+
+    router = RetrievalRouter(journal=journal, broker=InMemoryCredentialBroker())
+    router.register_source(
+        CandidateSource(
+            name="slow", kind="projection", scopes=["org:sales:*"], adapter_ref="slow"
+        ),
+        SlowAsyncAdapter(),  # type: ignore[arg-type]
+    )
+    router.register_source(
+        CandidateSource(
+            name="fast", kind="projection", scopes=["org:sales:*"], adapter_ref="fast"
+        ),
+        AsyncMockAdapter([_candidate("fast", 0.9)]),  # type: ignore[arg-type]
+    )
+
+    result = await router.adispatch(_request(timeout_s=0.2))
+
+    # Fast returned; slow timed out.
+    candidate_sources = {c.source for c in result.candidates}
+    assert "fast" in candidate_sources
+    assert any(name == "slow" and "timed out" in reason for name, reason in result.sources_failed)
+
+
+@pytest.mark.asyncio
+async def test_adispatch_scope_filtering_still_applies(journal: Journal) -> None:
+    """E2E: scope overlap is enforced just like sync dispatch."""
+    from soul_protocol.engine.retrieval import InMemoryCredentialBroker
+
+    router = RetrievalRouter(journal=journal, broker=InMemoryCredentialBroker())
+    router.register_source(
+        CandidateSource(
+            name="eng", kind="projection", scopes=["org:eng:*"], adapter_ref="eng"
+        ),
+        AsyncMockAdapter([_candidate("eng")]),  # type: ignore[arg-type]
+    )
+
+    # Request with a scope that doesn't overlap any registered source.
+    with pytest.raises(NoSourcesError):
+        await router.adispatch(_request(scopes=["org:hr:leads"]))
+
+
+def test_async_source_adapter_protocol_conformance() -> None:
+    """Smoke: AsyncSourceAdapter runtime_checkable correctly identifies
+    sync-only vs async-capable adapters."""
+    from soul_protocol.engine.retrieval.adapters import AsyncSourceAdapter
+
+    async_adapter = AsyncMockAdapter([])
+    sync_only = SyncOnlyAdapter([])
+
+    assert isinstance(async_adapter, AsyncSourceAdapter)
+    assert not isinstance(sync_only, AsyncSourceAdapter)
+
+
+@pytest.mark.asyncio
+async def test_adispatch_realworld_async_sdk_adapter_pattern(
+    journal: Journal,
+) -> None:
+    """Real-world sim: modern SaaS SDKs (Salesforce REST, Slack bolt,
+    Gmail API) are async-first. Pre-0.3.2, adapters bridged through
+    ``asyncio.run`` inside a sync ``query`` — lost the event loop context,
+    created new threads, made timeouts unreliable. Post-0.3.2, the adapter
+    implements ``aquery`` directly and adispatch awaits it cooperatively.
+    """
+    from soul_protocol.engine.retrieval import InMemoryCredentialBroker
+
+    class FakeSalesforceAdapter:
+        """Adapter simulating an async-native Salesforce client."""
+
+        supports_dataref = True
+
+        def __init__(self) -> None:
+            self.aquery_reached = False
+
+        def query(self, request, credential):
+            # Sync bridge exists for callers that only have sync dispatch.
+            # It would be something like `asyncio.run(self.aquery(...))`.
+            raise NotImplementedError("use aquery")
+
+        async def aquery(self, request, credential):
+            # Simulates awaiting the SDK (httpx.AsyncClient, etc).
+            await asyncio.sleep(0.001)
+            self.aquery_reached = True
+            return [
+                RetrievalCandidate(
+                    source="salesforce",
+                    content={"Id": "001xyz", "Name": "Acme Corp"},
+                    score=0.88,
+                    as_of=datetime.now(UTC),
+                )
+            ]
+
+    adapter = FakeSalesforceAdapter()
+    router = RetrievalRouter(journal=journal, broker=InMemoryCredentialBroker())
+    router.register_source(
+        CandidateSource(
+            name="salesforce",
+            kind="dataref",
+            scopes=["org:sales:*"],
+            adapter_ref="salesforce",
+        ),
+        adapter,  # type: ignore[arg-type]
+    )
+
+    result = await router.adispatch(_request())
+
+    assert adapter.aquery_reached is True
+    assert len(result.candidates) == 1
+    assert result.candidates[0].source == "salesforce"

@@ -1,9 +1,10 @@
 # adapters.py — SourceAdapter Protocol + two reference implementations.
-# Created: feat/retrieval-router — Workstream C1 of Org Architecture RFC (#164).
-# Adapters are intentionally sync for this slice — async wrapping is a
-# follow-up. The router runs adapters on a thread pool for the `parallel`
-# strategy, so sync-only callers (sqlite projections, requests-backed
-# federated sources) stay the simple case.
+# Updated: feat/0.3.2-spike — added optional async ``aquery`` method to the
+# Protocol. Adapters backed by async-native SDKs (most modern Salesforce,
+# Slack, Gmail clients) can implement it directly instead of bridging
+# through asyncio.run(). The router's new ``adispatch`` prefers ``aquery``
+# when present and falls back to thread-pooling the sync ``query`` otherwise.
+# (Primitive #5 of 5 additive gaps.)
 #
 # Two concrete adapters live here:
 #   * `MockAdapter` — returns fixed candidates and tracks invocations. Pure
@@ -35,11 +36,45 @@ class SourceAdapter(Protocol):
 
     The `supports_dataref` class attribute advertises whether this adapter
     can produce Zero-Copy candidates whose content is a DataRef payload.
+
+    **Optional async companion** (added in 0.3.2): adapters backed by
+    async-native SDKs can additionally implement an ``aquery`` coroutine
+    with the same signature. The router's ``adispatch`` uses ``aquery``
+    when it's present (detected via ``inspect.iscoroutinefunction``) and
+    threads ``query`` otherwise. ``aquery`` is **not** part of the
+    Protocol signature because ``runtime_checkable`` would then require
+    every sync-only adapter to stub it — the detection at dispatch time
+    keeps both paths clean. See :class:`AsyncSourceAdapter` below for a
+    pure structural tag when you want ``isinstance(adapter,
+    AsyncSourceAdapter)``.
     """
 
     supports_dataref: bool
 
     def query(
+        self,
+        request: RetrievalRequest,
+        credential: Credential | None,
+    ) -> list[RetrievalCandidate]: ...
+
+
+@runtime_checkable
+class AsyncSourceAdapter(Protocol):
+    """Structural tag for adapters that also implement async ``aquery``.
+
+    ``isinstance(adapter, AsyncSourceAdapter)`` is true iff the adapter
+    has both ``query`` and an async ``aquery``. Added in 0.3.2 —
+    consumers that want to route differently based on async support
+    can use this as a clean predicate instead of poking at attributes.
+    """
+
+    def query(
+        self,
+        request: RetrievalRequest,
+        credential: Credential | None,
+    ) -> list[RetrievalCandidate]: ...
+
+    async def aquery(
         self,
         request: RetrievalRequest,
         credential: Credential | None,

@@ -21,6 +21,38 @@ from soul_protocol.spec.journal import Actor, EventEntry
 from soul_protocol.spec.memory import MemoryEntry, MemoryVisibility
 
 # ---------------------------------------------------------------------------
+# FTS query construction
+# ---------------------------------------------------------------------------
+
+
+_FTS_SPECIAL_CHARS = set('"\'()+*-:')
+
+
+def _build_fts_query(user_query: str) -> str:
+    """Build an FTS5 MATCH expression from user input.
+
+    Splits the query on any non-alphanumeric character (matches how FTS5's
+    unicode61 tokenizer breaks stored text — so "alice@example.com"
+    produces the same tokens "alice", "example", "com" on both sides).
+    Tokens are joined with OR so multi-word queries rank by bm25 rather
+    than require strict conjunction.
+    """
+    tokens: list[str] = []
+    current: list[str] = []
+    for c in user_query:
+        if c.isalnum() or c == "_":
+            current.append(c)
+        elif current:
+            tokens.append("".join(current))
+            current = []
+    if current:
+        tokens.append("".join(current))
+    if not tokens:
+        return ""
+    return " OR ".join(f'"{t}"' for t in tokens)
+
+
+# ---------------------------------------------------------------------------
 # Projection schema
 # ---------------------------------------------------------------------------
 
@@ -203,26 +235,35 @@ class JournalBackedMemoryStore:
         return [self._row_to_entry(row) for row in cursor.fetchall()]
 
     def search(self, query: str, *, limit: int = 10) -> list[MemoryEntry]:
-        """BM25-ranked full-text search across all tiers."""
+        """BM25-ranked full-text search across all tiers.
+
+        User queries are tokenized and joined with FTS5 OR operators so a
+        multi-word query returns memories containing any of the terms (with
+        bm25 boosting memories that contain more of them). Users can still
+        force phrase matching by wrapping a query in literal quotes.
+        """
         if not query.strip():
             return []
-        # Escape FTS5 special characters by wrapping the query in quotes
-        # and doubling internal quotes. This is the sqlite-recommended
-        # pattern for user-supplied FTS queries.
-        safe_query = '"' + query.replace('"', '""') + '"'
-        cursor = self._db.execute(
-            """
-            SELECT mt.memory_id, mt.tier, mt.content, mt.importance,
-                   mt.emotion, mt.tags, mt.source, mt.created_at
-            FROM fts_memories f
-            JOIN memory_tier mt ON mt.memory_id = f.memory_id
-            WHERE fts_memories MATCH ?
-            ORDER BY bm25(fts_memories)
-            LIMIT ?
-            """,
-            (safe_query, limit),
-        )
-        return [self._row_to_entry(row) for row in cursor.fetchall()]
+        fts_query = _build_fts_query(query)
+        if not fts_query:
+            return []
+        try:
+            cursor = self._db.execute(
+                """
+                SELECT mt.memory_id, mt.tier, mt.content, mt.importance,
+                       mt.emotion, mt.tags, mt.source, mt.created_at
+                FROM fts_memories f
+                JOIN memory_tier mt ON mt.memory_id = f.memory_id
+                WHERE fts_memories MATCH ?
+                ORDER BY bm25(fts_memories)
+                LIMIT ?
+                """,
+                (fts_query, limit),
+            )
+            return [self._row_to_entry(row) for row in cursor.fetchall()]
+        except sqlite3.OperationalError:
+            # Malformed FTS query (unlikely after _build_fts_query, but be safe).
+            return []
 
     def layers(self) -> list[str]:
         """List tiers that currently contain at least one memory."""

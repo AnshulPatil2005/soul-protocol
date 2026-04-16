@@ -85,6 +85,7 @@ class EventEntry(BaseModel):
 5. **Hash-chainable.** `prev_hash` is optional in v1, mandatory in v2 once signing ships.
 6. **Actor-attributed.** `system:*` actors are reserved for subsystem-triggered events (not human-runnable).
 7. **Commit returns committed row.** `Journal.append(entry)` returns an `EventEntry` with `seq` populated by the backend. The caller's input entry is not mutated. (Added in 0.3.2.)
+8. **Query by action prefix.** `Journal.query(action_prefix="fabric.object")` matches the exact string or anything below it in the dotted namespace (e.g. `fabric.object.created`). Mutually exclusive with `action=`. Pushes family filters into SQL so projections don't loop-and-filter in Python. (Added in 0.3.2.)
 
 ### What the journal is not
 

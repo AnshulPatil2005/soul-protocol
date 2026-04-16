@@ -490,3 +490,68 @@ def test_replay_returns_entries_with_seq_populated(journal: Journal) -> None:
     assert len(replayed) == 3
     assert all(e.seq is not None for e in replayed)
     assert [e.seq for e in replayed] == sorted(c.seq for c in committed)
+
+
+# ---------- primitive #2: Journal.query(action_prefix=...) -------------
+
+
+def test_action_prefix_matches_children(journal: Journal) -> None:
+    journal.append(_make_entry(action="fabric.object.created"))
+    journal.append(_make_entry(action="fabric.object.updated"))
+    journal.append(_make_entry(action="fabric.object.archived"))
+    journal.append(_make_entry(action="widget.interaction.recorded"))
+
+    results = journal.query(action_prefix="fabric.object")
+    actions = {e.action for e in results}
+    assert actions == {
+        "fabric.object.created",
+        "fabric.object.updated",
+        "fabric.object.archived",
+    }
+
+
+def test_action_prefix_matches_top_level_family(journal: Journal) -> None:
+    journal.append(_make_entry(action="fabric.object.created"))
+    journal.append(_make_entry(action="fabric.field.added"))
+    journal.append(_make_entry(action="widget.interaction.recorded"))
+
+    results = journal.query(action_prefix="fabric")
+    actions = {e.action for e in results}
+    assert actions == {"fabric.object.created", "fabric.field.added"}
+
+
+def test_action_prefix_matches_exact_action(journal: Journal) -> None:
+    """Bare action string matches too — a prefix of 'foo' matches both 'foo'
+    and 'foo.*'. This lets callers use action_prefix uniformly without
+    caring whether the family has sub-namespaces."""
+    journal.append(_make_entry(action="retrieval.query"))
+    results = journal.query(action_prefix="retrieval.query")
+    assert [e.action for e in results] == ["retrieval.query"]
+
+
+def test_action_and_action_prefix_mutually_exclusive(journal: Journal) -> None:
+    with pytest.raises(IntegrityError):
+        journal.query(action="x", action_prefix="y")
+
+
+def test_action_prefix_no_matches_returns_empty(journal: Journal) -> None:
+    journal.append(_make_entry(action="memory.remembered"))
+    assert journal.query(action_prefix="nonexistent") == []
+
+
+def test_action_exact_still_works(journal: Journal) -> None:
+    """Backward compat: the pre-0.3.2 action= filter still works unchanged."""
+    journal.append(_make_entry(action="memory.remembered"))
+    journal.append(_make_entry(action="memory.forgotten"))
+    results = journal.query(action="memory.forgotten")
+    assert len(results) == 1
+    assert results[0].action == "memory.forgotten"
+
+
+def test_action_prefix_does_not_match_partial_segment(journal: Journal) -> None:
+    """prefix 'fab' should NOT match 'fabric.*' — we match on dotted
+    segments, not raw string prefixes. This prevents surprise matches
+    like 'memory' catching 'memoryleak' if someone adds that action."""
+    journal.append(_make_entry(action="fabric.object.created"))
+    results = journal.query(action_prefix="fab")
+    assert results == []

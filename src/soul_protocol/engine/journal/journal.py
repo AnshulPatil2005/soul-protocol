@@ -99,6 +99,7 @@ class Journal:
         self,
         *,
         action: str | None = None,
+        action_prefix: str | None = None,
         actor: Actor | None = None,
         scope: list[str] | None = None,
         correlation_id: UUID | None = None,
@@ -107,6 +108,18 @@ class Journal:
         limit: int = 100,
         offset: int = 0,
     ) -> list[EventEntry]:
+        """Return events matching the conjunction of filters.
+
+        ``action`` matches the exact string. ``action_prefix`` matches the
+        exact string OR anything below it in the dotted namespace —
+        ``action_prefix="fabric.object"`` matches
+        ``fabric.object.created``, ``fabric.object.updated``, etc. Pass
+        exactly one of the two (raise if both given).
+        """
+        if action is not None and action_prefix is not None:
+            raise IntegrityError(
+                "Journal.query: action and action_prefix are mutually exclusive"
+            )
         if since is not None and not _is_aware(since):
             raise IntegrityError("Journal.query(since=...) must be timezone-aware UTC")
         if until is not None and not _is_aware(until):
@@ -114,6 +127,7 @@ class Journal:
 
         return self._backend.query(
             action=action,
+            action_prefix=action_prefix,
             actor=actor,
             scope=scope,
             correlation_id=correlation_id,

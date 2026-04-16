@@ -171,6 +171,7 @@ class SQLiteJournalBackend(JournalBackend):
         self,
         *,
         action: str | None = None,
+        action_prefix: str | None = None,
         actor: Actor | None = None,
         scope: list[str] | None = None,
         correlation_id: UUID | None = None,
@@ -179,11 +180,21 @@ class SQLiteJournalBackend(JournalBackend):
         limit: int = 100,
         offset: int = 0,
     ) -> list[EventEntry]:
+        if action is not None and action_prefix is not None:
+            raise ValueError(
+                "action and action_prefix are mutually exclusive — pass one"
+            )
         clauses: list[str] = []
         params: list[Any] = []
         if action is not None:
             clauses.append("action = ?")
             params.append(action)
+        if action_prefix is not None:
+            # Match the exact prefix or anything below it in the dotted
+            # namespace. "fabric" matches "fabric", "fabric.x", "fabric.x.y".
+            clauses.append("(action = ? OR action LIKE ?)")
+            params.append(action_prefix)
+            params.append(action_prefix + ".%")
         if actor is not None:
             clauses.append("actor_kind = ? AND actor_id = ?")
             params.extend([actor.kind, actor.id])

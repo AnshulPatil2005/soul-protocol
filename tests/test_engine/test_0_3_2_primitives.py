@@ -155,3 +155,119 @@ def test_realworld_correlated_flow_uses_seq_for_ordering(journal: Journal) -> No
         "memory.remembered",
         "memory.graduated",
     ]
+
+
+# ---------- primitive #2: smoke tests --------------------------------
+
+
+def test_smoke_action_prefix_basic(journal: Journal) -> None:
+    """Smoke: prefix query returns the right family."""
+    journal.append(_entry("fabric.object.created"))
+    journal.append(_entry("widget.interaction.recorded"))
+    assert {e.action for e in journal.query(action_prefix="fabric")} == {
+        "fabric.object.created"
+    }
+
+
+def test_smoke_exact_action_coexists(journal: Journal) -> None:
+    """Smoke: pre-0.3.2 action= still works alongside new action_prefix."""
+    journal.append(_entry("memory.remembered"))
+    assert len(journal.query(action="memory.remembered")) == 1
+
+
+# ---------- primitive #2: e2e tests ----------------------------------
+
+
+def test_e2e_prefix_filters_across_mixed_corpus(journal: Journal) -> None:
+    """E2E: a projection rebuilding from the journal filters by family
+    without pulling unrelated events into Python."""
+    for action in (
+        "fabric.object.created",
+        "fabric.object.updated",
+        "fabric.field.added",
+        "widget.interaction.recorded",
+        "widget.graduation.applied",
+        "memory.remembered",
+        "retrieval.query",
+    ):
+        journal.append(_entry(action))
+
+    fabric = journal.query(action_prefix="fabric", limit=100)
+    widget = journal.query(action_prefix="widget", limit=100)
+    memory = journal.query(action_prefix="memory", limit=100)
+    retrieval = journal.query(action_prefix="retrieval", limit=100)
+
+    assert len(fabric) == 3
+    assert len(widget) == 2
+    assert len(memory) == 1
+    assert len(retrieval) == 1
+
+
+def test_e2e_prefix_combines_with_other_filters(journal: Journal) -> None:
+    """E2E: action_prefix composes with actor/since filters, not just a
+    standalone shortcut."""
+    actor_a = Actor(kind="agent", id="did:soul:a")
+    actor_b = Actor(kind="agent", id="did:soul:b")
+
+    for action in ("fabric.object.created", "fabric.object.updated"):
+        journal.append(_entry(action))  # actor defaults from _entry
+        e = EventEntry(
+            id=uuid4(),
+            ts=datetime.now(UTC),
+            actor=actor_b,
+            action=action,
+            scope=["org:test"],
+            payload={},
+        )
+        journal.append(e)
+
+    only_a = journal.query(action_prefix="fabric", actor=Actor(kind="agent", id="did:soul:test"))
+    assert len(only_a) == 2
+    only_b = journal.query(action_prefix="fabric", actor=actor_b)
+    assert len(only_b) == 2
+    _ = actor_a  # silence unused
+
+
+# ---------- primitive #2: real-world sim -----------------------------
+
+
+def test_realworld_fabric_projection_rebuild_via_prefix(
+    journal: Journal,
+) -> None:
+    """Real-world sim: how pocketpaw's ee/fabric/projection.py should look
+    after 0.3.2. Pre-0.3.2 it pulled every event via journal.replay_from(0)
+    and filtered with startswith('fabric.'). With action_prefix the filter
+    pushes into SQL and the projection never sees non-fabric events.
+    """
+    # Simulate a mixed-workload journal.
+    for _ in range(100):
+        journal.append(_entry("memory.remembered"))
+    for _ in range(30):
+        journal.append(_entry("widget.interaction.recorded"))
+    for action in ("fabric.object.created", "fabric.object.updated") * 10:
+        journal.append(_entry(action))
+
+    # This is what the projection's replay loop collapses to.
+    fabric_events = journal.query(action_prefix="fabric", limit=10000)
+    assert all(e.action.startswith("fabric.") for e in fabric_events)
+    assert len(fabric_events) == 20
+
+
+def test_realworld_widget_interaction_prefix_filter(
+    journal: Journal,
+) -> None:
+    """Real-world sim: widget projection only cares about widget.interaction.*,
+    not widget.graduation.*. Prefix lets both namespaces coexist without
+    forcing the projection to enumerate every sub-action."""
+    for _ in range(50):
+        journal.append(_entry("widget.interaction.recorded"))
+    for _ in range(5):
+        journal.append(_entry("widget.graduation.applied"))
+    for _ in range(3):
+        journal.append(_entry("memory.remembered"))
+
+    interactions = journal.query(action_prefix="widget.interaction", limit=1000)
+    assert len(interactions) == 50
+
+    all_widget = journal.query(action_prefix="widget", limit=1000)
+    assert len(all_widget) == 55

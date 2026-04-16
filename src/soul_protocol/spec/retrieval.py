@@ -1,9 +1,12 @@
 # retrieval.py — Retrieval router request/result models.
 # Updated: feat/0.3.2-spike — added RetrievalRequest.point_in_time for
-# adapters that support time-travel queries (Drive revisions, Salesforce
-# AT, Snowflake TIME TRAVEL). First-class field replaces the
-# @at=<iso>|<query> string-prefix workaround pocketpaw's Drive adapter
-# used pre-0.3.2. (Primitive #4 of 5 additive gaps.)
+# adapters that support time-travel queries (primitive #4) AND added the
+# DataRef Pydantic model for typed retrieval-candidate payloads (primitive
+# #3). Note: there is a separate journal-layer DataRef in spec/journal.py
+# — that one is a query recipe used in EventEntry.payload; this one
+# identifies a specific candidate returned by a SourceAdapter. They share
+# a name because they share a concept ("pointer to external data") but
+# operate at different granularities.
 
 from __future__ import annotations
 
@@ -102,14 +105,50 @@ class PointInTimeNotSupported(Exception):
     """
 
 
+class DataRef(BaseModel):
+    """Typed reference to a specific retrieval candidate from an external
+    source (Zero-Copy federation).
+
+    Where this differs from ``soul_protocol.spec.journal.DataRef``: the
+    journal DataRef is a query recipe ("resolve this query against Drive
+    at this moment"). This one is a candidate identifier ("Drive record
+    abc123 at revision r42"). A source adapter returns candidates whose
+    ``content`` can be a :class:`DataRef` to avoid copying the source
+    data into the org boundary — the consumer invokes the registered
+    adapter to resolve the ref at query time.
+
+    Fields:
+        kind: Discriminator (``"dataref"``). Lets the ``content`` union
+            on :class:`RetrievalCandidate` disambiguate reliably.
+        source: Adapter name (``"drive"``, ``"salesforce"``, ``"slack"``).
+        id: Stable identifier in the source system.
+        scopes: DSP scope tags this ref requires to resolve.
+        revision_id: Point-in-time identifier, if the source supports it
+            (Drive revision, Salesforce system timestamp, Snowflake TSID).
+        extra: Source-specific metadata. The router never inspects it.
+
+    Added in 0.3.2 (primitive #3).
+    """
+
+    kind: Literal["dataref"] = "dataref"
+    source: str = Field(min_length=1)
+    id: str = Field(min_length=1)
+    scopes: list[str] = Field(default_factory=list)
+    revision_id: str | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
 class RetrievalCandidate(BaseModel):
     """A single result returned by a source adapter.
 
     Fields:
         source: The source name this candidate came from.
-        content: Source-specific payload. The router never inspects it.
-            Zero-Copy sources put a DataRef-shaped dict here; projection
-            sources put their own view payload.
+        content: Source-specific payload. Either an opaque dict
+            (projection sources — the router never inspects it) or a
+            typed :class:`DataRef` (Zero-Copy sources — consumers invoke
+            the source adapter to resolve). The dict form stays for
+            backward compat; new adapters are encouraged to return
+            :class:`DataRef` directly.
         score: Optional source-provided relevance score. Used for merging
             in the `parallel` strategy; `None` sinks to the back.
         as_of: Timezone-aware UTC timestamp recording when this candidate
@@ -119,10 +158,28 @@ class RetrievalCandidate(BaseModel):
     """
 
     source: str = Field(min_length=1)
-    content: dict[str, Any]
+    content: dict[str, Any] | DataRef
     score: float | None = None
     as_of: datetime
     cached: bool = False
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _promote_dataref_dict(cls, v: Any) -> Any:
+        """Coerce a dict with ``kind="dataref"`` into a typed DataRef.
+
+        Pydantic's default union resolution leaves dicts as dicts even when
+        they carry the discriminator field — it matches ``dict[str, Any]``
+        greedily before considering the typed alternative. Promoting at
+        validation time before the union resolver runs keeps round-trips
+        typed without affecting opaque projection dicts (which don't
+        carry the marker).
+        """
+        if isinstance(v, DataRef):
+            return v
+        if isinstance(v, dict) and v.get("kind") == "dataref":
+            return DataRef.model_validate(v)
+        return v
 
     @field_validator("as_of")
     @classmethod

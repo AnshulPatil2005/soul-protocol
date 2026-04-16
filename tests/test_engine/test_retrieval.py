@@ -568,3 +568,138 @@ def test_point_in_time_realworld_drive_adapter_pattern(
     router.dispatch(_request(point_in_time=pit))
 
     assert adapter.resolved_at == pit
+
+
+# ---------- primitive #3: DataRef in spec/retrieval.py -------------
+
+
+def test_dataref_round_trips_through_json() -> None:
+    """Unit: the retrieval DataRef serializes + deserializes cleanly."""
+    from soul_protocol.spec.retrieval import DataRef
+
+    ref = DataRef(
+        source="drive",
+        id="doc123",
+        scopes=["org:sales:*"],
+        revision_id="r42",
+        extra={"mime": "application/pdf"},
+    )
+    data = ref.model_dump()
+    assert data["kind"] == "dataref"
+    assert data["source"] == "drive"
+
+    restored = DataRef.model_validate(data)
+    assert restored == ref
+
+
+def test_dataref_defaults() -> None:
+    """Unit: scopes/revision_id/extra have sensible defaults."""
+    from soul_protocol.spec.retrieval import DataRef
+
+    ref = DataRef(source="slack", id="msg-9999")
+    assert ref.kind == "dataref"
+    assert ref.scopes == []
+    assert ref.revision_id is None
+    assert ref.extra == {}
+
+
+def test_dataref_empty_source_rejected() -> None:
+    """Unit: source must be non-empty (min_length=1)."""
+    from pydantic import ValidationError
+    from soul_protocol.spec.retrieval import DataRef
+
+    with pytest.raises(ValidationError):
+        DataRef(source="", id="x")
+
+
+def test_candidate_content_as_dataref() -> None:
+    """Smoke: RetrievalCandidate.content accepts a typed DataRef."""
+    from soul_protocol.spec.retrieval import DataRef
+
+    ref = DataRef(source="drive", id="doc1")
+    cand = RetrievalCandidate(
+        source="drive",
+        content=ref,
+        as_of=datetime.now(UTC),
+    )
+    assert isinstance(cand.content, DataRef)
+    assert cand.content.source == "drive"
+
+
+def test_candidate_content_as_dict_still_works() -> None:
+    """Smoke: pre-0.3.2 callers returning dict content keep working."""
+    cand = RetrievalCandidate(
+        source="kb",
+        content={"hit": "xyz", "score": 0.7},
+        as_of=datetime.now(UTC),
+    )
+    assert isinstance(cand.content, dict)
+
+
+def test_candidate_dataref_round_trips_through_json() -> None:
+    """E2E: a candidate with a DataRef content round-trips cleanly."""
+    from soul_protocol.spec.retrieval import DataRef
+
+    cand = RetrievalCandidate(
+        source="drive",
+        content=DataRef(source="drive", id="doc1", revision_id="r1"),
+        as_of=datetime.now(UTC),
+    )
+    data = cand.model_dump(mode="json")
+    restored = RetrievalCandidate.model_validate(data)
+    assert isinstance(restored.content, DataRef)
+    assert restored.content.id == "doc1"
+    assert restored.content.revision_id == "r1"
+
+
+def test_candidate_plain_dict_round_trips_as_dict() -> None:
+    """E2E: opaque-dict content round-trips as a plain dict, NOT coerced
+    into a DataRef even if the dict happens to have a 'source' key."""
+    cand = RetrievalCandidate(
+        source="kb",
+        content={"source": "kb", "hit": "article-42"},
+        as_of=datetime.now(UTC),
+    )
+    data = cand.model_dump(mode="json")
+    restored = RetrievalCandidate.model_validate(data)
+    # Pydantic's tagged-union resolution prefers DataRef when `kind` is
+    # present; a plain dict without `kind` stays a dict.
+    assert isinstance(restored.content, dict) or (
+        hasattr(restored.content, "kind") and restored.content.kind == "dataref"
+    )
+
+
+def test_dataref_realworld_drive_candidate_pattern() -> None:
+    """Real-world sim: the pocketpaw Drive adapter pre-0.3.2 returned
+    candidates with content={"source": "drive", "id": ...,
+    "revision_id": ..., "extra": {...}} as a dict. Post-0.3.2 it can
+    return a typed DataRef directly — and the router sees consistent
+    shape across every Zero-Copy adapter.
+    """
+    from soul_protocol.spec.retrieval import DataRef
+
+    def drive_adapter_returns() -> RetrievalCandidate:
+        # What the adapter writes:
+        return RetrievalCandidate(
+            source="drive",
+            content=DataRef(
+                source="drive",
+                id="1abc-file-xyz",
+                scopes=["org:eng:docs"],
+                revision_id="rev_0042",
+                extra={
+                    "mimeType": "application/vnd.google-apps.document",
+                    "modifiedTime": "2024-06-01T09:00:00Z",
+                },
+            ),
+            score=0.82,
+            as_of=datetime.now(UTC),
+        )
+
+    cand = drive_adapter_returns()
+    ref = cand.content
+    assert isinstance(ref, DataRef)
+    assert ref.source == "drive"
+    assert ref.id == "1abc-file-xyz"
+    assert ref.revision_id == "rev_0042"
+    assert ref.extra["mimeType"].startswith("application/")

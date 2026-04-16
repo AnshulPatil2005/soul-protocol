@@ -555,3 +555,25 @@ def test_action_prefix_does_not_match_partial_segment(journal: Journal) -> None:
     journal.append(_make_entry(action="fabric.object.created"))
     results = journal.query(action_prefix="fab")
     assert results == []
+
+
+def test_action_prefix_escapes_like_wildcards(journal: Journal) -> None:
+    """Prefix with '_' should NOT match arbitrary chars — SQLite LIKE
+    treats '_' as a single-char wildcard. Escape must kick in."""
+    journal.append(_make_entry(action="fabric.my_object.created"))
+    journal.append(_make_entry(action="fabric.myXobject.created"))
+
+    # The underscore must match literally, not the 'X'.
+    results = journal.query(action_prefix="fabric.my_object")
+    actions = {e.action for e in results}
+    assert actions == {"fabric.my_object.created"}
+
+
+def test_action_prefix_escapes_like_percent(journal: Journal) -> None:
+    """'%' in the prefix must match literally, not as a multi-char wildcard."""
+    journal.append(_make_entry(action="fabric.a%b.created"))
+    journal.append(_make_entry(action="fabric.anythingb.created"))
+
+    results = journal.query(action_prefix="fabric.a%b")
+    actions = {e.action for e in results}
+    assert actions == {"fabric.a%b.created"}

@@ -113,6 +113,14 @@ class RetrievalRouter:
         Strategy is parallel with per-source timeout (matching the default
         sync dispatch). ``first`` and ``sequential`` strategies fall back
         to the sync path for now — async variants are a future slice.
+
+        Cancellation note: on timeout, the async path (``aquery``) is
+        cancelled via ``asyncio.wait_for`` and stops cooperatively. The
+        sync fallback via ``to_thread`` does *not* stop the running
+        thread — the wait just unblocks the caller while the adapter's
+        sync ``query`` keeps running to completion. This is standard
+        asyncio behavior; adapters that need hard cancellation should
+        implement ``aquery`` natively.
         """
         if request.strategy in ("first", "sequential"):
             # No async win for sequential strategies — they serialize by

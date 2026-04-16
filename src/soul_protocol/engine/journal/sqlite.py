@@ -25,6 +25,8 @@ from uuid import UUID
 
 from soul_protocol.spec.journal import Actor, DataRef, EventEntry
 
+from .exceptions import IntegrityError
+
 from .backend import JournalBackend
 from .exceptions import IntegrityError
 from .schema import migrate
@@ -181,7 +183,7 @@ class SQLiteJournalBackend(JournalBackend):
         offset: int = 0,
     ) -> list[EventEntry]:
         if action is not None and action_prefix is not None:
-            raise ValueError(
+            raise IntegrityError(
                 "action and action_prefix are mutually exclusive — pass one"
             )
         clauses: list[str] = []
@@ -192,9 +194,17 @@ class SQLiteJournalBackend(JournalBackend):
         if action_prefix is not None:
             # Match the exact prefix or anything below it in the dotted
             # namespace. "fabric" matches "fabric", "fabric.x", "fabric.x.y".
-            clauses.append("(action = ? OR action LIKE ?)")
+            # LIKE wildcards (% _) are escaped in the prefix so an
+            # action_prefix of "fabric.my_object" matches only the literal
+            # `my_object` namespace, not "fabric.myXobject".
+            escaped = (
+                action_prefix.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            clauses.append("(action = ? OR action LIKE ? ESCAPE '\\')")
             params.append(action_prefix)
-            params.append(action_prefix + ".%")
+            params.append(escaped + ".%")
         if actor is not None:
             clauses.append("actor_kind = ? AND actor_id = ?")
             params.extend([actor.kind, actor.id])

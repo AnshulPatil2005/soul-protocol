@@ -1,10 +1,9 @@
 # journal.py — Journal high-level class enforcing invariants above a backend.
-# Updated: feat/journal-engine — the ts-monotonicity guard now lives inside
-# the backend's BEGIN IMMEDIATE transaction (see sqlite.py). The Journal still
-# shapes entries (hash-link, tz-aware guard) but no longer reads the tail
-# outside the transaction, because that read-then-insert was racy under
-# concurrent writers. Also log (not swallow) hash-link failures so a silent
-# chain break is at least visible.
+# Updated: feat/0.3.2-spike — Journal.append now returns the committed
+# EventEntry (with seq populated) instead of None. Enables callers to thread
+# seq through idempotency/pagination without reaching into backend.append()
+# or racing MAX(seq) after the fact. Backward compatible for callers that
+# discard the return value.
 
 from __future__ import annotations
 
@@ -62,7 +61,13 @@ class Journal:
 
     # -- writes -----------------------------------------------------------
 
-    def append(self, entry: EventEntry) -> None:
+    def append(self, entry: EventEntry) -> EventEntry:
+        """Persist `entry` and return the committed row with seq populated.
+
+        The returned EventEntry is a copy: the caller's input is never mutated.
+        The seq is monotonic per journal; hash-link is populated when a prior
+        entry exists (best-effort, see class docstring).
+        """
         if not _is_aware(entry.ts):
             raise IntegrityError("EventEntry.ts must be timezone-aware UTC")
 
@@ -85,7 +90,8 @@ class Journal:
                         "hash-link skipped for event %s: %s", entry.id, exc
                     )
 
-        self._backend.append(entry)
+        seq = self._backend.append(entry)
+        return entry.model_copy(update={"seq": seq})
 
     # -- reads ------------------------------------------------------------
 

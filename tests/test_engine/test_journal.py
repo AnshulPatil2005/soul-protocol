@@ -413,4 +413,60 @@ def test_backend_protocol_conformance(tmp_path: Path) -> None:
 
     backend = SQLiteJournalBackend(tmp_path / "journal.db")
     assert isinstance(backend, JournalBackend)
-    backend.close()
+
+
+# ---------- primitive #1: Journal.append returns committed EventEntry --
+
+
+def test_append_returns_committed_entry_with_seq(journal: Journal) -> None:
+    entry = _make_entry()
+    assert entry.seq is None  # not yet committed
+
+    committed = journal.append(entry)
+
+    assert committed is not None
+    assert committed.seq is not None
+    assert committed.seq >= 0  # first seq is 0 (gap-free counter)
+    assert committed.id == entry.id
+    assert committed.action == entry.action
+    assert committed.ts == entry.ts
+    assert committed.scope == entry.scope
+
+
+def test_append_first_seq_is_zero(tmp_path: Path) -> None:
+    j = open_journal(tmp_path / "journal.db")
+    try:
+        committed = j.append(_make_entry())
+        assert committed.seq == 0
+    finally:
+        j.close()
+
+
+def test_append_seq_is_monotonic(journal: Journal) -> None:
+    committed = [journal.append(_make_entry()) for _ in range(5)]
+    seqs = [c.seq for c in committed]
+    assert seqs == sorted(seqs)
+    assert all(seqs[i] < seqs[i + 1] for i in range(len(seqs) - 1))
+
+
+def test_append_does_not_mutate_input_entry(journal: Journal) -> None:
+    entry = _make_entry()
+    original_seq = entry.seq  # None
+    journal.append(entry)
+    assert entry.seq == original_seq  # caller's copy untouched
+
+
+def test_append_backward_compat_discard_return(journal: Journal) -> None:
+    """Callers that ignored the previous None return keep working."""
+    journal.append(_make_entry())  # no assignment, no error
+    assert len(journal.query()) == 1
+
+
+def test_append_returned_entry_equals_queried_entry(journal: Journal) -> None:
+    entry = _make_entry(action="memory.remembered")
+    committed = journal.append(entry)
+
+    queried = journal.query(action="memory.remembered")
+    assert len(queried) == 1
+    assert queried[0].id == committed.id
+    assert queried[0].action == committed.action

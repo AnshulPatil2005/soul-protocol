@@ -73,6 +73,7 @@ class EventEntry(BaseModel):
     payload: dict | DataRef       # inline data or external reference
     prev_hash: bytes | None       # optional hash-chain link
     sig: bytes | None             # optional signature over (id, ts, actor, action, prev_hash)
+    seq: int | None               # monotonic sequence, assigned by the backend on commit
 ```
 
 ### Invariants (enforced at `Journal.append()`)
@@ -83,6 +84,7 @@ class EventEntry(BaseModel):
 4. **Scoped by default.** `scope` is required and non-empty. No anonymous writes either — `actor` must be set.
 5. **Hash-chainable.** `prev_hash` is optional in v1, mandatory in v2 once signing ships.
 6. **Actor-attributed.** `system:*` actors are reserved for subsystem-triggered events (not human-runnable).
+7. **Commit returns committed row.** `Journal.append(entry)` returns an `EventEntry` with `seq` populated by the backend. The caller's input entry is not mutated. (Added in 0.3.2.)
 
 ### What the journal is not
 

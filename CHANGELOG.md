@@ -9,6 +9,71 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.2] -- unreleased
+
+### Added
+
+- **Language-agnostic standard** — new `docs/SPEC.md` describes Soul Protocol independent of the Python reference implementation. Anyone implementing in Rust, Go, TypeScript, or a custom runtime reads this file. Covers file format, identity, memory tiers, scope grammar, journal contract, retrieval vocabulary, `CognitiveEngine` protocol, conformance checklist, and versioning policy.
+- **README "standard vs reference impl" fork** — the top of the README routes implementation-builders to SPEC.md and Python consumers to the rest of the README. Test count badge 2297 → 2333.
+- **Journal primitives (5)** landed on `feat/0.3.2-spike`:
+  - `#1` `Journal.append(entry)` now returns the committed `EventEntry` (with backend-assigned `seq` + `prev_hash`).
+  - `#2` `Journal.query(action_prefix=...)` — prefix match on dot-separated action names.
+  - `#3` Typed `DataRef` for retrieval candidates — `RetrievalCandidate.content` is now a typed model (dicts with `kind="dataref"` promote automatically).
+  - `#4` `RetrievalRequest.point_in_time` — native UTC datetime field replacing the `@at=...|query` string hack for time-travel queries.
+  - `#5` Async `SourceAdapter.aquery` + `RetrievalRouter.adispatch` — adapters backed by async-native SDKs can participate in cooperative multitasking without bridging through `asyncio.run`.
+- **Spec-level retrieval vocabulary** — `spec/retrieval.py` absorbed the Protocol types (`SourceAdapter`, `AsyncSourceAdapter`, `CredentialBroker`), the `Credential` data class, and the `RetrievalError` exception hierarchy (`NoSourcesError`, `SourceTimeoutError`, `CredentialScopeError`, `CredentialExpiredError`). These are the types a conforming implementation builds against.
+- **`tests/spec/test_retrieval.py`** — spec-level tests for `Credential` field validation, `Credential.is_expired()` boundary behavior, and `isinstance()` conformance against the `SourceAdapter` / `AsyncSourceAdapter` Protocols.
+
+### Changed
+
+- **Retrieval infrastructure moved out of the spec.** The concrete `RetrievalRouter`, `InMemoryCredentialBroker`, `ProjectionAdapter`, and `MockAdapter` implementations have been removed from `soul_protocol.engine.retrieval` — they are application-layer orchestration and belong in the consuming runtime. The pocketpaw reference runtime ships them at `pocketpaw.retrieval` as of pocketpaw v0.4.17.
+- **`docs/architecture.md` retitled** "Python Reference Implementation" and now links to `docs/SPEC.md` at the top. Makes clear that the patterns in that document (SQLite journal, Damasio/ACT-R/LIDA pipeline, module layout) are one way to honor the spec, not the only way.
+- **Wheel no longer ships `src/soul_protocol/spike/`.** The spike module contains in-progress design experiments that are not part of the shipped API; excluding it from the wheel keeps the installed package focused on the standard + reference runtime.
+
+### Removed
+
+- **`soul_protocol.engine.retrieval` module** — the entire package is gone:
+  - `engine/retrieval/__init__.py`
+  - `engine/retrieval/adapters.py` (`SourceAdapter`, `AsyncSourceAdapter`, `MockAdapter`, `ProjectionAdapter`)
+  - `engine/retrieval/broker.py` (`Credential`, `CredentialBroker`, `InMemoryCredentialBroker`)
+  - `engine/retrieval/exceptions.py` (the `RetrievalError` hierarchy)
+  - `engine/retrieval/router.py` (`RetrievalRouter`)
+- **`tests/test_engine/test_retrieval.py`** — 923-LOC router + broker test suite moved to pocketpaw (`tests/retrieval/test_router.py`) with imports rewritten.
+
+### Migration for third-party callers
+
+If you import from `soul_protocol.engine.retrieval`, update to the new home:
+
+```python
+# Before (0.3.1 and earlier)
+from soul_protocol.engine.retrieval import (
+    Credential, CredentialBroker, SourceAdapter,
+    NoSourcesError, SourceTimeoutError,
+    CredentialScopeError, CredentialExpiredError,
+)
+
+# After (0.3.2)
+from soul_protocol.spec.retrieval import (
+    Credential, CredentialBroker, SourceAdapter,
+    NoSourcesError, SourceTimeoutError,
+    CredentialScopeError, CredentialExpiredError,
+)
+```
+
+If you use the concrete orchestration (`RetrievalRouter`, `InMemoryCredentialBroker`, `ProjectionAdapter`, `MockAdapter`), it now lives in the pocketpaw runtime:
+
+```python
+# Before
+from soul_protocol.engine.retrieval import RetrievalRouter, InMemoryCredentialBroker
+
+# After
+from pocketpaw.retrieval import RetrievalRouter, InMemoryCredentialBroker
+```
+
+A third-party runtime implementing Soul Protocol in another language (or a custom Python runtime) is expected to provide its own orchestration; only the vocabulary in `spec/retrieval.py` is part of the standard.
+
+---
+
 ## [0.3.1] -- 2026-04-14
 
 ### Added

@@ -291,6 +291,9 @@ RetrievalRequest {
 
 ### 9.2 · RetrievalCandidate + DataRef (retrieval-layer)
 
+> **Naming note.** The retrieval-layer `DataRef` is re-exported from `soul_protocol.spec` as `RetrievalDataRef` to distinguish it from the journal-layer `DataRef` (see §8.4, query recipe used in `EventEntry.payload`). Inside `spec/retrieval.py` itself it is named `DataRef`; at the `soul_protocol.spec` package boundary it surfaces as `RetrievalDataRef`. Language bindings should expose both names so consumers can disambiguate. The two types are intentionally distinct: the journal `DataRef` is "resolve this query at this moment," the retrieval `DataRef` is "this specific record from this source at this revision."
+
+
 ```
 RetrievalCandidate {
   source:   str

@@ -19,7 +19,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
@@ -253,8 +253,6 @@ class Credential(BaseModel):
     last_used_at: datetime | None = None
 
     def is_expired(self, *, now: datetime | None = None) -> bool:
-        from datetime import UTC
-
         now = now or datetime.now(UTC)
         return now >= self.expires_at
 

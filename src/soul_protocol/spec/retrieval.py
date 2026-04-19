@@ -1,4 +1,13 @@
-# retrieval.py — Retrieval router request/result models.
+# retrieval.py — Retrieval spec: request/response models + adapter & broker
+# protocols + shared exception hierarchy.
+# Updated: feat/0.3.2-prune-retrieval-infra — absorbed the Protocol types
+# (SourceAdapter, AsyncSourceAdapter, CredentialBroker, Credential) and the
+# exception hierarchy (RetrievalError + subclasses) that used to live under
+# engine/retrieval/. Those concrete implementations (RetrievalRouter,
+# InMemoryCredentialBroker, ProjectionAdapter) moved to pocketpaw — they
+# are application-layer infrastructure, not protocol. This module now holds
+# the complete vocabulary that a third-party runtime needs to interoperate
+# with soul retrieval: types, interfaces, exceptions. Nothing else.
 # Updated: feat/0.3.2-spike — added RetrievalRequest.point_in_time for
 # adapters that support time-travel queries (primitive #4) AND added the
 # DataRef Pydantic model for typed retrieval-candidate payloads (primitive
@@ -11,8 +20,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
-from uuid import UUID
+from typing import Any, Literal, Protocol, runtime_checkable
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -212,3 +221,141 @@ class RetrievalResult(BaseModel):
     sources_failed: list[tuple[str, str]]
     total_latency_ms: float
     trace: RetrievalTrace | None = None
+
+
+# ---------------------------------------------------------------------------
+# Credential (issued by a CredentialBroker to federate against external sources)
+# ---------------------------------------------------------------------------
+
+
+class Credential(BaseModel):
+    """A short-lived token issued by a :class:`CredentialBroker`.
+
+    Fields:
+        id: UUID for revocation + journal linking.
+        source: The source this credential authorizes against
+            (``"drive"``, ``"salesforce"``, ...).
+        scopes: DSP scope patterns this credential is bound to.
+        token: Opaque bearer string. Real brokers populate with real
+            auth material; tests use a predictable value.
+        acquired_at: tz-aware UTC timestamp of issuance.
+        expires_at: tz-aware UTC timestamp after which ``ensure_usable``
+            raises :class:`CredentialExpiredError`.
+        last_used_at: Most recent ``mark_used`` timestamp, or ``None``.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    source: str = Field(min_length=1)
+    scopes: list[str] = Field(min_length=1)
+    token: str = Field(min_length=1)
+    acquired_at: datetime
+    expires_at: datetime
+    last_used_at: datetime | None = None
+
+    def is_expired(self, *, now: datetime | None = None) -> bool:
+        from datetime import UTC
+
+        now = now or datetime.now(UTC)
+        return now >= self.expires_at
+
+
+# ---------------------------------------------------------------------------
+# Protocols (implemented by consumers — concrete impls live outside the spec)
+# ---------------------------------------------------------------------------
+
+
+class CredentialBroker(Protocol):
+    """Mints short-lived credentials scoped to a caller's DSP scopes.
+
+    Concrete implementations live in the consuming runtime (pocketpaw's
+    reference :class:`InMemoryCredentialBroker`, or a production broker
+    backed by the platform's real secret store). The spec only pins the
+    four-method interface.
+    """
+
+    def acquire(self, source: str, scopes: list[str]) -> Credential: ...
+    def ensure_usable(self, credential: Credential, requester_scopes: list[str]) -> None: ...
+    def mark_used(self, credential: Credential) -> None: ...
+    def revoke(self, credential_id: UUID) -> None: ...
+
+
+@runtime_checkable
+class SourceAdapter(Protocol):
+    """Protocol implemented by every retrieval source adapter.
+
+    An adapter is registered under a :class:`CandidateSource`. ``query``
+    receives the full request (so it can read ``query``, ``limit``,
+    ``scopes``) plus an optional credential — projection adapters ignore
+    the credential, DataRef adapters require it.
+
+    The ``supports_dataref`` class attribute advertises whether this
+    adapter can produce Zero-Copy candidates whose content is a
+    :class:`DataRef` payload.
+
+    **Optional async companion** (added in 0.3.2): adapters backed by
+    async-native SDKs can additionally implement an ``aquery`` coroutine
+    with the same signature. The router's ``adispatch`` uses ``aquery``
+    when it's present (detected via ``inspect.iscoroutinefunction``) and
+    threads ``query`` otherwise. ``aquery`` is **not** part of the
+    Protocol signature because ``runtime_checkable`` would then require
+    every sync-only adapter to stub it — the detection at dispatch time
+    keeps both paths clean. See :class:`AsyncSourceAdapter` for a pure
+    structural tag when you want ``isinstance(adapter, AsyncSourceAdapter)``.
+    """
+
+    supports_dataref: bool
+
+    def query(
+        self,
+        request: RetrievalRequest,
+        credential: Credential | None,
+    ) -> list[RetrievalCandidate]: ...
+
+
+@runtime_checkable
+class AsyncSourceAdapter(Protocol):
+    """Structural tag for adapters that also implement async ``aquery``.
+
+    ``isinstance(adapter, AsyncSourceAdapter)`` is true iff the adapter
+    has both ``query`` and an async ``aquery``. Added in 0.3.2 —
+    consumers that want to route differently based on async support
+    can use this as a clean predicate instead of poking at attributes.
+    """
+
+    def query(
+        self,
+        request: RetrievalRequest,
+        credential: Credential | None,
+    ) -> list[RetrievalCandidate]: ...
+
+    async def aquery(
+        self,
+        request: RetrievalRequest,
+        credential: Credential | None,
+    ) -> list[RetrievalCandidate]: ...
+
+
+# ---------------------------------------------------------------------------
+# Exceptions (shared across adapter + broker + router implementations)
+# ---------------------------------------------------------------------------
+
+
+class RetrievalError(Exception):
+    """Base class for all retrieval-layer errors."""
+
+
+class NoSourcesError(RetrievalError):
+    """No registered source matched the request's scopes or explicit list."""
+
+
+class SourceTimeoutError(RetrievalError):
+    """A source adapter did not return within the per-source timeout."""
+
+
+class CredentialScopeError(RetrievalError):
+    """A credential was used by a requester whose scopes do not overlap
+    the scopes the credential was issued for."""
+
+
+class CredentialExpiredError(RetrievalError):
+    """A credential was used after its TTL elapsed."""

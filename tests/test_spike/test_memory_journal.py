@@ -197,23 +197,22 @@ def test_e2e_fifty_memories_with_mixed_ops(
         store.delete(mem_id)
 
     layers = set(store.layers())
-    assert {"episodic", "semantic", "procedural"}.issubset(layers) or layers == {"episodic", "semantic", "procedural"}
+    assert {"episodic", "semantic", "procedural"}.issubset(layers) or layers == {
+        "episodic",
+        "semantic",
+        "procedural",
+    }
 
     # Search still hits survivors
     results = store.search("memory")
     assert len(results) > 0
 
 
-def test_e2e_rebuild_reproduces_state(
-    tmp_path: Path, actor: Actor
-) -> None:
+def test_e2e_rebuild_reproduces_state(tmp_path: Path, actor: Actor) -> None:
     """E2E: drop projection tables, rebuild from journal, same state."""
     store = open_memory_store(tmp_path / "mem", actor=actor)
 
-    ids = [
-        store.store("episodic", _make_entry(f"event {i}", importance=i))
-        for i in range(20)
-    ]
+    ids = [store.store("episodic", _make_entry(f"event {i}", importance=i)) for i in range(20)]
     store.promote(ids[5], "semantic")
     store.delete(ids[10])
 
@@ -230,9 +229,7 @@ def test_e2e_rebuild_reproduces_state(
     store._db.close()
 
 
-def test_e2e_separate_session_sees_prior_writes(
-    tmp_path: Path, actor: Actor
-) -> None:
+def test_e2e_separate_session_sees_prior_writes(tmp_path: Path, actor: Actor) -> None:
     """E2E: close and reopen the store — data survives."""
     base = tmp_path / "mem"
 
@@ -254,9 +251,7 @@ def test_e2e_separate_session_sees_prior_writes(
 # =============================================================================
 
 
-def test_realworld_cleanup_incident_recovery(
-    tmp_path: Path, actor: Actor
-) -> None:
+def test_realworld_cleanup_incident_recovery(tmp_path: Path, actor: Actor) -> None:
     """Real-world sim: simulate the April 5 cleanup incident.
 
     Scenario: projection tables get dropped (or the cleanup heuristic deletes
@@ -271,9 +266,7 @@ def test_realworld_cleanup_incident_recovery(
             _make_entry(f"production memory {i}", importance=(i % 10) + 1),
         )
 
-    pre_incident_count = sum(
-        len(store.recall(tier, limit=200)) for tier in store.layers()
-    )
+    pre_incident_count = sum(len(store.recall(tier, limit=200)) for tier in store.layers())
     assert pre_incident_count == 100
 
     # Simulate disaster: projections are nuked.
@@ -281,18 +274,14 @@ def test_realworld_cleanup_incident_recovery(
     store._db.execute("DELETE FROM fts_memories")
     store._db.commit()
 
-    mid_incident_count = sum(
-        len(store.recall(tier, limit=200)) for tier in store.layers()
-    )
+    mid_incident_count = sum(len(store.recall(tier, limit=200)) for tier in store.layers())
     assert mid_incident_count == 0  # projections empty
 
     # Recovery: rebuild from journal.
     events_replayed = store.rebuild()
     assert events_replayed >= 100
 
-    post_recovery_count = sum(
-        len(store.recall(tier, limit=200)) for tier in store.layers()
-    )
+    post_recovery_count = sum(len(store.recall(tier, limit=200)) for tier in store.layers())
     assert post_recovery_count == pre_incident_count
 
     store._journal.close()

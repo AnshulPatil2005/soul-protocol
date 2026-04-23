@@ -25,7 +25,7 @@ from soul_protocol.spec.memory import MemoryEntry, MemoryVisibility
 # ---------------------------------------------------------------------------
 
 
-_FTS_SPECIAL_CHARS = set('"\'()+*-:')
+_FTS_SPECIAL_CHARS = set("\"'()+*-:")
 
 
 def _build_fts_query(user_query: str) -> str:
@@ -267,9 +267,7 @@ class JournalBackedMemoryStore:
 
     def layers(self) -> list[str]:
         """List tiers that currently contain at least one memory."""
-        cursor = self._db.execute(
-            "SELECT DISTINCT tier FROM memory_tier ORDER BY tier"
-        )
+        cursor = self._db.execute("SELECT DISTINCT tier FROM memory_tier ORDER BY tier")
         return [row[0] for row in cursor.fetchall()]
 
     def audit_trail(self, memory_id: str) -> list[EventEntry]:
@@ -290,12 +288,9 @@ class JournalBackedMemoryStore:
         results: list[EventEntry] = []
         for action in actions:
             for event in self._journal.query(action=action, limit=10000):
-                if (
-                    isinstance(event.payload, dict)
-                    and event.payload.get("memory_id") == memory_id
-                ):
+                if isinstance(event.payload, dict) and event.payload.get("memory_id") == memory_id:
                     results.append(event)
-        results.sort(key=lambda e: (e.seq or 0))
+        results.sort(key=lambda e: e.seq or 0)
         return results
 
     # -- lifecycle ------------------------------------------------------
@@ -361,9 +356,7 @@ class JournalBackedMemoryStore:
                 event.seq or 0,
             ),
         )
-        self._db.execute(
-            "DELETE FROM fts_memories WHERE memory_id = ?", (mem_id,)
-        )
+        self._db.execute("DELETE FROM fts_memories WHERE memory_id = ?", (mem_id,))
         self._db.execute(
             "INSERT INTO fts_memories (memory_id, tier, content, tags) VALUES (?, ?, ?, ?)",
             (
@@ -401,9 +394,7 @@ class JournalBackedMemoryStore:
             "SELECT content, tags FROM memory_tier WHERE memory_id = ?", (mem_id,)
         ).fetchone()
         if row is not None:
-            self._db.execute(
-                "DELETE FROM fts_memories WHERE memory_id = ?", (mem_id,)
-            )
+            self._db.execute("DELETE FROM fts_memories WHERE memory_id = ?", (mem_id,))
             self._db.execute(
                 "INSERT INTO fts_memories (memory_id, tier, content, tags) VALUES (?, ?, ?, ?)",
                 (mem_id, to_tier, row[0], row[1]),

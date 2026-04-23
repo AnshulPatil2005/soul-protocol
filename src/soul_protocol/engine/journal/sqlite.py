@@ -158,9 +158,7 @@ class SQLiteJournalBackend(JournalBackend):
                 raise
 
     def last_entry(self) -> tuple[EventEntry, int] | None:
-        row = self._conn.execute(
-            "SELECT * FROM events ORDER BY seq DESC LIMIT 1"
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM events ORDER BY seq DESC LIMIT 1").fetchone()
         if row is None:
             return None
         entry, seq = self._row_to_entry(row)
@@ -182,9 +180,7 @@ class SQLiteJournalBackend(JournalBackend):
         offset: int = 0,
     ) -> list[EventEntry]:
         if action is not None and action_prefix is not None:
-            raise IntegrityError(
-                "action and action_prefix are mutually exclusive — pass one"
-            )
+            raise IntegrityError("action and action_prefix are mutually exclusive — pass one")
         clauses: list[str] = []
         params: list[Any] = []
         if action is not None:
@@ -196,11 +192,7 @@ class SQLiteJournalBackend(JournalBackend):
             # LIKE wildcards (% _) are escaped in the prefix so an
             # action_prefix of "fabric.my_object" matches only the literal
             # `my_object` namespace, not "fabric.myXobject".
-            escaped = (
-                action_prefix.replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_")
-            )
+            escaped = action_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             clauses.append("(action = ? OR action LIKE ? ESCAPE '\\')")
             params.append(action_prefix)
             params.append(escaped + ".%")
@@ -233,9 +225,7 @@ class SQLiteJournalBackend(JournalBackend):
         return results[offset : offset + limit]
 
     def replay_from(self, seq: int = 0) -> Iterator[EventEntry]:
-        cur = self._conn.execute(
-            "SELECT * FROM events WHERE seq >= ? ORDER BY seq ASC", (seq,)
-        )
+        cur = self._conn.execute("SELECT * FROM events WHERE seq >= ? ORDER BY seq ASC", (seq,))
         for row in cur:
             entry, _seq = self._row_to_entry(row)
             yield entry

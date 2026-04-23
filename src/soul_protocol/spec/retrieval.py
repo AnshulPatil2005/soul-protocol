@@ -100,9 +100,7 @@ class RetrievalRequest(BaseModel):
         if v is None:
             return v
         if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
-            raise ValueError(
-                "RetrievalRequest.point_in_time must be timezone-aware (UTC)"
-            )
+            raise ValueError("RetrievalRequest.point_in_time must be timezone-aware (UTC)")
         return v
 
 

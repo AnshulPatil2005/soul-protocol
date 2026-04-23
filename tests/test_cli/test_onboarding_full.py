@@ -30,16 +30,26 @@ from soul_protocol.spec.journal import (
 
 def _full_init(runner: CliRunner, data_dir: Path, users_dir: Path, **overrides) -> object:
     args = [
-        "org", "init",
-        "--org-name", overrides.get("org_name", "Acme Ventures"),
-        "--purpose", overrides.get("purpose", "AI tooling"),
-        "--values", overrides.get("values", "audit,velocity,kindness"),
-        "--founder-name", overrides.get("founder_name", "Pat"),
-        "--founder-email", overrides.get("founder_email", "pat@acme.com"),
-        "--scopes", overrides.get("scopes", "org:sales,org:ops,org:me"),
-        "--fleet", overrides.get("fleet", "sales"),
-        "--data-dir", str(data_dir),
-        "--users-dir", str(users_dir),
+        "org",
+        "init",
+        "--org-name",
+        overrides.get("org_name", "Acme Ventures"),
+        "--purpose",
+        overrides.get("purpose", "AI tooling"),
+        "--values",
+        overrides.get("values", "audit,velocity,kindness"),
+        "--founder-name",
+        overrides.get("founder_name", "Pat"),
+        "--founder-email",
+        overrides.get("founder_email", "pat@acme.com"),
+        "--scopes",
+        overrides.get("scopes", "org:sales,org:ops,org:me"),
+        "--fleet",
+        overrides.get("fleet", "sales"),
+        "--data-dir",
+        str(data_dir),
+        "--users-dir",
+        str(users_dir),
         "--non-interactive",
     ]
     return runner.invoke(cli, args, catch_exceptions=False)
@@ -95,11 +105,16 @@ def test_skip_fleet_and_minimal_init(tmp_path: Path) -> None:
     result = runner.invoke(
         cli,
         [
-            "org", "init",
-            "--org-name", "Solo Co",
-            "--data-dir", str(data_dir),
-            "--users-dir", str(users_dir),
-            "--fleet", "skip",
+            "org",
+            "init",
+            "--org-name",
+            "Solo Co",
+            "--data-dir",
+            str(data_dir),
+            "--users-dir",
+            str(users_dir),
+            "--fleet",
+            "skip",
             "--non-interactive",
         ],
         catch_exceptions=False,
@@ -125,7 +140,8 @@ def test_status_reports_init_state(tmp_path: Path) -> None:
     _full_init(runner, data_dir, users_dir)
 
     result = runner.invoke(
-        cli, ["org", "status", "--data-dir", str(data_dir), "--json"],
+        cli,
+        ["org", "status", "--data-dir", str(data_dir), "--json"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
@@ -147,7 +163,8 @@ def test_status_human_readable(tmp_path: Path) -> None:
     users_dir = tmp_path / "users"
     _full_init(runner, data_dir, users_dir)
     result = runner.invoke(
-        cli, ["org", "status", "--data-dir", str(data_dir)],
+        cli,
+        ["org", "status", "--data-dir", str(data_dir)],
         catch_exceptions=False,
     )
     assert result.exit_code == 0
@@ -158,7 +175,8 @@ def test_status_human_readable(tmp_path: Path) -> None:
 def test_status_missing_dir_errors(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
-        cli, ["org", "status", "--data-dir", str(tmp_path / "nope")],
+        cli,
+        ["org", "status", "--data-dir", str(tmp_path / "nope")],
         catch_exceptions=False,
     )
     assert result.exit_code != 0
@@ -174,7 +192,8 @@ def test_destroy_without_both_flags_refuses(tmp_path: Path) -> None:
     _full_init(runner, data_dir, users_dir)
 
     result = runner.invoke(
-        cli, ["org", "destroy", "--data-dir", str(data_dir), "--confirm"],
+        cli,
+        ["org", "destroy", "--data-dir", str(data_dir), "--confirm"],
         catch_exceptions=False,
     )
     assert result.exit_code != 0
@@ -191,10 +210,15 @@ def test_destroy_archives_then_wipes(tmp_path: Path) -> None:
     result = runner.invoke(
         cli,
         [
-            "org", "destroy",
-            "--data-dir", str(data_dir),
-            "--archives-dir", str(archives_dir),
-            "--confirm", "--i-mean-it", "--non-interactive",
+            "org",
+            "destroy",
+            "--data-dir",
+            str(data_dir),
+            "--archives-dir",
+            str(archives_dir),
+            "--confirm",
+            "--i-mean-it",
+            "--non-interactive",
         ],
         catch_exceptions=False,
     )
@@ -225,9 +249,13 @@ def test_destroy_with_default_archives_survives(tmp_path: Path, monkeypatch) -> 
     result = runner.invoke(
         cli,
         [
-            "org", "destroy",
-            "--data-dir", str(data_dir),
-            "--confirm", "--i-mean-it", "--non-interactive",
+            "org",
+            "destroy",
+            "--data-dir",
+            str(data_dir),
+            "--confirm",
+            "--i-mean-it",
+            "--non-interactive",
         ],
         catch_exceptions=False,
     )
@@ -255,10 +283,15 @@ def test_destroy_with_archives_inside_data_dir_completes_cleanly(tmp_path: Path)
     result = runner.invoke(
         cli,
         [
-            "org", "destroy",
-            "--data-dir", str(data_dir),
-            "--archives-dir", str(archives_dir),
-            "--confirm", "--i-mean-it", "--non-interactive",
+            "org",
+            "destroy",
+            "--data-dir",
+            str(data_dir),
+            "--archives-dir",
+            str(archives_dir),
+            "--confirm",
+            "--i-mean-it",
+            "--non-interactive",
         ],
         catch_exceptions=False,
     )
@@ -304,7 +337,9 @@ def test_soul_delete_refuses_root(tmp_path: Path) -> None:
 
     root_path = data_dir / "root.soul"
     result = runner.invoke(
-        cli, ["delete", str(root_path), "--yes"], catch_exceptions=False,
+        cli,
+        ["delete", str(root_path), "--yes"],
+        catch_exceptions=False,
     )
     assert result.exit_code != 0
     assert root_path.exists()
@@ -320,7 +355,9 @@ def test_soul_delete_succeeds_for_non_root(tmp_path: Path) -> None:
     founder_path = users_dir / "Pat.soul"
     assert founder_path.exists()
     result = runner.invoke(
-        cli, ["delete", str(founder_path), "--yes"], catch_exceptions=False,
+        cli,
+        ["delete", str(founder_path), "--yes"],
+        catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
     assert not founder_path.exists()
@@ -384,7 +421,9 @@ def test_validator_passes_for_unrelated_events() -> None:
     check_root_undeletable(_event("agent.spawned", actor_id="did:soul:other"), root_did)
     # Same action but different target
     check_root_undeletable(
-        _event("agent.retired", actor_id="did:soul:other", payload={"target_did": "did:soul:other"}),
+        _event(
+            "agent.retired", actor_id="did:soul:other", payload={"target_did": "did:soul:other"}
+        ),
         root_did,
     )
     # Empty root_did is a no-op
@@ -404,15 +443,24 @@ def test_users_dir_defaults_under_data_dir_when_no_flag(tmp_path: Path) -> None:
     result = runner.invoke(
         cli,
         [
-            "org", "init",
-            "--org-name", "Nested",
-            "--purpose", ".",
-            "--values", ".",
-            "--founder-name", "Nest",
-            "--founder-email", "n@n",
-            "--scopes", "org:n",
-            "--fleet", "skip",
-            "--data-dir", str(data_dir),
+            "org",
+            "init",
+            "--org-name",
+            "Nested",
+            "--purpose",
+            ".",
+            "--values",
+            ".",
+            "--founder-name",
+            "Nest",
+            "--founder-email",
+            "n@n",
+            "--scopes",
+            "org:n",
+            "--fleet",
+            "skip",
+            "--data-dir",
+            str(data_dir),
             "--non-interactive",
         ],
         catch_exceptions=False,
@@ -431,22 +479,32 @@ def test_soul_users_dir_env_var_honored(tmp_path: Path, monkeypatch) -> None:
     result = runner.invoke(
         cli,
         [
-            "org", "init",
-            "--org-name", "EnvTest",
-            "--purpose", ".",
-            "--values", ".",
-            "--founder-name", "Env",
-            "--founder-email", "e@e",
-            "--scopes", "org:e",
-            "--fleet", "skip",
-            "--data-dir", str(data_dir),
+            "org",
+            "init",
+            "--org-name",
+            "EnvTest",
+            "--purpose",
+            ".",
+            "--values",
+            ".",
+            "--founder-name",
+            "Env",
+            "--founder-email",
+            "e@e",
+            "--scopes",
+            "org:e",
+            "--fleet",
+            "skip",
+            "--data-dir",
+            str(data_dir),
             "--non-interactive",
         ],
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
-    assert (custom_users / "Env.soul").exists(), \
+    assert (custom_users / "Env.soul").exists(), (
         f"founder soul should honor SOUL_USERS_DIR ({custom_users})"
+    )
 
 
 def test_users_dir_flag_overrides_env_var(tmp_path: Path, monkeypatch) -> None:
@@ -459,16 +517,26 @@ def test_users_dir_flag_overrides_env_var(tmp_path: Path, monkeypatch) -> None:
     result = runner.invoke(
         cli,
         [
-            "org", "init",
-            "--org-name", "FlagWins",
-            "--purpose", ".",
-            "--values", ".",
-            "--founder-name", "Flag",
-            "--founder-email", "f@f",
-            "--scopes", "org:f",
-            "--fleet", "skip",
-            "--data-dir", str(data_dir),
-            "--users-dir", str(flag_users),
+            "org",
+            "init",
+            "--org-name",
+            "FlagWins",
+            "--purpose",
+            ".",
+            "--values",
+            ".",
+            "--founder-name",
+            "Flag",
+            "--founder-email",
+            "f@f",
+            "--scopes",
+            "org:f",
+            "--fleet",
+            "skip",
+            "--data-dir",
+            str(data_dir),
+            "--users-dir",
+            str(flag_users),
             "--non-interactive",
         ],
         catch_exceptions=False,

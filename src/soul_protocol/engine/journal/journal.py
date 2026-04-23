@@ -82,13 +82,9 @@ class Journal:
             if last is not None:
                 prev_entry, prev_seq = last
                 try:
-                    entry = entry.model_copy(
-                        update={"prev_hash": _hash_link(prev_entry, prev_seq)}
-                    )
+                    entry = entry.model_copy(update={"prev_hash": _hash_link(prev_entry, prev_seq)})
                 except Exception as exc:
-                    logger.warning(
-                        "hash-link skipped for event %s: %s", entry.id, exc
-                    )
+                    logger.warning("hash-link skipped for event %s: %s", entry.id, exc)
 
         seq = self._backend.append(entry)
         return entry.model_copy(update={"seq": seq})
@@ -117,9 +113,7 @@ class Journal:
         exactly one of the two (raise if both given).
         """
         if action is not None and action_prefix is not None:
-            raise IntegrityError(
-                "Journal.query: action and action_prefix are mutually exclusive"
-            )
+            raise IntegrityError("Journal.query: action and action_prefix are mutually exclusive")
         if since is not None and not _is_aware(since):
             raise IntegrityError("Journal.query(since=...) must be timezone-aware UTC")
         if until is not None and not _is_aware(until):

@@ -400,9 +400,7 @@ def test_schema_migrates_from_zero_on_first_write(tmp_path: Path) -> None:
     j.close()
 
     conn = sqlite3.connect(str(path))
-    row = conn.execute(
-        "SELECT value FROM journal_meta WHERE key='schema_version'"
-    ).fetchone()
+    row = conn.execute("SELECT value FROM journal_meta WHERE key='schema_version'").fetchone()
     conn.close()
     assert row is not None
     assert int(row[0]) == SCHEMA_VERSION

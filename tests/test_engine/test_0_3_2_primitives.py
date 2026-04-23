@@ -164,9 +164,7 @@ def test_smoke_action_prefix_basic(journal: Journal) -> None:
     """Smoke: prefix query returns the right family."""
     journal.append(_entry("fabric.object.created"))
     journal.append(_entry("widget.interaction.recorded"))
-    assert {e.action for e in journal.query(action_prefix="fabric")} == {
-        "fabric.object.created"
-    }
+    assert {e.action for e in journal.query(action_prefix="fabric")} == {"fabric.object.created"}
 
 
 def test_smoke_exact_action_coexists(journal: Journal) -> None:

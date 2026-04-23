@@ -164,7 +164,12 @@ class TestDataRefPromotion:
     def test_dict_with_kind_promotes_to_dataref(self) -> None:
         cand = RetrievalCandidate(
             source="drive",
-            content={"kind": "dataref", "source": "drive", "id": "file_1", "scopes": ["org:sales:*"]},
+            content={
+                "kind": "dataref",
+                "source": "drive",
+                "id": "file_1",
+                "scopes": ["org:sales:*"],
+            },
             as_of=datetime.now(UTC),
         )
         assert isinstance(cand.content, DataRef)

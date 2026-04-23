@@ -31,8 +31,7 @@ def test_cli_required_deps_are_in_base() -> None:
 
     for pkg in ("click", "rich", "pyyaml", "cryptography"):
         assert pkg in base_deps, (
-            f"{pkg!r} must be a base dependency (issue #157) — "
-            f"the CLI imports it at module load"
+            f"{pkg!r} must be a base dependency (issue #157) — the CLI imports it at module load"
         )
 
 

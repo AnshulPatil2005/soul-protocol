@@ -156,9 +156,7 @@ def test_benchmark_recall_quality_comparison(
     _seed_corpus_journal(journal_store)
 
     baseline_recall = _recall_at_5(lambda q: dict_store.search(q, limit=5), CANONICAL_QUERIES)
-    candidate_recall = _recall_at_5(
-        lambda q: journal_store.search(q, limit=5), CANONICAL_QUERIES
-    )
+    candidate_recall = _recall_at_5(lambda q: journal_store.search(q, limit=5), CANONICAL_QUERIES)
 
     with capsys.disabled():
         print(f"\n[BENCHMARK] recall@5 — baseline (dict): {baseline_recall:.2%}")
@@ -213,9 +211,7 @@ def test_benchmark_write_latency_comparison(
         print(f"[BENCHMARK] 100-write — candidate (journal): {candidate_time * 1000:.1f}ms")
         print(f"[BENCHMARK] ratio: {candidate_time / baseline_time:.1f}x")
 
-    assert candidate_time < 2.0, (
-        f"Candidate write batch took {candidate_time:.2f}s — budget 2s"
-    )
+    assert candidate_time < 2.0, f"Candidate write batch took {candidate_time:.2f}s — budget 2s"
 
 
 def test_benchmark_search_latency_comparison(
@@ -298,9 +294,7 @@ def test_benchmark_forget_correctness_vs_dict(
 
     # Target is gone; all other memories remain.
     dict_remaining = sum(len(store_data) for store_data in dict_store._data.values())
-    journal_remaining = sum(
-        len(journal_store.recall(t, limit=200)) for t in journal_store.layers()
-    )
+    journal_remaining = sum(len(journal_store.recall(t, limit=200)) for t in journal_store.layers())
 
     with capsys.disabled():
         print(
@@ -317,9 +311,7 @@ def test_benchmark_forget_correctness_vs_dict(
         m.content.lower() for m in dict_store.search(target_substring, limit=50)
     )
     post_forget = journal_store.search(target_substring, limit=50)
-    assert target_substring.lower() not in " ".join(
-        m.content.lower() for m in post_forget
-    )
+    assert target_substring.lower() not in " ".join(m.content.lower() for m in post_forget)
 
 
 def test_benchmark_rebuild_safety(
@@ -365,7 +357,12 @@ def test_benchmark_rebuild_safety(
 # Optional: real fixture test (skipped when snapshot isn't available)
 # ---------------------------------------------------------------------------
 
-_FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "benchmark" / "pocketpaw-snapshot-2026-04-16.soul"
+_FIXTURE = (
+    Path(__file__).parent.parent.parent
+    / "fixtures"
+    / "benchmark"
+    / "pocketpaw-snapshot-2026-04-16.soul"
+)
 
 
 @pytest.mark.skipif(not _FIXTURE.exists(), reason="benchmark fixture not available (local-only)")
@@ -448,8 +445,7 @@ def test_benchmark_real_fixture_roundtrip(tmp_path: Path, capsys: pytest.Capture
         print(f"[BENCHMARK REAL] total_stored after ingest: {total_stored}")
         print(f"[BENCHMARK REAL] search probes: {probe_hits}")
         print(
-            f"[BENCHMARK REAL] rebuild: {replayed} events replayed in "
-            f"{rebuild_time * 1000:.1f}ms"
+            f"[BENCHMARK REAL] rebuild: {replayed} events replayed in {rebuild_time * 1000:.1f}ms"
         )
         print(
             f"[BENCHMARK REAL] storage — journal.db: {journal_size_kb:.1f}KB, "

@@ -194,8 +194,7 @@ class DataRef(BaseModel):
             raise ValueError("DataRef.point_in_time must be timezone-aware (UTC)")
         if offset != timedelta(0):
             raise ValueError(
-                "DataRef.point_in_time must be UTC — got offset "
-                f"{offset}. Normalize at the source."
+                f"DataRef.point_in_time must be UTC — got offset {offset}. Normalize at the source."
             )
         return v
 

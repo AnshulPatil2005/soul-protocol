@@ -71,9 +71,6 @@ def scopes_overlap(granted: list[str], requested: list[str]) -> bool:
             grant_parts = grant.split(":")
             if len(grant_parts) != len(req_parts):
                 continue
-            if all(
-                g == "*" or r == "*" or g == r
-                for g, r in zip(grant_parts, req_parts)
-            ):
+            if all(g == "*" or r == "*" or g == r for g, r in zip(grant_parts, req_parts)):
                 return True
     return False

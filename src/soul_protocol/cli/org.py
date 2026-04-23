@@ -166,9 +166,7 @@ def _build_governance_soul(org_name: str, purpose: str | None, values: list[str]
     from soul_protocol.runtime.soul import Soul
 
     persona_text = (
-        f"{GOVERNANCE_PERSONA_DESC}\n\n"
-        f"Organization: {org_name}\n"
-        f"Mission: {GOVERNANCE_MISSION}"
+        f"{GOVERNANCE_PERSONA_DESC}\n\nOrganization: {org_name}\nMission: {GOVERNANCE_MISSION}"
     )
     if purpose:
         persona_text += f"\nOrg purpose: {purpose}"
@@ -190,10 +188,7 @@ def _build_founder_user_soul(name: str, email: str):
     """Birth the founder user soul. Bare-bones — admin granting is an event, not a flag."""
     from soul_protocol.runtime.soul import Soul
 
-    persona_text = (
-        f"I am {name}, the founder of this org instance. "
-        f"Reachable at {email}."
-    )
+    persona_text = f"I am {name}, the founder of this org instance. Reachable at {email}."
     return Soul.birth(
         name=name,
         archetype="user",
@@ -243,23 +238,50 @@ def user_group() -> None:
 
 @org_group.command("init")
 @click.option("--org-name", type=str, default=None, help="Organization name.")
-@click.option("--purpose", type=str, default=None, help="Optional mission statement for the root soul.")
-@click.option("--values", "values_csv", type=str, default=None,
-              help="Comma-separated org values (3-5 recommended).")
+@click.option(
+    "--purpose", type=str, default=None, help="Optional mission statement for the root soul."
+)
+@click.option(
+    "--values",
+    "values_csv",
+    type=str,
+    default=None,
+    help="Comma-separated org values (3-5 recommended).",
+)
 @click.option("--founder-name", type=str, default=None, help="Founder user name.")
 @click.option("--founder-email", type=str, default=None, help="Founder user email.")
-@click.option("--scopes", "scopes_csv", type=str, default=None,
-              help="Comma-separated first-level scopes, e.g. 'org:sales,org:ops'.")
-@click.option("--fleet", type=click.Choice(VALID_FLEETS, case_sensitive=False),
-              default=None, help="Starter fleet to seed: sales, support, solo, or skip.")
-@click.option("--data-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
-              help="Where to create the org (default: ~/.soul/, or $SOUL_DATA_DIR).")
-@click.option("--users-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
-              help="Where founder user souls live (default: nested under --data-dir, or $SOUL_USERS_DIR if set, "
-                   "else ~/.soul/users/).")
+@click.option(
+    "--scopes",
+    "scopes_csv",
+    type=str,
+    default=None,
+    help="Comma-separated first-level scopes, e.g. 'org:sales,org:ops'.",
+)
+@click.option(
+    "--fleet",
+    type=click.Choice(VALID_FLEETS, case_sensitive=False),
+    default=None,
+    help="Starter fleet to seed: sales, support, solo, or skip.",
+)
+@click.option(
+    "--data-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Where to create the org (default: ~/.soul/, or $SOUL_DATA_DIR).",
+)
+@click.option(
+    "--users-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Where founder user souls live (default: nested under --data-dir, or $SOUL_USERS_DIR if set, "
+    "else ~/.soul/users/).",
+)
 @click.option("--force", is_flag=True, help="Overwrite an existing org directory.")
-@click.option("--non-interactive", is_flag=True,
-              help="Fail instead of prompting. Requires --org-name at minimum.")
+@click.option(
+    "--non-interactive",
+    is_flag=True,
+    help="Fail instead of prompting. Requires --org-name at minimum.",
+)
 def org_init(
     org_name: str | None,
     purpose: str | None,
@@ -310,9 +332,10 @@ def org_init(
     # --- Step 2 — founder user --------------------------------------------
     if not non_interactive:
         if not founder_name:
-            founder_name = click.prompt(
-                "Founder name (blank to skip)", default="", show_default=False
-            ).strip() or None
+            founder_name = (
+                click.prompt("Founder name (blank to skip)", default="", show_default=False).strip()
+                or None
+            )
         if founder_name and not founder_email:
             founder_email = click.prompt("Founder email", type=str).strip()
 
@@ -339,8 +362,7 @@ def org_init(
     if _dir_is_non_empty(data_dir):
         if not force:
             click.echo(
-                f"error: {data_dir} already exists and is non-empty. "
-                "Pass --force to overwrite.",
+                f"error: {data_dir} already exists and is non-empty. Pass --force to overwrite.",
                 err=True,
             )
             sys.exit(1)
@@ -415,15 +437,17 @@ def org_init(
 
         # --- Step 1.5 — values event ---------------------------------------
         if values:
-            journal.append(EventEntry(
-                id=uuid4(),
-                ts=datetime.now(UTC),
-                actor=actor,
-                action="org.values_set",
-                scope=["org:*"],
-                causation_id=org_created.id,
-                payload={"values": values},
-            ))
+            journal.append(
+                EventEntry(
+                    id=uuid4(),
+                    ts=datetime.now(UTC),
+                    actor=actor,
+                    action="org.values_set",
+                    scope=["org:*"],
+                    causation_id=org_created.id,
+                    payload={"values": values},
+                )
+            )
             event_count += 1
 
         # --- Step 2 — founder user soul ------------------------------------
@@ -458,15 +482,17 @@ def org_init(
             journal.append(joined)
             event_count += 1
 
-            journal.append(EventEntry(
-                id=uuid4(),
-                ts=datetime.now(UTC),
-                actor=actor,
-                action="user.admin_granted",
-                scope=["org:*"],
-                causation_id=joined.id,
-                payload={"user_did": user_did, "name": founder_name, "grant_reason": "founder"},
-            ))
+            journal.append(
+                EventEntry(
+                    id=uuid4(),
+                    ts=datetime.now(UTC),
+                    actor=actor,
+                    action="user.admin_granted",
+                    scope=["org:*"],
+                    causation_id=joined.id,
+                    payload={"user_did": user_did, "name": founder_name, "grant_reason": "founder"},
+                )
+            )
             event_count += 1
             console.print(f"        [green]OK[/green] {founder_user_path}")
         else:
@@ -476,15 +502,17 @@ def org_init(
         if extra_scopes:
             console.print(f"  [6/8] Creating {len(extra_scopes)} first-level scope(s)...")
             for label in extra_scopes:
-                journal.append(EventEntry(
-                    id=uuid4(),
-                    ts=datetime.now(UTC),
-                    actor=actor,
-                    action="scope.created",
-                    scope=["org:*"],
-                    causation_id=scope_created.id,
-                    payload={"scope": label, "parent": "org:*"},
-                ))
+                journal.append(
+                    EventEntry(
+                        id=uuid4(),
+                        ts=datetime.now(UTC),
+                        actor=actor,
+                        action="scope.created",
+                        scope=["org:*"],
+                        causation_id=scope_created.id,
+                        payload={"scope": label, "parent": "org:*"},
+                    )
+                )
                 event_count += 1
             console.print(f"        [green]OK[/green] {', '.join(extra_scopes)}")
         else:
@@ -493,22 +521,24 @@ def org_init(
         # --- Step 7 — starter fleet stub ----------------------------------
         if fleet != "skip":
             console.print(f"  [7/8] Recording starter fleet placeholder ({fleet})...")
-            journal.append(EventEntry(
-                id=uuid4(),
-                ts=datetime.now(UTC),
-                actor=actor,
-                action="agent.spawned",
-                scope=["org:*"],
-                causation_id=org_created.id,
-                payload={
-                    "fleet": fleet,
-                    "placeholder": True,
-                    "note": (
-                        "Fleet selection recorded. Real installation wires through "
-                        "the starter-fleet follow-up PR."
-                    ),
-                },
-            ))
+            journal.append(
+                EventEntry(
+                    id=uuid4(),
+                    ts=datetime.now(UTC),
+                    actor=actor,
+                    action="agent.spawned",
+                    scope=["org:*"],
+                    causation_id=org_created.id,
+                    payload={
+                        "fleet": fleet,
+                        "placeholder": True,
+                        "note": (
+                            "Fleet selection recorded. Real installation wires through "
+                            "the starter-fleet follow-up PR."
+                        ),
+                    },
+                )
+            )
             event_count += 1
             console.print(f"        [green]OK[/green] fleet={fleet} (placeholder)")
         else:
@@ -611,8 +641,12 @@ def _gather_status(data_dir: Path) -> dict[str, Any]:
 
 
 @org_group.command("status")
-@click.option("--data-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
-              help="Org dir to inspect (default: ~/.soul/, or $SOUL_DATA_DIR).")
+@click.option(
+    "--data-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Org dir to inspect (default: ~/.soul/, or $SOUL_DATA_DIR).",
+)
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
 def org_status(data_dir: Path | None, as_json: bool) -> None:
     """Show a snapshot of the org derived from the journal."""
@@ -688,15 +722,24 @@ def _archive_org(data_dir: Path, archives_dir: Path) -> Path:
 
 
 @org_group.command("destroy")
-@click.option("--data-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
-              help="Org dir to destroy (default: ~/.soul/, or $SOUL_DATA_DIR).")
-@click.option("--archives-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
-              help="Where to drop the tarball (default: ~/.soul-archives/, a sibling of the org dir — "
-                   "so the archive survives the wipe that follows).")
+@click.option(
+    "--data-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Org dir to destroy (default: ~/.soul/, or $SOUL_DATA_DIR).",
+)
+@click.option(
+    "--archives-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Where to drop the tarball (default: ~/.soul-archives/, a sibling of the org dir — "
+    "so the archive survives the wipe that follows).",
+)
 @click.option("--confirm", is_flag=True, help="Required guard rail #1.")
 @click.option("--i-mean-it", "i_mean_it", is_flag=True, help="Required guard rail #2.")
-@click.option("--non-interactive", is_flag=True,
-              help="Skip the typed confirmation prompt (use with care).")
+@click.option(
+    "--non-interactive", is_flag=True, help="Skip the typed confirmation prompt (use with care)."
+)
 def org_destroy(
     data_dir: Path | None,
     archives_dir: Path | None,
@@ -730,15 +773,18 @@ def org_destroy(
         snap = {"org_name": None, "event_count": 0, "user_count": 0, "agent_count": 0}
 
     org_name = snap.get("org_name") or data_dir.name
-    console.print(Panel(
-        f"[bold red]About to destroy:[/bold red] {data_dir}\n"
-        f"Org name:    {org_name}\n"
-        f"Events lost: {snap['event_count']}\n"
-        f"Users lost:  {snap['user_count']}\n"
-        f"Agents lost: {snap['agent_count']}\n\n"
-        "A tarball will be written to the archives dir before deletion.",
-        title="Org destroy", border_style="red",
-    ))
+    console.print(
+        Panel(
+            f"[bold red]About to destroy:[/bold red] {data_dir}\n"
+            f"Org name:    {org_name}\n"
+            f"Events lost: {snap['event_count']}\n"
+            f"Users lost:  {snap['user_count']}\n"
+            f"Agents lost: {snap['agent_count']}\n\n"
+            "A tarball will be written to the archives dir before deletion.",
+            title="Org destroy",
+            border_style="red",
+        )
+    )
 
     if not non_interactive:
         typed = click.prompt(f"Type '{org_name}' to proceed", type=str)

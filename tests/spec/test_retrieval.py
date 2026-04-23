@@ -13,9 +13,9 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from soul_protocol.spec.journal import Actor
 from soul_protocol.spec.retrieval import (
     AsyncSourceAdapter,
-    CandidateSource,
     Credential,
     DataRef,
     PointInTimeNotSupported,
@@ -23,8 +23,6 @@ from soul_protocol.spec.retrieval import (
     RetrievalRequest,
     SourceAdapter,
 )
-from soul_protocol.spec.journal import Actor
-
 
 # --- Credential -----------------------------------------------------------
 
@@ -164,8 +162,6 @@ class TestProtocolConformance:
 
 class TestDataRefPromotion:
     def test_dict_with_kind_promotes_to_dataref(self) -> None:
-        actor = Actor(kind="agent", id="did:soul:test", scope_context=["org:sales"])
-        req_id = uuid4()
         cand = RetrievalCandidate(
             source="drive",
             content={"kind": "dataref", "source": "drive", "id": "file_1", "scopes": ["org:sales:*"]},

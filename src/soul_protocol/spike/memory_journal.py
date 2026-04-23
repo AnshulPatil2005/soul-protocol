@@ -14,7 +14,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from soul_protocol.engine.journal import Journal, open_journal
 from soul_protocol.spec.journal import Actor, EventEntry

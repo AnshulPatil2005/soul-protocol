@@ -11,10 +11,9 @@
 
 from __future__ import annotations
 
-import statistics
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import pytest
 
@@ -24,7 +23,6 @@ from soul_protocol.spike.memory_journal import (
     JournalBackedMemoryStore,
     open_memory_store,
 )
-
 
 # ---------------------------------------------------------------------------
 # Canonical query set — drawn from real pocketpaw session usage

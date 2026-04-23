@@ -27,7 +27,7 @@ import shutil
 import stat
 import sys
 import tarfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -387,7 +387,7 @@ def org_init(
         console.print("  [4/8] Writing genesis events...")
         org_created = EventEntry(
             id=uuid4(),
-            ts=datetime.now(timezone.utc),
+            ts=datetime.now(UTC),
             actor=actor,
             action="org.created",
             scope=["org:*"],
@@ -403,7 +403,7 @@ def org_init(
 
         scope_created = EventEntry(
             id=uuid4(),
-            ts=datetime.now(timezone.utc),
+            ts=datetime.now(UTC),
             actor=actor,
             action="scope.created",
             scope=["org:*"],
@@ -417,7 +417,7 @@ def org_init(
         if values:
             journal.append(EventEntry(
                 id=uuid4(),
-                ts=datetime.now(timezone.utc),
+                ts=datetime.now(UTC),
                 actor=actor,
                 action="org.values_set",
                 scope=["org:*"],
@@ -444,7 +444,7 @@ def org_init(
             # the link back to the soul for audit purposes.
             joined = EventEntry(
                 id=uuid4(),
-                ts=datetime.now(timezone.utc),
+                ts=datetime.now(UTC),
                 actor=actor,
                 action="user.joined",
                 scope=["org:*"],
@@ -460,7 +460,7 @@ def org_init(
 
             journal.append(EventEntry(
                 id=uuid4(),
-                ts=datetime.now(timezone.utc),
+                ts=datetime.now(UTC),
                 actor=actor,
                 action="user.admin_granted",
                 scope=["org:*"],
@@ -478,7 +478,7 @@ def org_init(
             for label in extra_scopes:
                 journal.append(EventEntry(
                     id=uuid4(),
-                    ts=datetime.now(timezone.utc),
+                    ts=datetime.now(UTC),
                     actor=actor,
                     action="scope.created",
                     scope=["org:*"],
@@ -495,7 +495,7 @@ def org_init(
             console.print(f"  [7/8] Recording starter fleet placeholder ({fleet})...")
             journal.append(EventEntry(
                 id=uuid4(),
-                ts=datetime.now(timezone.utc),
+                ts=datetime.now(UTC),
                 actor=actor,
                 action="agent.spawned",
                 scope=["org:*"],
@@ -659,7 +659,7 @@ def _archive_org(data_dir: Path, archives_dir: Path) -> Path:
     storage location.
     """
     archives_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     archive_path = archives_dir / f"org-destroyed-{stamp}.tar.gz"
 
     archives_dir_resolved = archives_dir.resolve()

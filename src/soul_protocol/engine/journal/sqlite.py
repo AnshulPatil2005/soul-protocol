@@ -25,8 +25,6 @@ from uuid import UUID
 
 from soul_protocol.spec.journal import Actor, DataRef, EventEntry
 
-from .exceptions import IntegrityError
-
 from .backend import JournalBackend
 from .exceptions import IntegrityError
 from .schema import migrate
@@ -49,7 +47,8 @@ def _decode_payload(raw: str) -> DataRef | dict[str, Any]:
     return obj
 
 
-from .scope import scope_matches as _scope_matches
+from .scope import scope_matches as _scope_matches  # noqa: E402
+
 # Re-export under the old private name so existing imports
 # (including the router's direct reach into this module) keep working
 # until they're migrated over to the public path.

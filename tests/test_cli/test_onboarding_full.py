@@ -7,12 +7,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import tarfile
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
-from datetime import datetime, timezone
 
 import pytest
 from click.testing import CliRunner
@@ -25,7 +24,6 @@ from soul_protocol.spec.journal import (
     RootProtectedError,
     check_root_undeletable,
 )
-
 
 # --- Helpers ----------------------------------------------------------------
 
@@ -347,7 +345,7 @@ def test_soul_delete_python_api_raises(tmp_path: Path) -> None:
 def _event(action: str, actor_id: str, payload: dict | None = None) -> EventEntry:
     return EventEntry(
         id=uuid4(),
-        ts=datetime.now(timezone.utc),
+        ts=datetime.now(UTC),
         actor=Actor(kind="agent", id=actor_id, scope_context=["org:*"]),
         action=action,
         scope=["org:*"],

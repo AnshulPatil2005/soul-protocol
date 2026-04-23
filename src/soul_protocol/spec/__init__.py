@@ -37,14 +37,6 @@ from .context import (
     ExpandResult,
     GrepResult,
 )
-from .embeddings import (
-    EmbeddingProvider,
-    cosine_similarity,
-    dot_product,
-    euclidean_distance,
-)
-from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
-from .identity import BondTarget, Identity
 from .decisions import (
     AgentProposal,
     DecisionGraduation,
@@ -56,6 +48,14 @@ from .decisions import (
     find_corrections_for,
     trace_decision_chain,
 )
+from .embeddings import (
+    EmbeddingProvider,
+    cosine_similarity,
+    dot_product,
+    euclidean_distance,
+)
+from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
+from .identity import BondTarget, Identity
 from .journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .learning import LearningEvent
 from .manifest import Manifest
@@ -74,7 +74,6 @@ from .retrieval import (
     CredentialBroker,
     CredentialExpiredError,
     CredentialScopeError,
-    DataRef as RetrievalDataRef,
     NoSourcesError,
     PointInTimeNotSupported,
     RetrievalCandidate,
@@ -83,6 +82,9 @@ from .retrieval import (
     RetrievalResult,
     SourceAdapter,
     SourceTimeoutError,
+)
+from .retrieval import (
+    DataRef as RetrievalDataRef,
 )
 from .scope import match_scope, normalise_scopes
 from .soul_file import pack_soul, unpack_soul, unpack_to_container

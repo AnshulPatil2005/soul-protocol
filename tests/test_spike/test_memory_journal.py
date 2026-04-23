@@ -5,14 +5,13 @@
 
 from __future__ import annotations
 
-import sqlite3
 import time
 from pathlib import Path
 
 import pytest
 
 from soul_protocol.spec.journal import Actor
-from soul_protocol.spec.memory import MemoryEntry, MemoryStore, MemoryVisibility
+from soul_protocol.spec.memory import MemoryEntry, MemoryStore
 from soul_protocol.spike.memory_journal import (
     JournalBackedMemoryStore,
     open_memory_store,

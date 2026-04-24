@@ -14,7 +14,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soul-protocol"
-version = "0.3.3"
+version = "0.3.4"
 description = "The open standard for portable AI identity and memory"
 readme = "README.md"
 license = "MIT"
@@ -91,8 +91,12 @@ packages = ["src/soul_protocol"]
 # consumers cannot accidentally depend on it.
 exclude = ["src/soul_protocol/spike/**"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"src/soul_protocol/templates" = "soul_protocol/templates"
+# NOTE: do not add a [tool.hatch.build.targets.wheel.force-include] block for
+# `src/soul_protocol/templates` — those YAMLs already ship via the package
+# auto-discovery above. The redundant force-include caused a duplicate-name
+# wheel that PyPI rejected on 0.3.3 (HTTP 400 — "Duplicate filename in local
+# headers"). Keep the templates inside the package directory and let
+# hatchling pick them up once.
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

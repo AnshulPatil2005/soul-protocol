@@ -9,6 +9,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.4] -- 2026-04-24
+
+Hotfix release. The 0.3.3 wheel failed to upload to PyPI because `pyproject.toml` had a redundant `[tool.hatch.build.targets.wheel.force-include]` block that double-included the bundled template YAMLs (`analyst.yaml`, `arrow.yaml`, `cyborg.yaml`, `flash.yaml`). PyPI rejected the wheel with HTTP 400 ("Duplicate filename in local headers"). The 0.3.3 source distribution did upload, so `pip install soul-protocol==0.3.3` still works via the sdist — but a clean wheel install requires 0.3.4.
+
+### Fixed
+
+- Removed the redundant `force-include` for `src/soul_protocol/templates`. Templates already ship through the package-level auto-discovery; the explicit force-include duplicated them in the ZIP and broke PyPI upload. (Fixes the 0.3.3 wheel build.)
+
+### Notes
+
+- All 0.3.3 features remain unchanged. This is a packaging fix only.
+- PyPI does not allow re-uploads of the same version, even after deletion — that's why this is 0.3.4 rather than a re-cut of 0.3.3.
+
+---
+
 ## [0.3.3] -- 2026-04-24
 
 The "headless standard" release. soul-protocol is now positioned as a language-agnostic standard with a Python reference implementation. The 0.3.2 number was skipped — its scope rolled into 0.3.3 alongside the rest of the #97 visibility work.

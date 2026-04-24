@@ -14,7 +14,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soul-protocol"
-version = "0.3.1"
+version = "0.3.3"
 description = "The open standard for portable AI identity and memory"
 readme = "README.md"
 license = "MIT"

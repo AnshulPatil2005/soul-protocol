@@ -10,6 +10,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Safety net for destructive CLI commands** — `soul cleanup` and `soul forget` are now dry-run by default and require an explicit `--apply` flag to execute. Before any destructive save, a side-by-side `.soul.bak` backup is written next to the soul file so an accidental `--auto` run is recoverable with a single `cp`. The prior behavior where `soul cleanup --auto` silently deleted hundreds of memories is gone. (#148)
+- **System prompt safety guardrails** — `Soul.to_system_prompt()` now appends a default safety section that instructs the agent to decline requests for core memory contents, bond details, and evolution history. Covers direct asks, indirect framings, and roleplay bypasses. Opt out with `to_system_prompt(safety_guardrails=False)` for transparent deployments. Closes the prompt-side half of #97.
+- **`Soul.public_profile()`** — returns the safe-to-expose subset of a soul's identity (DID, name, archetype, born, lifecycle, values, OCEAN summary, skill names) for use by registries, peer discovery, or public agent cards. Excludes memory contents, bond details, evolution history, and any internal state. Closes the registry-shape half of #97.
 
 ### Changed
 

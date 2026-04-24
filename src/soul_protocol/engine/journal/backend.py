@@ -1,8 +1,8 @@
 # backend.py — Journal backend Protocol.
-# Created: feat/journal-engine — Workstream A slice 2 of Org Architecture RFC (#164).
-# The Journal class delegates persistence to a JournalBackend. v1 ships a
-# single SQLite implementation; future backends (LMDB, Postgres, pluggable
-# remote) implement the same Protocol.
+# Updated: feat/0.3.2-spike — added action_prefix kwarg to query() for
+# namespace-prefix matching (primitive #2 of 0.3.2). Mutually exclusive with
+# action=. Pushes the action-family filter into SQL so projections don't
+# have to pull all events and loop in Python.
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ class JournalBackend(Protocol):
         self,
         *,
         action: str | None = None,
+        action_prefix: str | None = None,
         actor: Actor | None = None,
         scope: list[str] | None = None,
         correlation_id: UUID | None = None,
@@ -33,7 +34,12 @@ class JournalBackend(Protocol):
         limit: int = 100,
         offset: int = 0,
     ) -> list[EventEntry]:
-        """Return events matching the conjunction of filters."""
+        """Return events matching the conjunction of filters.
+
+        ``action`` and ``action_prefix`` are mutually exclusive. ``action_prefix``
+        matches the exact string or anything starting with the prefix followed
+        by a ``.``. See :meth:`Journal.query` for semantics.
+        """
 
     def replay_from(self, seq: int = 0) -> Iterator[EventEntry]:
         """Yield events with seq >= given value in ascending seq order."""

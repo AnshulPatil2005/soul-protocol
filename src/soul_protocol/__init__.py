@@ -83,10 +83,6 @@ from .runtime.types import (
     SoulManifest,
     SoulState,
 )
-
-# Core primitives from spec/ (always available — only requires pydantic)
-from .spec.identity import BondTarget as CoreBondTarget
-from .spec.identity import Identity as CoreIdentity
 from .spec.decisions import (
     AgentProposal,
     DecisionGraduation,
@@ -97,6 +93,10 @@ from .spec.decisions import (
     find_corrections_for,
     trace_decision_chain,
 )
+
+# Core primitives from spec/ (always available — only requires pydantic)
+from .spec.identity import BondTarget as CoreBondTarget
+from .spec.identity import Identity as CoreIdentity
 from .spec.journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .spec.manifest import Manifest as CoreManifest
 from .spec.memory import DictMemoryStore, MemoryStore

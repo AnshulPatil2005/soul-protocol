@@ -207,7 +207,9 @@ def _build_trace(
     for entry in results:
         importance = getattr(entry, "importance", 5)
         tier_raw = getattr(entry, "type", None) or getattr(entry, "layer", "")
-        tier = tier_raw.value if hasattr(tier_raw, "value") else (str(tier_raw) if tier_raw else None)
+        tier = (
+            tier_raw.value if hasattr(tier_raw, "value") else (str(tier_raw) if tier_raw else None)
+        )
         candidates.append(
             TraceCandidate(
                 id=entry.id,
@@ -959,8 +961,7 @@ class Soul:
             from soul_protocol.spec.scope import match_scope
 
             results = [
-                entry for entry in results
-                if match_scope(getattr(entry, "scope", None), scopes)
+                entry for entry in results if match_scope(getattr(entry, "scope", None), scopes)
             ]
         elapsed_ms = int((_time.monotonic() - start) * 1000)
         self._last_retrieval = _build_trace(

@@ -84,6 +84,12 @@ Issues = "https://github.com/qbtrix/soul-protocol/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/soul_protocol"]
+# The spike module is a staging area for in-progress design experiments
+# (JournalBackedMemoryStore, memory-journal benchmarks, etc.). It is
+# intentionally NOT part of the shipped public API — promoted modules move
+# into runtime/ once the thesis validates. Exclude from the wheel so
+# consumers cannot accidentally depend on it.
+exclude = ["src/soul_protocol/spike/**"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/soul_protocol/templates" = "soul_protocol/templates"

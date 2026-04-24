@@ -1,5 +1,11 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-04-14 (v0.3.1) — bumped test count to 2297, added org-layer
+<!-- Updated: 2026-04-19 (v0.3.2) — retrieval infrastructure (Router, Broker
+     impl, ProjectionAdapter) pruned from soul-protocol; spec/retrieval.py
+     now holds only the vocabulary (Protocols + types + exceptions) that a
+     third-party implementation needs. Concrete orchestration moved to the
+     consuming runtime (pocketpaw reference impl). New docs/SPEC.md is the
+     language-agnostic standard. Test count 2297 → 2333.
+     Updated: 2026-04-14 (v0.3.1) — bumped test count to 2297, added org-layer
      pitch to the header, new "Org layer (v0.3.1)" feature block, v0.3.1
      quick-start with `soul org init`, CLI count 38 → 44 commands (adds org,
      template, user, create), pointers to org-journal-spec.md, org.md,
@@ -21,7 +27,14 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 2297 passing](https://img.shields.io/badge/tests-2297%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 2333 passing](https://img.shields.io/badge/tests-2333%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+
+---
+
+> **This repo ships both the standard and a Python reference implementation.**
+>
+> - **Implementing Soul Protocol in another language** (Rust, Go, TypeScript, custom runtime)? Start with [docs/SPEC.md](docs/SPEC.md) — the language-agnostic contract.
+> - **Building a Python agent on top of our implementation**? Continue reading this README.
 
 ---
 

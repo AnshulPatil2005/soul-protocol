@@ -168,7 +168,7 @@ async def test_smart_recall_populates_last_retrieval() -> None:
     soul = await Soul.birth(name="Echo", archetype="Test")
     await soul.remember("coffee is important")
 
-    results = await soul.smart_recall("coffee")
+    await soul.smart_recall("coffee")
     trace = soul.last_retrieval
     assert trace is not None
     assert trace.query == "coffee"

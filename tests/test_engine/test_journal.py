@@ -400,9 +400,7 @@ def test_schema_migrates_from_zero_on_first_write(tmp_path: Path) -> None:
     j.close()
 
     conn = sqlite3.connect(str(path))
-    row = conn.execute(
-        "SELECT value FROM journal_meta WHERE key='schema_version'"
-    ).fetchone()
+    row = conn.execute("SELECT value FROM journal_meta WHERE key='schema_version'").fetchone()
     conn.close()
     assert row is not None
     assert int(row[0]) == SCHEMA_VERSION
@@ -413,4 +411,167 @@ def test_backend_protocol_conformance(tmp_path: Path) -> None:
 
     backend = SQLiteJournalBackend(tmp_path / "journal.db")
     assert isinstance(backend, JournalBackend)
-    backend.close()
+
+
+# ---------- primitive #1: Journal.append returns committed EventEntry --
+
+
+def test_append_returns_committed_entry_with_seq(journal: Journal) -> None:
+    entry = _make_entry()
+    assert entry.seq is None  # not yet committed
+
+    committed = journal.append(entry)
+
+    assert committed is not None
+    assert committed.seq is not None
+    assert committed.seq >= 0  # first seq is 0 (gap-free counter)
+    assert committed.id == entry.id
+    assert committed.action == entry.action
+    assert committed.ts == entry.ts
+    assert committed.scope == entry.scope
+
+
+def test_append_first_seq_is_zero(tmp_path: Path) -> None:
+    j = open_journal(tmp_path / "journal.db")
+    try:
+        committed = j.append(_make_entry())
+        assert committed.seq == 0
+    finally:
+        j.close()
+
+
+def test_append_seq_is_monotonic(journal: Journal) -> None:
+    committed = [journal.append(_make_entry()) for _ in range(5)]
+    seqs = [c.seq for c in committed]
+    assert seqs == sorted(seqs)
+    assert all(seqs[i] < seqs[i + 1] for i in range(len(seqs) - 1))
+
+
+def test_append_does_not_mutate_input_entry(journal: Journal) -> None:
+    entry = _make_entry()
+    original_seq = entry.seq  # None
+    journal.append(entry)
+    assert entry.seq == original_seq  # caller's copy untouched
+
+
+def test_append_backward_compat_discard_return(journal: Journal) -> None:
+    """Callers that ignored the previous None return keep working."""
+    journal.append(_make_entry())  # no assignment, no error
+    assert len(journal.query()) == 1
+
+
+def test_append_returned_entry_equals_queried_entry(journal: Journal) -> None:
+    entry = _make_entry(action="memory.remembered")
+    committed = journal.append(entry)
+
+    queried = journal.query(action="memory.remembered")
+    assert len(queried) == 1
+    assert queried[0].id == committed.id
+    assert queried[0].action == committed.action
+
+
+def test_query_returns_entries_with_seq_populated(journal: Journal) -> None:
+    """Reads surface seq too — not just Journal.append writes. Otherwise
+    callers that want to order by seq after a query fall back to MAX(seq)
+    or lose the ordering primitive entirely."""
+    committed = [journal.append(_make_entry()) for _ in range(3)]
+    queried = journal.query(limit=100)
+    assert len(queried) == 3
+    assert all(q.seq is not None for q in queried)
+    assert {q.seq for q in queried} == {c.seq for c in committed}
+
+
+def test_replay_returns_entries_with_seq_populated(journal: Journal) -> None:
+    """replay_from surfaces seq too — consumers rebuilding projections need it."""
+    committed = [journal.append(_make_entry()) for _ in range(3)]
+    replayed = list(journal.replay_from(0))
+    assert len(replayed) == 3
+    assert all(e.seq is not None for e in replayed)
+    assert [e.seq for e in replayed] == sorted(c.seq for c in committed)
+
+
+# ---------- primitive #2: Journal.query(action_prefix=...) -------------
+
+
+def test_action_prefix_matches_children(journal: Journal) -> None:
+    journal.append(_make_entry(action="fabric.object.created"))
+    journal.append(_make_entry(action="fabric.object.updated"))
+    journal.append(_make_entry(action="fabric.object.archived"))
+    journal.append(_make_entry(action="widget.interaction.recorded"))
+
+    results = journal.query(action_prefix="fabric.object")
+    actions = {e.action for e in results}
+    assert actions == {
+        "fabric.object.created",
+        "fabric.object.updated",
+        "fabric.object.archived",
+    }
+
+
+def test_action_prefix_matches_top_level_family(journal: Journal) -> None:
+    journal.append(_make_entry(action="fabric.object.created"))
+    journal.append(_make_entry(action="fabric.field.added"))
+    journal.append(_make_entry(action="widget.interaction.recorded"))
+
+    results = journal.query(action_prefix="fabric")
+    actions = {e.action for e in results}
+    assert actions == {"fabric.object.created", "fabric.field.added"}
+
+
+def test_action_prefix_matches_exact_action(journal: Journal) -> None:
+    """Bare action string matches too — a prefix of 'foo' matches both 'foo'
+    and 'foo.*'. This lets callers use action_prefix uniformly without
+    caring whether the family has sub-namespaces."""
+    journal.append(_make_entry(action="retrieval.query"))
+    results = journal.query(action_prefix="retrieval.query")
+    assert [e.action for e in results] == ["retrieval.query"]
+
+
+def test_action_and_action_prefix_mutually_exclusive(journal: Journal) -> None:
+    with pytest.raises(IntegrityError):
+        journal.query(action="x", action_prefix="y")
+
+
+def test_action_prefix_no_matches_returns_empty(journal: Journal) -> None:
+    journal.append(_make_entry(action="memory.remembered"))
+    assert journal.query(action_prefix="nonexistent") == []
+
+
+def test_action_exact_still_works(journal: Journal) -> None:
+    """Backward compat: the pre-0.3.2 action= filter still works unchanged."""
+    journal.append(_make_entry(action="memory.remembered"))
+    journal.append(_make_entry(action="memory.forgotten"))
+    results = journal.query(action="memory.forgotten")
+    assert len(results) == 1
+    assert results[0].action == "memory.forgotten"
+
+
+def test_action_prefix_does_not_match_partial_segment(journal: Journal) -> None:
+    """prefix 'fab' should NOT match 'fabric.*' — we match on dotted
+    segments, not raw string prefixes. This prevents surprise matches
+    like 'memory' catching 'memoryleak' if someone adds that action."""
+    journal.append(_make_entry(action="fabric.object.created"))
+    results = journal.query(action_prefix="fab")
+    assert results == []
+
+
+def test_action_prefix_escapes_like_wildcards(journal: Journal) -> None:
+    """Prefix with '_' should NOT match arbitrary chars — SQLite LIKE
+    treats '_' as a single-char wildcard. Escape must kick in."""
+    journal.append(_make_entry(action="fabric.my_object.created"))
+    journal.append(_make_entry(action="fabric.myXobject.created"))
+
+    # The underscore must match literally, not the 'X'.
+    results = journal.query(action_prefix="fabric.my_object")
+    actions = {e.action for e in results}
+    assert actions == {"fabric.my_object.created"}
+
+
+def test_action_prefix_escapes_like_percent(journal: Journal) -> None:
+    """'%' in the prefix must match literally, not as a multi-char wildcard."""
+    journal.append(_make_entry(action="fabric.a%b.created"))
+    journal.append(_make_entry(action="fabric.anythingb.created"))
+
+    results = journal.query(action_prefix="fabric.a%b")
+    actions = {e.action for e in results}
+    assert actions == {"fabric.a%b.created"}

@@ -292,9 +292,11 @@ class TestContainmentMerge:
 
     def test_reconcile_reverse_enrichment_merges(self):
         """MERGE should also work when existing fact is the longer one."""
-        existing = [_make_entry(
-            "User likes Python and has been using it for web development",
-        )]
+        existing = [
+            _make_entry(
+                "User likes Python and has been using it for web development",
+            )
+        ]
         action, target = reconcile_fact("User likes Python", existing)
         assert action == "MERGE", f"Expected MERGE, got {action}"
         assert target == "existing-1"

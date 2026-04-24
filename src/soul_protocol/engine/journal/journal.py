@@ -1,10 +1,9 @@
 # journal.py — Journal high-level class enforcing invariants above a backend.
-# Updated: feat/journal-engine — the ts-monotonicity guard now lives inside
-# the backend's BEGIN IMMEDIATE transaction (see sqlite.py). The Journal still
-# shapes entries (hash-link, tz-aware guard) but no longer reads the tail
-# outside the transaction, because that read-then-insert was racy under
-# concurrent writers. Also log (not swallow) hash-link failures so a silent
-# chain break is at least visible.
+# Updated: feat/0.3.2-spike — Journal.append now returns the committed
+# EventEntry (with seq populated) instead of None. Enables callers to thread
+# seq through idempotency/pagination without reaching into backend.append()
+# or racing MAX(seq) after the fact. Backward compatible for callers that
+# discard the return value.
 
 from __future__ import annotations
 
@@ -62,7 +61,13 @@ class Journal:
 
     # -- writes -----------------------------------------------------------
 
-    def append(self, entry: EventEntry) -> None:
+    def append(self, entry: EventEntry) -> EventEntry:
+        """Persist `entry` and return the committed row with seq populated.
+
+        The returned EventEntry is a copy: the caller's input is never mutated.
+        The seq is monotonic per journal; hash-link is populated when a prior
+        entry exists (best-effort, see class docstring).
+        """
         if not _is_aware(entry.ts):
             raise IntegrityError("EventEntry.ts must be timezone-aware UTC")
 
@@ -77,15 +82,12 @@ class Journal:
             if last is not None:
                 prev_entry, prev_seq = last
                 try:
-                    entry = entry.model_copy(
-                        update={"prev_hash": _hash_link(prev_entry, prev_seq)}
-                    )
+                    entry = entry.model_copy(update={"prev_hash": _hash_link(prev_entry, prev_seq)})
                 except Exception as exc:
-                    logger.warning(
-                        "hash-link skipped for event %s: %s", entry.id, exc
-                    )
+                    logger.warning("hash-link skipped for event %s: %s", entry.id, exc)
 
-        self._backend.append(entry)
+        seq = self._backend.append(entry)
+        return entry.model_copy(update={"seq": seq})
 
     # -- reads ------------------------------------------------------------
 
@@ -93,6 +95,7 @@ class Journal:
         self,
         *,
         action: str | None = None,
+        action_prefix: str | None = None,
         actor: Actor | None = None,
         scope: list[str] | None = None,
         correlation_id: UUID | None = None,
@@ -101,6 +104,16 @@ class Journal:
         limit: int = 100,
         offset: int = 0,
     ) -> list[EventEntry]:
+        """Return events matching the conjunction of filters.
+
+        ``action`` matches the exact string. ``action_prefix`` matches the
+        exact string OR anything below it in the dotted namespace —
+        ``action_prefix="fabric.object"`` matches
+        ``fabric.object.created``, ``fabric.object.updated``, etc. Pass
+        exactly one of the two (raise if both given).
+        """
+        if action is not None and action_prefix is not None:
+            raise IntegrityError("Journal.query: action and action_prefix are mutually exclusive")
         if since is not None and not _is_aware(since):
             raise IntegrityError("Journal.query(since=...) must be timezone-aware UTC")
         if until is not None and not _is_aware(until):
@@ -108,6 +121,7 @@ class Journal:
 
         return self._backend.query(
             action=action,
+            action_prefix=action_prefix,
             actor=actor,
             scope=scope,
             correlation_id=correlation_id,

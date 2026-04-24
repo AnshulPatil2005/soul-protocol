@@ -1,7 +1,7 @@
 <!--
   SPEC.md — Soul Protocol, the standard.
-  Created: 2026-04-19 (feat/0.3.2-prune-retrieval-infra) — companion to the
-  0.3.2 retrieval prune. This doc describes what Soul Protocol IS, as a
+  Created: 2026-04-19 (feat/0.3.3-prune-retrieval-infra) — companion to the
+  0.3.3 retrieval prune. This doc describes what Soul Protocol IS, as a
   standard, independent of our Python reference implementation. Anyone
   implementing Soul Protocol in another language (or a custom runtime)
   reads this file.
@@ -14,7 +14,7 @@
 
 > Soul Protocol is a portable, open standard for persistent AI identity, memory, and retrieval. This document is language-agnostic. It describes what Soul Protocol is, independent of how our Python reference implementation happens to build it.
 
-Version: **0.3.2** (spec) · Status: **draft, breaking-change-free since 0.3**
+Version: **0.3.3** (spec) · Status: **draft, breaking-change-free since 0.3**
 
 If you are **building on top of our Python implementation**, start with [README.md](../README.md) and [docs/architecture.md](./architecture.md). If you are **implementing Soul Protocol in another language** (Rust, Go, TypeScript, etc.) or a custom runtime, this document is the authoritative contract.
 
@@ -60,7 +60,7 @@ A `.soul` file is a ZIP archive with a fixed directory layout. Any implementatio
 
 - All timestamps in files are ISO-8601 with timezone offset (UTC recommended). Naive datetimes are invalid.
 - JSONL files use one record per line, UTF-8, LF line endings, trailing newline optional.
-- `manifest.json` includes `schema_version: "0.3.2"` (or the version the file was written against).
+- `manifest.json` includes `schema_version: "0.3.3"` (or the version the file was written against).
 - A reader encountering a `schema_version` newer than it supports must fail loud, not silently drop fields.
 - File-level mutations are additive within a version: new fields may appear but existing fields do not disappear or change meaning without a major version bump.
 
@@ -231,14 +231,14 @@ Actor {
 - `seq` is monotonic and unique. A writer appending to the journal receives the committed `EventEntry` back — see §8.3.
 - `prev_hash` forms a hash chain. An implementation may verify the chain on read; any break indicates tampering or corruption.
 
-### 8.3 · Journal contract (0.3.2)
+### 8.3 · Journal contract (0.3.3)
 
 ```
 append(entry: EventEntry) -> EventEntry    # returns the committed entry w/ seq + prev_hash
 query(
     *,
     action: str | None = None,
-    action_prefix: str | None = None,      # added 0.3.2 — prefix match on dot-separated action
+    action_prefix: str | None = None,      # added 0.3.3 — prefix match on dot-separated action
     actor_kind: str | None = None,
     actor_id: str | None = None,
     correlation_id: UUID | None = None,
@@ -285,7 +285,7 @@ RetrievalRequest {
   limit:           int                # default 20
   strategy:        Literal["first", "parallel", "sequential"]  # default "parallel"
   timeout_s:       float              # default 10.0
-  point_in_time:   datetime | None    # UTC. Added 0.3.2 — native time-travel field
+  point_in_time:   datetime | None    # UTC. Added 0.3.3 — native time-travel field
 }
 ```
 
@@ -325,7 +325,7 @@ SourceAdapter (Protocol) {
 
 AsyncSourceAdapter (Protocol) {
   query(...)                          # sync method present too
-  async aquery(request, credential) -> list[RetrievalCandidate]   # 0.3.2
+  async aquery(request, credential) -> list[RetrievalCandidate]   # 0.3.3
 }
 
 CredentialBroker (Protocol) {
@@ -387,9 +387,9 @@ A `CognitiveEngine` is the agent's thinking substrate — Claude, GPT-4, local O
 
 ## 11 · Conformance
 
-An implementation **claims Soul Protocol 0.3.2 compliance** when it can:
+An implementation **claims Soul Protocol 0.3.3 compliance** when it can:
 
-- [ ] Read and write `.soul` files at schema_version 0.3.2 (§2)
+- [ ] Read and write `.soul` files at schema_version 0.3.3 (§2)
 - [ ] Honor the memory tier semantics, including activation decay and significance gating (§4)
 - [ ] Implement the `Journal.append` / `Journal.query` contract including `action_prefix` (§8)
 - [ ] Emit scope-non-empty `EventEntry` records with UTC timestamps (§8)
@@ -404,7 +404,7 @@ A conformance test suite lives in the reference implementation under `tests/conf
 
 ## 12 · Versioning
 
-- **Patch** (0.3.1 → 0.3.2) — additive fields, new query parameters, new exported types. Non-breaking.
+- **Patch** (0.3.1 → 0.3.3) — additive fields, new query parameters, new exported types. Non-breaking.
 - **Minor** (0.3.x → 0.4.0) — backward-compatible structural changes. Implementations may need to upgrade but old `.soul` files still read.
 - **Major** (0.x → 1.0) — reserved for the first stable release.
 

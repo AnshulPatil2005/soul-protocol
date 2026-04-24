@@ -7,39 +7,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added
-
-- **Safety net for destructive CLI commands** — `soul cleanup` and `soul forget` are now dry-run by default and require an explicit `--apply` flag to execute. Before any destructive save, a side-by-side `.soul.bak` backup is written next to the soul file so an accidental `--auto` run is recoverable with a single `cp`. The prior behavior where `soul cleanup --auto` silently deleted hundreds of memories is gone. (#148)
-- **System prompt safety guardrails** — `Soul.to_system_prompt()` now appends a default safety section that instructs the agent to decline requests for core memory contents, bond details, and evolution history. Covers direct asks, indirect framings, and roleplay bypasses. Opt out with `to_system_prompt(safety_guardrails=False)` for transparent deployments. Closes the prompt-side half of #97.
-- **`Soul.public_profile()`** — returns the safe-to-expose subset of a soul's identity (DID, name, archetype, born, lifecycle, values, OCEAN summary, skill names) for use by registries, peer discovery, or public agent cards. Excludes memory contents, bond details, evolution history, and any internal state. Closes the registry-shape half of #97.
-
-### Changed
-
-- `soul cleanup --auto` no longer executes on its own — it now means "skip the confirmation prompt, assuming `--apply` is also passed." Running `--auto` without `--apply` is a no-op preview. Update any scripts that relied on the old one-flag behavior.
-- `soul forget` gains an `--apply` flag with the same semantics: dry-run by default, `--apply --confirm` to execute non-interactively.
-
 ---
 
-## [0.3.2] -- unreleased
+## [0.3.3] -- 2026-04-24
+
+The "headless standard" release. soul-protocol is now positioned as a language-agnostic standard with a Python reference implementation. The 0.3.2 number was skipped — its scope rolled into 0.3.3 alongside the rest of the #97 visibility work.
 
 ### Added
 
-- **Language-agnostic standard** — new `docs/SPEC.md` describes Soul Protocol independent of the Python reference implementation. Anyone implementing in Rust, Go, TypeScript, or a custom runtime reads this file. Covers file format, identity, memory tiers, scope grammar, journal contract, retrieval vocabulary, `CognitiveEngine` protocol, conformance checklist, and versioning policy.
-- **README "standard vs reference impl" fork** — the top of the README routes implementation-builders to SPEC.md and Python consumers to the rest of the README. Test count badge 2297 → 2333.
-- **Journal primitives (5)** landed on `feat/0.3.2-spike`:
-  - `#1` `Journal.append(entry)` now returns the committed `EventEntry` (with backend-assigned `seq` + `prev_hash`).
+- **Language-agnostic standard** — new `docs/SPEC.md` describes Soul Protocol independent of the Python reference implementation. Anyone implementing in Rust, Go, TypeScript, or a custom runtime reads this file. Covers file format, identity, memory tiers, scope grammar, journal contract, retrieval vocabulary, `CognitiveEngine` protocol, conformance checklist, and versioning policy. (#179)
+- **README "standard vs reference impl" fork** — the top of the README routes implementation-builders to SPEC.md and Python consumers to the rest of the README. (#179)
+- **Journal primitives (5)** that the spec now requires of any conforming implementation:
+  - `#1` `Journal.append(entry)` returns the committed `EventEntry` with the backend-assigned `seq` + `prev_hash`.
   - `#2` `Journal.query(action_prefix=...)` — prefix match on dot-separated action names.
-  - `#3` Typed `DataRef` for retrieval candidates — `RetrievalCandidate.content` is now a typed model (dicts with `kind="dataref"` promote automatically).
+  - `#3` Typed `DataRef` for retrieval candidates — `RetrievalCandidate.content` is a typed model (dicts with `kind="dataref"` promote automatically).
   - `#4` `RetrievalRequest.point_in_time` — native UTC datetime field replacing the `@at=...|query` string hack for time-travel queries.
   - `#5` Async `SourceAdapter.aquery` + `RetrievalRouter.adispatch` — adapters backed by async-native SDKs can participate in cooperative multitasking without bridging through `asyncio.run`.
-- **Spec-level retrieval vocabulary** — `spec/retrieval.py` absorbed the Protocol types (`SourceAdapter`, `AsyncSourceAdapter`, `CredentialBroker`), the `Credential` data class, and the `RetrievalError` exception hierarchy (`NoSourcesError`, `SourceTimeoutError`, `CredentialScopeError`, `CredentialExpiredError`). These are the types a conforming implementation builds against.
-- **`tests/spec/test_retrieval.py`** — spec-level tests for `Credential` field validation, `Credential.is_expired()` boundary behavior, and `isinstance()` conformance against the `SourceAdapter` / `AsyncSourceAdapter` Protocols.
+- **Spec-level retrieval vocabulary** — `spec/retrieval.py` absorbed the Protocol types (`SourceAdapter`, `AsyncSourceAdapter`, `CredentialBroker`), the `Credential` data class, and the `RetrievalError` exception hierarchy (`NoSourcesError`, `SourceTimeoutError`, `CredentialScopeError`, `CredentialExpiredError`). These are the types a conforming implementation builds against. (#179)
+- **`tests/spec/test_retrieval.py`** — spec-level tests for `Credential` field validation, `Credential.is_expired()` boundary behavior, and `isinstance()` conformance against the `SourceAdapter` / `AsyncSourceAdapter` Protocols. (#179)
+- **Safety net for destructive CLI commands** — `soul cleanup` and `soul forget` are now dry-run by default and require an explicit `--apply` flag to execute. Before any destructive save, a side-by-side `.soul.bak` backup is written next to the soul file so an accidental `--auto` run is recoverable with a single `cp`. The prior behavior where `soul cleanup --auto` silently deleted hundreds of memories is gone. Closes #148. (#181)
+- **System prompt safety guardrails** — `Soul.to_system_prompt()` now appends a default safety section that instructs the agent to decline requests for core memory contents, bond details, and evolution history. Covers direct asks, indirect framings, and roleplay bypasses. Opt out with `to_system_prompt(safety_guardrails=False)` for transparent deployments. (#185)
+- **`Soul.public_profile()`** — returns the safe-to-expose subset of a soul's identity (DID, name, archetype, born, lifecycle, values, OCEAN summary, skill names) for use by registries, peer discovery, or public agent cards. Excludes memory contents, bond details, evolution history, and any internal state. (#185)
+- Together with the `MemoryVisibility` tier work shipped in PR #114, the prompt guardrails and `public_profile()` close the remaining surface of #97 (memory visibility and identity verification for public-channel safety).
 
 ### Changed
 
-- **Retrieval infrastructure moved out of the spec.** The concrete `RetrievalRouter`, `InMemoryCredentialBroker`, `ProjectionAdapter`, and `MockAdapter` implementations have been removed from `soul_protocol.engine.retrieval` — they are application-layer orchestration and belong in the consuming runtime. The pocketpaw reference runtime ships them at `pocketpaw.retrieval` as of pocketpaw v0.4.17.
-- **`docs/architecture.md` retitled** "Python Reference Implementation" and now links to `docs/SPEC.md` at the top. Makes clear that the patterns in that document (SQLite journal, Damasio/ACT-R/LIDA pipeline, module layout) are one way to honor the spec, not the only way.
-- **Wheel no longer ships `src/soul_protocol/spike/`.** The spike module contains in-progress design experiments that are not part of the shipped API; excluding it from the wheel keeps the installed package focused on the standard + reference runtime.
+- **Retrieval infrastructure moved out of the spec.** The concrete `RetrievalRouter`, `InMemoryCredentialBroker`, `ProjectionAdapter`, and `MockAdapter` implementations have been removed from `soul_protocol.engine.retrieval` — they are application-layer orchestration and belong in the consuming runtime. The pocketpaw reference runtime ships them at `pocketpaw.retrieval` as of pocketpaw v0.4.17. (#179)
+- **`docs/architecture.md` retitled** "Python Reference Implementation" and now links to `docs/SPEC.md` at the top. Makes clear that the patterns in that document (SQLite journal, Damasio/ACT-R/LIDA pipeline, module layout) are one way to honor the spec, not the only way. (#179)
+- **Wheel no longer ships `src/soul_protocol/spike/`.** The spike module contains in-progress design experiments that are not part of the shipped API; excluding it from the wheel keeps the installed package focused on the standard + reference runtime. (#179)
+- `soul cleanup --auto` no longer executes on its own — it now means "skip the confirmation prompt, assuming `--apply` is also passed." Running `--auto` without `--apply` is a no-op preview. Update any scripts that relied on the old one-flag behavior. (#181)
+- `soul forget` gains an `--apply` flag with the same semantics: dry-run by default, `--apply --confirm` to execute non-interactively. (#181)
 
 ### Removed
 
@@ -63,7 +60,7 @@ from soul_protocol.engine.retrieval import (
     CredentialScopeError, CredentialExpiredError,
 )
 
-# After (0.3.2)
+# After (0.3.3)
 from soul_protocol.spec.retrieval import (
     Credential, CredentialBroker, SourceAdapter,
     NoSourcesError, SourceTimeoutError,

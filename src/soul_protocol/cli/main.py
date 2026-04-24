@@ -1836,34 +1836,40 @@ def prompt_cmd(path):
 @click.option("--entity", type=str, default=None, help="Delete by entity name instead of query")
 @click.option("--before", type=str, default=None, help="Delete before ISO timestamp")
 @click.option(
-    "--confirm", "skip_confirm", is_flag=True, default=False, help="Skip confirmation prompt"
+    "--apply",
+    "apply_changes",
+    is_flag=True,
+    help="Actually execute the deletion. Without this flag, forget is a preview only.",
 )
-def forget_cmd(path, query, entity, before, skip_confirm):
+@click.option(
+    "--confirm",
+    "skip_confirm",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt (requires --apply)",
+)
+def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
     """Delete memories by query, entity, or timestamp (GDPR-compliant).
 
-    Searches and deletes matching memories across all tiers. Records
-    a deletion audit entry without storing deleted content.
+    Dry-run by default — shows what would be deleted without touching the
+    soul. Pass --apply to actually execute. A .soul.bak backup is written
+    before any destructive save.
 
     \b
     Examples:
-      soul forget .soul/ "credit card"
-      soul forget aria.soul --entity "John Doe"
-      soul forget .soul/ --before 2026-01-01T00:00:00 --confirm
+      soul forget .soul/ "credit card"                      # preview
+      soul forget .soul/ "credit card" --apply              # prompt + delete
+      soul forget aria.soul --entity "John Doe" --apply --confirm
     """
 
     async def _forget():
         from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
+        timestamp = None
 
         if entity:
             description = f"entity '{entity}'"
-            if not skip_confirm and not click.confirm(
-                f"Delete all memories related to {description}?"
-            ):
-                console.print("[dim]Cancelled.[/dim]")
-                return
-            result = await soul.forget_entity(entity)
         elif before:
             from datetime import datetime as dt
 
@@ -1873,21 +1879,50 @@ def forget_cmd(path, query, entity, before, skip_confirm):
                 console.print(f"[red]Invalid ISO timestamp:[/red] '{before}'")
                 raise SystemExit(1)
             description = f"memories before {before}"
-            if not skip_confirm and not click.confirm(f"Delete all {description}?"):
-                console.print("[dim]Cancelled.[/dim]")
-                return
-            result = await soul.forget_before(timestamp)
         elif query:
             description = f"query '{query}'"
-            if not skip_confirm and not click.confirm(f"Delete memories matching {description}?"):
-                console.print("[dim]Cancelled.[/dim]")
-                return
-            result = await soul.forget(query)
         else:
             console.print("[red]Provide a QUERY, --entity, or --before[/red]")
             raise SystemExit(1)
 
+        async def _execute_forget() -> dict:
+            if entity:
+                return await soul.forget_entity(entity)
+            if timestamp is not None:
+                return await soul.forget_before(timestamp)
+            return await soul.forget(query)
+
+        if not apply_changes:
+            # Preview mode — run forget against an in-memory soul and report
+            # what would have been deleted without saving.
+            result = await _execute_forget()
+            total = result.get("total_deleted", 0)
+            console.print(
+                f"[dim]Preview:[/dim] would forget "
+                f"{total} memor{'y' if total == 1 else 'ies'} "
+                f"from [bold]{soul.name}[/bold] ({description})"
+            )
+            if result.get("tiers"):
+                for tier, count in result["tiers"].items():
+                    if count > 0:
+                        console.print(f"  {tier}: {count}")
+            console.print(
+                "\n[dim]Pass --apply to execute "
+                "(a .soul.bak backup is written before any changes).[/]"
+            )
+            return
+
+        if not skip_confirm and not click.confirm(f"Delete memories matching {description}?"):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+
+        result = await _execute_forget()
         total = result.get("total_deleted", 0)
+
+        # Back up before the destructive save.
+        from soul_protocol.runtime.backup import backup_soul_file
+
+        bak = backup_soul_file(path) if not Path(path).is_dir() else None
 
         # Save
         if Path(path).is_dir():
@@ -1895,10 +1930,13 @@ def forget_cmd(path, query, entity, before, skip_confirm):
         else:
             await soul.export(path)
 
-        console.print(
+        msg = (
             f"[yellow]Forgot[/yellow] {total} memor{'y' if total == 1 else 'ies'} "
             f"from [bold]{soul.name}[/bold] ({description})"
         )
+        if bak is not None:
+            msg += f" [dim](backup: {bak.name})[/dim]"
+        console.print(msg)
         if result.get("tiers"):
             for tier, count in result["tiers"].items():
                 if count > 0:
@@ -2523,9 +2561,19 @@ def health_cmd(path):
 
 @cli.command("cleanup")
 @click.argument("path", type=click.Path(exists=True))
-@click.option("--auto", "auto_mode", is_flag=True, help="Apply all cleanups without prompting.")
 @click.option(
-    "--dry-run", is_flag=True, help="Show what would be cleaned without changing anything."
+    "--apply",
+    "apply_changes",
+    is_flag=True,
+    help="Actually execute the cleanup. Without this flag, cleanup is a preview only.",
+)
+@click.option(
+    "--auto", "auto_mode", is_flag=True, help="Skip the confirmation prompt (requires --apply)."
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Preview only (the default). Kept for backward compatibility and explicit intent.",
 )
 @click.option("--dedup/--no-dedup", default=True, help="Remove near-duplicate memories.")
 @click.option(
@@ -2535,8 +2583,16 @@ def health_cmd(path):
 @click.option(
     "--low-importance", type=int, default=0, help="Remove memories with importance ≤ N (0=skip)."
 )
-def cleanup_cmd(path, auto_mode, dry_run, dedup, stale_evals, orphan_nodes, low_importance):
-    """Clean up a soul — remove duplicates, stale evals, orphan nodes."""
+def cleanup_cmd(
+    path, apply_changes, auto_mode, dry_run, dedup, stale_evals, orphan_nodes, low_importance
+):
+    """Clean up a soul — remove duplicates, stale evals, orphan nodes.
+
+    Dry-run by default — shows the plan without touching the soul. Pass
+    --apply to actually execute. Before any destructive write, a
+    side-by-side .soul.bak backup is created so an accidental cleanup
+    is recoverable.
+    """
 
     async def _cleanup():
         from soul_protocol.runtime.memory.compression import MemoryCompressor
@@ -2619,8 +2675,11 @@ def cleanup_cmd(path, auto_mode, dry_run, dedup, stale_evals, orphan_nodes, low_
 
         console.print(f"\n  [bold]Total: {total_removals} items to remove[/]")
 
-        if dry_run:
-            console.print("\n[dim]Dry run — no changes made.[/]")
+        if dry_run or not apply_changes:
+            console.print(
+                "\n[dim]Dry run — preview only. Pass --apply to execute "
+                "(a .soul.bak backup is written before any changes).[/]"
+            )
             return
 
         # Confirm
@@ -2646,9 +2705,16 @@ def cleanup_cmd(path, auto_mode, dry_run, dedup, stale_evals, orphan_nodes, low_
                         await mm._procedural.remove(mid)
                     removed += 1
 
-        # Save
+        # Back up before the destructive save so an accidental cleanup
+        # is recoverable via `cp <path>.bak <path>`.
+        from soul_protocol.runtime.backup import backup_soul_file
+
+        bak = backup_soul_file(path)
         await soul.export(path)
-        console.print(f"\n[green]✓ Cleaned {removed} items. Soul saved.[/]")
+        msg = f"\n[green]✓ Cleaned {removed} items. Soul saved.[/]"
+        if bak is not None:
+            msg += f" [dim](backup: {bak.name})[/dim]"
+        console.print(msg)
 
     asyncio.run(_cleanup())
 

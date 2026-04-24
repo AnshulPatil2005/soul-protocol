@@ -1,6 +1,8 @@
 # test_health_cleanup_repair.py — Tests for soul health, cleanup, and repair CLI commands.
 # Created: 2026-03-26 — Covers health_cmd (tier counts), cleanup_cmd (dry-run + auto),
 #   and repair_cmd (--reset-energy) added in the v0.2.7 maintenance commands batch.
+# Updated: feat/0.3.2-backup-safety-net (#148) — cleanup now requires --apply to
+#   execute; dry-run is the default. Existing --auto tests are paired with --apply.
 
 from __future__ import annotations
 
@@ -220,7 +222,7 @@ class TestCleanupAuto:
         _birth_soul_at(soul_path, "AutoClean")
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["cleanup", "--auto", soul_path])
+        result = runner.invoke(cli, ["cleanup", "--apply", "--auto", soul_path])
 
         assert result.exit_code == 0, result.output
 
@@ -239,7 +241,7 @@ class TestCleanupAuto:
         )
 
         # Run auto cleanup
-        result = runner.invoke(cli, ["cleanup", "--auto", soul_path])
+        result = runner.invoke(cli, ["cleanup", "--apply", "--auto", soul_path])
 
         assert result.exit_code == 0, result.output
         # Should confirm cleanup occurred — "Cleaned" in output, or "nothing to clean"
@@ -259,7 +261,7 @@ class TestCleanupAuto:
         runner.invoke(cli, ["remember", soul_path, "remember Python loves cats deeply", "-i", "5"])
         runner.invoke(cli, ["remember", soul_path, "remember Python loves cats deeply", "-i", "5"])
 
-        result = runner.invoke(cli, ["cleanup", "--auto", soul_path])
+        result = runner.invoke(cli, ["cleanup", "--apply", "--auto", soul_path])
 
         assert result.exit_code == 0, result.output
         # File should be updated if there was something to remove, otherwise unchanged
@@ -274,7 +276,9 @@ class TestCleanupAuto:
         # Add a low-importance memory
         runner.invoke(cli, ["remember", soul_path, "Minor note about nothing special", "-i", "1"])
 
-        result = runner.invoke(cli, ["cleanup", "--auto", "--low-importance", "2", soul_path])
+        result = runner.invoke(
+            cli, ["cleanup", "--apply", "--auto", "--low-importance", "2", soul_path]
+        )
 
         assert result.exit_code == 0, result.output
         # Should clean or report nothing found

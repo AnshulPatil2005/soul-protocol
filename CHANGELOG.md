@@ -7,6 +7,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Safety net for destructive CLI commands** — `soul cleanup` and `soul forget` are now dry-run by default and require an explicit `--apply` flag to execute. Before any destructive save, a side-by-side `.soul.bak` backup is written next to the soul file so an accidental `--auto` run is recoverable with a single `cp`. The prior behavior where `soul cleanup --auto` silently deleted hundreds of memories is gone. (#148)
+
+### Changed
+
+- `soul cleanup --auto` no longer executes on its own — it now means "skip the confirmation prompt, assuming `--apply` is also passed." Running `--auto` without `--apply` is a no-op preview. Update any scripts that relied on the old one-flag behavior.
+- `soul forget` gains an `--apply` flag with the same semantics: dry-run by default, `--apply --confirm` to execute non-interactively.
+
 ---
 
 ## [0.3.2] -- unreleased

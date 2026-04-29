@@ -1,4 +1,23 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-04-29 (#41) — User-defined memory layers + domain isolation.
+#   MemoryType keeps the four built-in StrEnum members (CORE, EPISODIC,
+#   SEMANTIC, PROCEDURAL) plus SOCIAL for the new relationship layer; the
+#   value strings double as layer names since StrEnum members compare
+#   equal to their string values. MemoryEntry grows two new fields:
+#   ``layer: str`` (canonical going forward — defaults to ``type.value``
+#   when empty) and ``domain: str = "default"`` (sub-namespace for
+#   isolating context like "finance" vs "legal"). A model_validator
+#   coerces blank layer back to type.value and reads ``layer`` first on
+#   load (falling back to ``type``) so 0.3.x souls round-trip.
+# Updated: 2026-04-29 (#46) — Multi-user soul support. MemoryEntry gains an
+#   optional ``user_id: str | None`` field. None = legacy/orphan entry that
+#   belongs to the soul's default bond and is visible to any user_id query.
+#   SoulConfig gains an optional ``bonds_per_user: dict[str, Bond]`` so the
+#   per-user bond registry survives export/awaken.
+# Updated: 2026-04-29 — Density-driven focus: SoulState gains focus_override and
+#   recent_interactions; Biorhythms gains focus_window_seconds, focus_high_threshold,
+#   focus_max_threshold. focus is now computed from interaction density unless
+#   focus_override is set.
 # Updated: 2026-04-04 — Added skip_deep_processing_on_low_significance to
 #   MemorySettings. When True (default), observe() skips entity extraction
 #   (step 5) and self-model update (step 6) for non-significant interactions,
@@ -162,6 +181,23 @@ class Biorhythms(BaseModel):
         description="Recover energy automatically based on elapsed time (enable for companion souls)",
     )
 
+    # Focus dynamics — density-driven
+    focus_window_seconds: float = Field(
+        default=3600.0,
+        ge=0.0,
+        description="Sliding window for interaction-density focus calc (0 disables auto-focus)",
+    )
+    focus_high_threshold: int = Field(
+        default=3,
+        ge=1,
+        description="Interactions in window at or above which focus rises to 'high'",
+    )
+    focus_max_threshold: int = Field(
+        default=10,
+        ge=1,
+        description="Interactions in window at or above which focus rises to 'max'",
+    )
+
 
 class DNA(BaseModel):
     """The soul's complete personality blueprint."""
@@ -244,10 +280,15 @@ class MemoryVisibility(StrEnum):
 
 
 class MemoryType(StrEnum):
+    """Built-in memory tiers. v0.4.0 (#41) treats these as ergonomic
+    constants for layer names — runtimes can use any string layer they
+    want via :class:`soul_protocol.runtime.memory.manager.LayerView`."""
+
     CORE = "core"
     EPISODIC = "episodic"
     SEMANTIC = "semantic"
     PROCEDURAL = "procedural"
+    SOCIAL = "social"  # v0.4.0 (#41) — relationship memory tier
 
 
 class MemoryCategory(StrEnum):
@@ -278,6 +319,13 @@ class MemoryCategory(StrEnum):
 
 class MemoryEntry(BaseModel):
     """A single memory with metadata.
+
+    v0.4.0 (#41) additions: ``layer`` is the canonical going-forward layer
+    name (free-form string). Defaults to the ``type`` value when not given,
+    so legacy callers using ``MemoryEntry(type=MemoryType.SEMANTIC)`` get
+    ``layer="semantic"`` for free. ``domain`` is a sub-namespace inside the
+    layer (``"finance"``, ``"legal"``, ``"default"``); defaults to
+    ``"default"`` so 0.3.x entries round-trip without migration.
 
     v0.3.4 additions: category (extraction taxonomy), abstract (L0 ~100 tokens),
     overview (L1 ~1K tokens) for progressive content loading, salience (retrieval
@@ -325,6 +373,48 @@ class MemoryEntry(BaseModel):
     # "org:sales:leads". Filtered at retrieval time before results reach
     # the LLM.
     scope: list[str] = Field(default_factory=list)
+    # v0.4.0 (#46) — Per-user attribution. None = legacy / orphan entry that
+    # belongs to the soul's default bond and is visible to any user_id query.
+    # When set, recall filters entries to those matching the requested
+    # user_id (plus None entries for back-compat).
+    user_id: str | None = None
+    # v0.4.0 (#41) — Free-form layer namespace. Empty string is coerced to
+    # ``type.value`` by ``_coerce_layer_domain`` so legacy callers keep
+    # working. When both ``layer`` and ``type`` round-trip on disk, ``layer``
+    # is the canonical field; ``type`` exists for back-compat.
+    layer: str = ""
+    # v0.4.0 (#41) — Domain sub-namespace inside the layer. Use to isolate
+    # context like "finance" vs "legal" inside the same layer of facts.
+    # Empty string is coerced to "default" by ``_coerce_layer_domain``.
+    domain: str = "default"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_layer_domain(cls, data: Any) -> Any:
+        """Fill in ``layer``/``domain`` defaults from legacy fields.
+
+        - When ``layer`` is missing or blank, derive it from ``type``.
+        - When ``domain`` is missing or blank, set it to ``"default"``.
+
+        This runs at deserialize time, so 0.3.x souls (which carry only
+        ``type``) come back with a sensible layer + domain without a
+        separate migration pass.
+        """
+        if isinstance(data, dict):
+            layer_val = data.get("layer", "")
+            if not layer_val:
+                # Pull from type — accepts MemoryType enum or raw string.
+                tval = data.get("type")
+                if tval is None:
+                    pass
+                elif isinstance(tval, MemoryType):
+                    data["layer"] = tval.value
+                elif isinstance(tval, str):
+                    data["layer"] = tval
+            domain_val = data.get("domain", "")
+            if not domain_val:
+                data["domain"] = "default"
+        return data
 
 
 class CoreMemory(BaseModel):
@@ -372,14 +462,27 @@ class Mood(StrEnum):
     CONCERNED = "concerned"
 
 
+FOCUS_LEVELS: tuple[str, ...] = ("low", "medium", "high", "max")
+
+
 class SoulState(BaseModel):
-    """The soul's current emotional and energy state."""
+    """The soul's current emotional and energy state.
+
+    ``focus`` is the effective level (one of FOCUS_LEVELS). When
+    ``focus_override`` is None, StateManager recomputes focus from
+    ``recent_interactions`` density on each interaction or status read.
+    Setting ``focus_override`` to a level locks focus to that value
+    until cleared (set focus_override back to None or call
+    ``manager.update(focus="auto")``).
+    """
 
     mood: Mood = Mood.NEUTRAL
     energy: float = Field(default=100.0, ge=0.0, le=100.0)
     focus: str = "medium"
+    focus_override: str | None = None
     social_battery: float = Field(default=100.0, ge=0.0, le=100.0)
     last_interaction: datetime | None = None
+    recent_interactions: list[datetime] = Field(default_factory=list)
 
 
 # ============ Evolution ============
@@ -487,6 +590,10 @@ class SoulConfig(BaseModel):
     evaluation_history: list[dict] = Field(default_factory=list)
     # F5 auto-consolidation — tracks observe() call count for consolidation triggers
     interaction_count: int = 0
+    # v0.4.0 (#46) — Per-user bond registry. The default bond lives on
+    # ``identity.bond`` for back-compat; this dict carries any extra per-user
+    # bonds that the runtime accumulates. Empty when only one user is bonded.
+    bonds_per_user: dict[str, Bond] = Field(default_factory=dict)
 
 
 # ============ Interaction (input to observe()) ============

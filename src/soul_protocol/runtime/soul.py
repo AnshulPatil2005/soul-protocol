@@ -1,4 +1,37 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-29 (#42) — Trust chain integration. Soul.__init__ instantiates
+#   a TrustChainManager + Ed25519SignatureProvider; keys load from the soul's
+#   keystore when available, generated otherwise. Memory writes (observe),
+#   supersedes, forgets, evolution proposed/applied, learning events, and bond
+#   strengthen/weaken now append signed entries to the chain. New properties:
+#   soul.trust_chain, soul.trust_chain_manager, soul.verify_chain(),
+#   soul.audit_log(). New export option: include_keys=False (default) drops the
+#   private key but keeps the public key so verification works on the receiving
+#   side without giving the recipient the soul's signing power.
+# Updated: 2026-04-29 (#41) — User-defined layers + domain isolation. The
+#   remember(), observe(), and recall() methods accept a ``domain`` keyword
+#   that stamps / filters memories by sub-namespace. recall() also accepts
+#   a ``layer`` keyword to scope to one layer (built-in or custom). All
+#   defaults preserve pre-#41 behaviour (domain="default", layer=None).
+# Updated: 2026-04-29 (#46) — Multi-user soul support. observe() and recall()
+#   accept a keyword-only ``user_id`` argument. recall filters memories by
+#   user attribution. observe stamps the user_id onto written memories and
+#   strengthens the per-user bond. Soul.bond now returns a BondRegistry
+#   that quacks like the old Bond for back-compat (default bond proxy)
+#   while also routing strengthen/weaken to per-user bonds when given a
+#   user_id. New helpers: ``Soul.bond_for(user_id) -> Bond``,
+#   ``Soul.bonded_users``, ``Soul.migrate_to_multi_user()``.
+# Updated: 2026-04-27 — User-facing memory update primitives.
+#   - `Soul.forget_one(id)`: audited single-id deletion returning the same
+#     dict shape as `forget()`. Powers `soul forget --id`.
+#   - `Soul.supersede(old_id, new_content, *, reason, importance, memory_type, ...)`:
+#     writes a new memory and links the old one's `superseded_by`. Old entry
+#     stays for provenance; recall surfaces the new one because superseded
+#     entries are filtered out of search.
+#   - `Soul.supersede_audit` property exposes the user-driven supersede log
+#     (parallel to `deletion_audit`).
+#   - The original `forget_by_id(id) -> bool` is preserved unchanged so
+#     existing callers (and the GDPR test) keep working.
 # Updated: 2026-04-14 (v0.3.1 polish) — smart_recall() now populates
 #   ``self._last_retrieval`` with a RetrievalTrace for the final returned
 #   set (source="soul.smart"). The receipt that recall() wrote internally
@@ -99,9 +132,14 @@ from typing import Any
 
 from soul_protocol.spec.learning import LearningEvent
 from soul_protocol.spec.trace import RetrievalTrace, TraceCandidate
+from soul_protocol.spec.trust import TrustChain
 
-from .bond import Bond
+from .bond import Bond, BondRegistry
 from .cognitive.engine import CognitiveEngine
+from .crypto.ed25519 import Ed25519SignatureProvider
+from .crypto.keystore import (
+    Keystore,
+)
 from .dna.prompt import dna_to_system_prompt
 from .dream import Dreamer, DreamReport
 from .eternal.manager import EternalStorageManager
@@ -114,9 +152,11 @@ from .memory.manager import MemoryManager
 from .memory.strategy import SearchStrategy
 from .skills import Skill, SkillRegistry
 from .state.manager import StateManager
+from .trust.manager import TrustChainManager
 from .types import (
     DNA,
     Biorhythms,
+    BondTarget,
     CommunicationStyle,
     CoreMemory,
     GeneralEvent,
@@ -140,6 +180,41 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Engine resolution helper
 # ---------------------------------------------------------------------------
+
+
+class _PublicOnlyProvider:
+    """A SignatureProvider stub for souls loaded without a private key.
+
+    Implements ``verify`` by delegating to the entry's embedded ``public_key``;
+    ``sign`` raises ``RuntimeError`` so callers know they can't append. Only
+    used internally by :meth:`Soul._restore_trust_chain` when the keystore
+    has a public key but no private key.
+    """
+
+    algorithm: str = "ed25519"
+
+    def __init__(self, public_key_bytes: bytes) -> None:
+        import base64
+
+        self._pub_b64 = (
+            base64.b64encode(public_key_bytes).decode("ascii") if public_key_bytes else ""
+        )
+
+    @property
+    def public_key(self) -> str:
+        return self._pub_b64
+
+    def sign(self, message: bytes) -> str:  # pragma: no cover — guarded above
+        raise RuntimeError(
+            "This soul was loaded without a private key (verification-only). "
+            "Restore the private key to append new trust chain entries."
+        )
+
+    def verify(self, message: bytes, signature: str, public_key: str) -> bool:
+        # Delegate to the spec-side ed25519 verifier.
+        from soul_protocol.spec.trust import _verify_with_algorithm
+
+        return _verify_with_algorithm("ed25519", message, signature, public_key)
 
 
 def _resolve_engine(engine: Any) -> CognitiveEngine | None:
@@ -363,11 +438,189 @@ class Soul:
         # F5: Interaction counter for auto-consolidation (persisted in SoulConfig)
         self._interaction_count: int = getattr(config, "interaction_count", 0)
 
+        # v0.4.0 (#46) — Multi-user bond registry. Wraps the default bond on
+        # ``identity.bond`` plus any per-user bonds carried in
+        # ``config.bonds_per_user``. ``Soul.bond`` returns this registry; it
+        # quacks like a Bond for back-compat readers (``soul.bond.bond_strength``
+        # etc. proxy to the default bond) and also routes strengthen/weaken
+        # to per-user bonds when given a user_id.
+        self._bonds = BondRegistry.from_dict(
+            default=config.identity.bond,
+            per_user_data=getattr(config, "bonds_per_user", None) or {},
+        )
+
+        # Auto-migrate legacy souls: if Identity.bonded_to is set and the
+        # default bond doesn't yet record it, propagate. The actual
+        # bond/memory migration happens in :meth:`migrate_to_multi_user`,
+        # but we keep this lightweight sync here so existing code that
+        # reads ``soul.bond.bonded_to`` keeps working immediately.
+        if config.identity.bonded_to and not self._bonds.default.bonded_to:
+            self._bonds.default.bonded_to = config.identity.bonded_to
+
         # Retrieval trace for the most recent recall() call.
         # Consumers (paw-runtime JSONL sink, graduation policy) read this after
         # each call to construct a RetrievalTrace receipt. In-memory only —
         # never serialised into the .soul file.
         self._last_retrieval: RetrievalTrace | None = None
+
+        # v0.4.0 (#42) — Trust chain. Initialized lazily-but-eagerly: provider
+        # is generated fresh on every __init__; awaken() replaces it via
+        # _restore_trust_chain() when a keystore is found in the archive.
+        # Hook bond mutations into the chain via the registry's on_change
+        # callback so bond.strengthen / bond.weaken append signed entries.
+        self._keystore: Keystore = Keystore()
+        self._signature_provider: Ed25519SignatureProvider = Ed25519SignatureProvider()
+        self._keystore.private_key_bytes = self._signature_provider.private_key_bytes
+        self._keystore.public_key_bytes = self._signature_provider.public_key_bytes
+        self._trust_chain_manager: TrustChainManager = TrustChainManager(
+            did=self._identity.did,
+            provider=self._signature_provider,
+        )
+        self._bonds.set_on_change(self._on_bond_change)
+
+    # ============ Trust chain helpers ============
+
+    def _restore_trust_chain(self, memory_data: dict) -> None:
+        """Re-hydrate the trust chain + keystore from awaken-time memory_data.
+
+        Called by ``awaken`` after the soul instance is built. Looks for
+        ``trust_chain`` (Pydantic-serialised TrustChain) and ``keys`` (dict
+        of {filename: bytes}). When the private key is missing, the soul
+        becomes verification-only — TrustChainManager.append() raises until
+        a key is restored.
+        """
+        keys = memory_data.get("keys") or {}
+        if keys:
+            self._keystore = Keystore.from_archive_files(keys)
+            if self._keystore.has_private_key:
+                self._signature_provider = Ed25519SignatureProvider(
+                    private_key_bytes=self._keystore.private_key_bytes
+                )
+            else:
+                # Public-key-only mode. Verification still works because
+                # every entry carries its own pubkey, but append() will
+                # raise. We still construct a provider so the manager has
+                # something to point at — verification path uses the
+                # entry's embedded public_key, not this provider.
+                self._signature_provider = _PublicOnlyProvider(
+                    self._keystore.public_key_bytes or b""
+                )
+
+        chain_data = memory_data.get("trust_chain")
+        chain = TrustChain.model_validate(chain_data) if chain_data else None
+        self._trust_chain_manager = TrustChainManager(
+            did=self._identity.did,
+            provider=self._signature_provider,
+            chain=chain,
+        )
+
+    def _on_bond_change(
+        self,
+        action: str,
+        user_id: str | None,
+        delta: float,
+        new_strength: float,
+    ) -> None:
+        """Bridge BondRegistry events into the trust chain (#42)."""
+        # Defensive: if the chain manager doesn't have a private key, skip
+        # silently rather than break read-only flows. Same for the no-public
+        # case which can happen during __init__ before keys are restored.
+        if not self._signature_provider.public_key:
+            return
+        self._safe_append_chain(
+            action,
+            {
+                "user_id": user_id,
+                "delta": delta,
+                "new_strength": new_strength,
+            },
+        )
+
+    def _safe_append_chain(self, action: str, payload: dict) -> None:
+        """Append an entry to the trust chain, swallowing read-only failures.
+
+        Wrapper used by every callsite (observe, supersede, forget_one,
+        propose_evolution, approve_evolution, learn, bond callback). Souls
+        loaded without a private key cannot sign — we swallow the resulting
+        error rather than break the action that just happened. Verification
+        on the receiving side still works because every entry carries its
+        own embedded public key.
+        """
+        if not self._signature_provider.public_key:
+            return
+        if isinstance(self._signature_provider, _PublicOnlyProvider):
+            return
+        try:
+            self._trust_chain_manager.append(action, payload)
+        except (ValueError, RuntimeError):
+            logger.debug(
+                "Skipping trust chain append for action=%s (no private key)",
+                action,
+            )
+
+    # ============ Trust chain public API (#42) ============
+
+    @property
+    def trust_chain(self) -> TrustChain:
+        """The soul's signed trust chain (read-only view).
+
+        For mutation API see :attr:`trust_chain_manager`.
+        """
+        return self._trust_chain_manager.chain
+
+    @property
+    def trust_chain_manager(self) -> TrustChainManager:
+        """The :class:`TrustChainManager` for advanced callers.
+
+        Most users only need :attr:`trust_chain`, :meth:`verify_chain`, and
+        :meth:`audit_log`. Reach for the manager when you need to append a
+        custom-action entry directly.
+        """
+        return self._trust_chain_manager
+
+    def verify_chain(self) -> tuple[bool, str | None]:
+        """Verify the integrity of this soul's trust chain.
+
+        Two-stage check:
+        1. Every entry's ``public_key`` matches the soul's loaded public key
+           (binds the chain to *this* identity, not just any key that signed
+           a self-consistent chain).
+        2. The chain itself is internally valid via :func:`verify_chain` —
+           signatures, hash chain, seq monotonicity, future-timestamp skew.
+
+        The pubkey binding is skipped when the keystore has no public key
+        (e.g. a freshly-birthed soul before its first save). It is the
+        load-time path — saved/awakened souls always have a public key.
+
+        Returns ``(True, None)`` on success, or
+        ``(False, "<reason> at seq N")`` on the first failure.
+        """
+        import base64
+
+        pub_bytes = self._keystore.public_key_bytes
+        if pub_bytes:
+            expected_pk = base64.b64encode(pub_bytes).decode("ascii")
+            for entry in self._trust_chain_manager.chain.entries:
+                if entry.public_key != expected_pk:
+                    return False, f"public key mismatch at seq {entry.seq}"
+        return self._trust_chain_manager.verify()
+
+    def audit_log(
+        self,
+        *,
+        action_prefix: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict]:
+        """Human-readable timeline of signed actions.
+
+        Each item is ``{seq, timestamp, action, actor_did, payload_hash}``.
+        Use ``action_prefix`` (e.g. ``"memory."``) to scope. Use ``limit``
+        to take only the most recent N entries.
+        """
+        return self._trust_chain_manager.audit_log(
+            action_prefix=action_prefix,
+            limit=limit,
+        )
 
     # ============ Lifecycle ============
 
@@ -711,6 +964,13 @@ class Soul:
                 personality=config.dna.personality,
             )
 
+        # v0.4.0 (#42) — Restore trust chain + keystore from the archive.
+        # Legacy souls have no trust_chain entry, in which case the chain
+        # stays empty and the freshly-generated provider keeps signing.
+        # Done after MemoryManager swap so any future reactive logic that
+        # depends on memory state runs on the final manager.
+        soul._restore_trust_chain(memory_data)
+
         # F4 — Wire eternal storage
         soul._eternal = eternal
 
@@ -933,7 +1193,7 @@ class Soul:
             memories = await self._memory.recall(
                 query=user_input,
                 limit=max_memories,
-                bond_strength=self._identity.bond.bond_strength,
+                bond_strength=self._bonds.default.bond_strength,
             )
             if memories:
                 lines = [f"- {m.content}" for m in memories]
@@ -961,12 +1221,22 @@ class Soul:
         entities: list[str] | None = None,
         visibility: MemoryVisibility = MemoryVisibility.BONDED,
         scope: list[str] | None = None,
+        domain: str = "default",
+        user_id: str | None = None,
     ) -> str:
         """Soul remembers something. Returns memory ID.
 
         ``scope`` accepts hierarchical RBAC/ABAC tags (e.g. ``["org:sales:*"]``)
         that pair with :func:`soul_protocol.spec.match_scope` at recall time.
         Defaults to an empty list (no scope — visible to any caller).
+
+        ``domain`` (#41) is a sub-namespace inside the layer — pass values
+        like ``"finance"`` or ``"legal"`` to scope the memory. Defaults to
+        ``"default"`` so legacy callers see no behaviour change.
+
+        ``user_id`` (#46) attributes the memory to a specific bonded user.
+        ``None`` (default) leaves the memory unattributed (visible to every
+        recall regardless of ``user_id`` filter).
         """
         return await self._memory.add(
             MemoryEntry(
@@ -977,6 +1247,8 @@ class Soul:
                 entities=entities or [],
                 visibility=visibility,
                 scope=scope or [],
+                domain=domain,
+                user_id=user_id,
             )
         )
 
@@ -992,6 +1264,9 @@ class Soul:
         bond_threshold: float = 30.0,
         progressive: bool = False,
         scopes: list[str] | None = None,
+        user_id: str | None = None,
+        layer: str | None = None,
+        domain: str | None = None,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility + scope filtering.
 
@@ -1003,6 +1278,20 @@ class Soul:
         returned. Filtering happens after scoring so the underlying recall
         order is unchanged.
 
+        ``user_id`` (#46): when set, results are restricted to memories
+        attributed to that user_id, plus any legacy entries where
+        ``user_id is None`` (orphan entries are visible to every user).
+        When unset, all memories are returned regardless of attribution —
+        preserves pre-#46 behaviour. Per-user bond strength is used for
+        the visibility filter when ``bond_strength`` isn't given explicitly.
+
+        ``layer`` (#41): when set to a layer name (built-in like
+        ``"semantic"`` or any custom string), only entries in that layer
+        are returned. Default ``None`` keeps the cross-tier behaviour.
+
+        ``domain`` (#41): when set, results are filtered to entries with
+        a matching ``domain``. Default ``None`` returns every domain.
+
         Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
         receipt every call, regardless of whether results were found. The
         receipt is in-memory only — never serialised into the ``.soul``
@@ -1010,9 +1299,14 @@ class Soul:
         """
         import time as _time
 
-        effective_bond = (
-            bond_strength if bond_strength is not None else self._identity.bond.bond_strength
-        )
+        # Resolve effective bond strength: caller-supplied wins, else per-user
+        # bond when user_id is set, else default bond.
+        if bond_strength is not None:
+            effective_bond = bond_strength
+        elif user_id is not None and self._bonds.has_user(user_id):
+            effective_bond = self._bonds.for_user(user_id).bond_strength
+        else:
+            effective_bond = self._bonds.default.bond_strength
         start = _time.monotonic()
         results = await self._memory.recall(
             query=query,
@@ -1023,6 +1317,9 @@ class Soul:
             bond_strength=effective_bond,
             bond_threshold=bond_threshold,
             progressive=progressive,
+            user_id=user_id,
+            layer=layer,
+            domain=domain,
         )
         if scopes:
             from soul_protocol.spec.scope import match_scope
@@ -1110,10 +1407,26 @@ class Soul:
         )
         return results
 
-    async def observe(self, interaction: Interaction) -> None:
+    async def observe(
+        self,
+        interaction: Interaction,
+        *,
+        user_id: str | None = None,
+        domain: str = "default",
+    ) -> None:
         """Soul observes an interaction and learns from it.
 
         This is the main learning hook — call after every user-agent exchange.
+
+        ``user_id`` (#46): when set, every memory written during this observe
+        call is stamped with the user_id, and the per-user bond is
+        strengthened instead of the default bond. When unset (legacy
+        callers), behaviour is unchanged: memories carry ``user_id=None``
+        and the default bond is strengthened.
+
+        ``domain`` (#41): sub-namespace stamp for memories written by this
+        call. Defaults to ``"default"``. Pass e.g. ``"finance"`` to scope
+        all derived memories (episodic + extracted facts) to that domain.
 
         v0.2.0 Pipeline (handled by MemoryManager.observe()):
           1. Detect sentiment → SomaticMarker
@@ -1134,7 +1447,7 @@ class Soul:
         self._skills.decay_all()
 
         # Delegate to psychology-informed memory pipeline
-        result = await self._memory.observe(interaction)
+        result = await self._memory.observe(interaction, user_id=user_id, domain=domain)
 
         # Update knowledge graph from extracted entities
         raw_entities = result["entities"]
@@ -1156,12 +1469,14 @@ class Soul:
         # Update state based on interaction + detected sentiment
         self._state.on_interaction(interaction, somatic=result.get("somatic"))
 
-        # Strengthen bond on each interaction
+        # Strengthen bond on each interaction. When user_id is supplied
+        # (#46), bump the per-user bond; otherwise mutate the default bond.
+        # The registry handles the routing.
         somatic = result.get("somatic")
         if somatic and somatic.valence >= 0:
-            self._identity.bond.strengthen(amount=1.0 + somatic.valence)
+            self._bonds.strengthen(amount=1.0 + somatic.valence, user_id=user_id)
         else:
-            self._identity.bond.strengthen(amount=0.5)
+            self._bonds.strengthen(amount=0.5, user_id=user_id)
 
         # Grant XP to skills matching extracted entities/topics
         # Significance-weighted XP: range 5-30 based on interaction significance
@@ -1212,14 +1527,100 @@ class Soul:
                         len(reflection.summaries),
                     )
 
-    async def forget_by_id(self, memory_id: str) -> bool:
-        """Soul forgets a specific memory by ID.
+        # v0.4.0 (#42) — Append a memory.write entry to the trust chain summarising
+        # what got persisted by this observe(). We list IDs and counts only —
+        # not contents — so the chain stays compact and doesn't redundantly
+        # store memory that already lives in the tier files.
+        episodic_id = result.get("episodic_id")
+        fact_ids = [getattr(f, "id", None) for f in result.get("facts") or []]
+        all_ids = [mid for mid in [episodic_id, *fact_ids] if mid]
+        self._safe_append_chain(
+            "memory.write",
+            {
+                "user_id": user_id,
+                "domain": domain,
+                "layer": None,  # observe writes through layer-aware paths but
+                # mixes episodic + semantic; per-entry layers
+                # are recorded on the entries themselves.
+                "count": len(all_ids),
+                "ids": all_ids,
+            },
+        )
 
-        For targeted deletion, prefer forget(), forget_entity(), or
-        forget_before() which provide GDPR-compliant bulk deletion
-        with audit trails.
+    async def forget_by_id(self, memory_id: str) -> bool:
+        """Soul forgets a specific memory by ID. Returns True on hit.
+
+        Bool-returning shortcut kept for backward compatibility. For an
+        audited single-id deletion that returns the same dict shape as the
+        bulk forget methods (used by ``soul forget --id``), use
+        :meth:`forget_one`.
         """
         return await self._memory.remove(memory_id)
+
+    async def forget_one(self, memory_id: str) -> dict:
+        """Audited single-id deletion. Returns a dict with deletion results.
+
+        Same shape as :meth:`forget` / :meth:`forget_entity` / :meth:`forget_before`
+        plus ``found`` and ``tier`` keys.  Records a deletion audit entry
+        (without the deleted content) when the entry exists.
+
+        Appends a ``memory.forget`` entry to the trust chain on success
+        with ``{id, tier}`` payload (#42).
+        """
+        result = await self._memory.forget_by_id(memory_id)
+        if result.get("found"):
+            self._safe_append_chain(
+                "memory.forget",
+                {"id": memory_id, "tier": result.get("tier")},
+            )
+        return result
+
+    async def supersede(
+        self,
+        old_id: str,
+        new_content: str,
+        *,
+        reason: str | None = None,
+        importance: int = 5,
+        memory_type: MemoryType | None = None,
+        emotion: str | None = None,
+        entities: list[str] | None = None,
+    ) -> dict:
+        """Mark ``old_id`` as superseded by a newly-written memory.
+
+        Brain-aligned alternative to delete-and-rewrite: the old entry stays
+        in storage with ``superseded_by`` pointing at the new entry, so
+        provenance is preserved.  Search filters out superseded entries by
+        default, so recall surfaces the new memory.
+
+        ``memory_type`` defaults to the old entry's tier — pass it only when
+        correcting a fact stored in the wrong tier.  Records to the
+        :attr:`supersede_audit` trail.
+
+        Returns a dict with ``found`` / ``old_id`` / ``new_id`` / ``tier`` /
+        ``reason``.  If ``old_id`` does not resolve, ``found`` is False and
+        no new memory is written.
+        """
+        result = await self._memory.supersede(
+            old_id,
+            new_content,
+            reason=reason,
+            importance=importance,
+            memory_type=memory_type,
+            emotion=emotion,
+            entities=entities,
+        )
+        if result.get("found"):
+            # v0.4.0 (#42) — Trust chain entry for the supersede action.
+            self._safe_append_chain(
+                "memory.supersede",
+                {
+                    "old_id": result.get("old_id"),
+                    "new_id": result.get("new_id"),
+                    "reason": result.get("reason"),
+                },
+            )
+        return result
 
     async def forget(self, query: str) -> dict:
         """Forget memories matching a query across all tiers.
@@ -1277,6 +1678,17 @@ class Soul:
         No deleted content is stored in the audit trail.
         """
         return self._memory.deletion_audit
+
+    @property
+    def supersede_audit(self) -> list[dict]:
+        """Access the user-driven supersede audit trail.
+
+        Each record contains: ``superseded_at`` (ISO timestamp), ``old_id``,
+        ``new_id``, ``tier``, ``reason``.  Internal supersession (dream-cycle
+        dedup, contradiction resolution) is not recorded here — only explicit
+        :meth:`supersede` calls.
+        """
+        return self._memory.supersede_audit
 
     def get_core_memory(self) -> CoreMemory:
         """Get the always-loaded core memory."""
@@ -1397,9 +1809,92 @@ class Soul:
     # ============ Bond / Skills ============
 
     @property
-    def bond(self) -> Bond:
-        """Access the soul's bond with its bonded entity."""
-        return self._identity.bond
+    def bond(self) -> BondRegistry:
+        """Access the soul's bond registry (v0.4.0 / #46).
+
+        Backwards compatible: reading ``soul.bond.bond_strength``,
+        ``soul.bond.bonded_to``, ``soul.bond.interaction_count`` etc.
+        proxies to the default bond. Calling ``soul.bond.strengthen(amount)``
+        or ``soul.bond.weaken(amount)`` mutates the default bond.
+
+        Multi-user support: pass ``user_id`` keyword to strengthen/weaken to
+        route per-user. Use :meth:`bond_for` to get a specific user's
+        :class:`Bond` instance directly.
+        """
+        return self._bonds
+
+    def bond_for(self, user_id: str) -> Bond:
+        """Return the per-user :class:`Bond` for ``user_id``.
+
+        Lazily creates the per-user bond on first access (strength=50,
+        count=0). Bonds are persisted across export/awaken so once a
+        user has a bond, it survives soul migration.
+        """
+        return self._bonds.for_user(user_id)
+
+    @property
+    def bonded_users(self) -> list[str]:
+        """List of user_ids that have their own per-user bonds.
+
+        Does not include the default bond's ``bonded_to`` (that's the
+        soul's primary user, exposed via ``identity.bonded_to``).
+        """
+        return self._bonds.users()
+
+    def migrate_to_multi_user(self) -> dict:
+        """Auto-migrate a legacy single-bond soul into the multi-user shape.
+
+        - If ``Identity.bonded_to`` is set and ``Identity.bonds`` is empty,
+          synthesise a :class:`BondTarget` so the spec list is populated.
+        - If memory entries have ``user_id=None`` and a ``bonded_to`` exists,
+          stamp them with the legacy user_id so per-user filtering surfaces
+          them when the legacy user queries by their own id.
+
+        Returns a summary dict::
+
+            {
+                "synthesized_bond_target": bool,
+                "memory_entries_stamped": int,
+                "default_user_id": str | None,
+            }
+
+        Idempotent — running it twice is a no-op.
+        """
+        result: dict = {
+            "synthesized_bond_target": False,
+            "memory_entries_stamped": 0,
+            "default_user_id": None,
+        }
+
+        # Pick a default user_id: prefer Identity.bonded_to, else first bond target.
+        default_uid = self._identity.bonded_to
+        if not default_uid and self._identity.bonds:
+            default_uid = self._identity.bonds[0].id
+        result["default_user_id"] = default_uid
+
+        # Synthesize BondTarget if missing.
+        if self._identity.bonded_to and not self._identity.bonds:
+            self._identity.bonds.append(BondTarget(id=self._identity.bonded_to, bond_type="human"))
+            result["synthesized_bond_target"] = True
+
+        # Stamp legacy memories with the default user_id.
+        if default_uid:
+            count = 0
+            for entry in self._memory._episodic._memories.values():
+                if entry.user_id is None:
+                    entry.user_id = default_uid
+                    count += 1
+            for entry in self._memory._semantic._facts.values():
+                if entry.user_id is None:
+                    entry.user_id = default_uid
+                    count += 1
+            for entry in self._memory._procedural._procedures.values():
+                if entry.user_id is None:
+                    entry.user_id = default_uid
+                    count += 1
+            result["memory_entries_stamped"] = count
+
+        return result
 
     @property
     def skills(self) -> SkillRegistry:
@@ -1490,6 +1985,16 @@ class Soul:
             event.domain,
             event.evaluation_score or 0.0,
         )
+        # v0.4.0 (#42) — Trust chain entry for the learning event.
+        self._safe_append_chain(
+            "learning.event",
+            {
+                "domain": event.domain,
+                "skill_id": getattr(event, "skill_id", None),
+                "score": event.evaluation_score,
+                "interaction_id": getattr(event, "interaction_id", None),
+            },
+        )
         return event
 
     @property
@@ -1506,23 +2011,55 @@ class Soul:
         """
         self._state.update(**kwargs)
 
+    def recompute_focus(self, now: datetime | None = None) -> str:
+        """Refresh density-driven focus before reading state.
+
+        Call before displaying focus in CLI/MCP/API surfaces so the value
+        reflects current interaction density, not the last tick. No-op when
+        focus_override is set or focus_window_seconds is 0. Returns the
+        resulting focus level.
+        """
+        return self._state.recompute_focus(now)
+
     # ============ Evolution ============
 
     async def propose_evolution(self, trait: str, new_value: str, reason: str) -> Mutation:
-        """Propose a trait mutation."""
-        return await self._evolution.propose(
+        """Propose a trait mutation.
+
+        Appends an ``evolution.proposed`` entry to the trust chain (#42)
+        with ``{mutation_id, trait, new_value, reason}``.
+        """
+        mutation = await self._evolution.propose(
             dna=self._dna,
             trait=trait,
             new_value=new_value,
             reason=reason,
         )
+        self._safe_append_chain(
+            "evolution.proposed",
+            {
+                "mutation_id": getattr(mutation, "id", None),
+                "trait": trait,
+                "new_value": new_value,
+                "reason": reason,
+            },
+        )
+        return mutation
 
     async def approve_evolution(self, mutation_id: str) -> bool:
-        """Approve a pending mutation."""
+        """Approve a pending mutation.
+
+        Appends an ``evolution.applied`` entry to the trust chain (#42)
+        when the apply step succeeds.
+        """
         result = await self._evolution.approve(mutation_id)
         if result:
             self._dna = self._evolution.apply(self._dna, mutation_id)
             logger.info("Evolution approved and applied: mutation_id=%s", mutation_id)
+            self._safe_append_chain(
+                "evolution.applied",
+                {"mutation_id": mutation_id},
+            )
         return result
 
     async def reject_evolution(self, mutation_id: str) -> bool:
@@ -1539,29 +2076,61 @@ class Soul:
 
     # ============ Persistence ============
 
-    async def save(self, path: str | Path | None = None) -> None:
-        """Save soul to file storage (config + full memory)."""
+    async def save(
+        self,
+        path: str | Path | None = None,
+        *,
+        include_keys: bool = True,
+    ) -> None:
+        """Save soul to file storage (config + full memory + trust chain).
+
+        ``include_keys`` defaults to ``True`` for save() — local saves on the
+        owner's machine should retain the private key so the soul can keep
+        appending signed entries. Use ``Soul.export(include_keys=False)`` for
+        shareable bundles that drop the private key.
+        """
         from .storage.file import save_soul_full
 
         save_path = Path(path) if path else None
-        memory_data = self._memory.to_dict()
+        memory_data = self._build_storage_memory_data(include_keys=include_keys)
         await save_soul_full(self.serialize(), memory_data, path=save_path)
         logger.info("Soul saved: name=%s, path=%s", self.name, save_path)
 
-    async def save_local(self, path: str | Path = ".soul") -> None:
+    async def save_local(
+        self,
+        path: str | Path = ".soul",
+        *,
+        include_keys: bool = True,
+    ) -> None:
         """Save to a local directory (flat, no soul_id nesting).
 
         Designed for .soul/ project folders where the directory IS the soul.
 
+        ``include_keys`` defaults to ``True`` — see :meth:`save` for rationale.
+
         Args:
             path: Target directory (default ``".soul"``).
+            include_keys: Include the private signing key in the on-disk
+                keystore. Default True for local saves.
         """
         from .storage.file import save_soul_flat
 
         config = self.serialize()
-        memory_data = self._memory.to_dict()
+        memory_data = self._build_storage_memory_data(include_keys=include_keys)
         await save_soul_flat(config, memory_data, Path(path))
         logger.info("Soul saved locally: name=%s, path=%s", self.name, path)
+
+    def _build_storage_memory_data(self, *, include_keys: bool) -> dict:
+        """Assemble the memory_data dict that storage backends consume.
+
+        Layers the trust chain (#42) and keystore (#42) on top of the
+        MemoryManager's own to_dict(). Keeps storage backends free of
+        knowledge about trust chains.
+        """
+        memory_data = self._memory.to_dict()
+        memory_data["trust_chain"] = self._trust_chain_manager.to_dict()
+        memory_data["keys"] = self._keystore.to_archive_files(include_private=include_keys)
+        return memory_data
 
     async def archive(self, tiers: list[str] | None = None) -> list:
         """Archive this soul to eternal storage (Arweave/IPFS).
@@ -1591,6 +2160,7 @@ class Soul:
         password: str | None = None,
         archive: bool = False,
         archive_tiers: list[str] | None = None,
+        include_keys: bool = False,
     ) -> None:
         """Export soul as a portable .soul file with full memory data.
 
@@ -1598,12 +2168,27 @@ class Soul:
             path: File path for the exported .soul archive.
             password: Optional password for AES-256-GCM encryption at rest.
                 When provided, all content except the manifest is encrypted.
+            include_keys: When False (default), the soul's PRIVATE signing key
+                is dropped from the archive. The PUBLIC key still ships so
+                the recipient can verify the chain. This is the safe choice
+                for sharing souls — the recipient cannot append new entries
+                under your DID. Set to True only when you explicitly want to
+                hand off signing power (e.g. migrating between your own
+                devices). See docs/trust-chain.md for the threat model.
         """
         from .exceptions import SoulExportError
 
         try:
             memory_data = self._memory.to_dict()
-            data = await pack_soul(self.serialize(), memory_data=memory_data, password=password)
+            trust_chain_data = self._trust_chain_manager.to_dict()
+            key_files = self._keystore.to_archive_files(include_private=include_keys)
+            data = await pack_soul(
+                self.serialize(),
+                memory_data=memory_data,
+                password=password,
+                trust_chain_data=trust_chain_data,
+                key_files=key_files,
+            )
             Path(path).write_bytes(data)
             logger.info(
                 "Soul exported: name=%s, path=%s, size=%d bytes",
@@ -1651,6 +2236,10 @@ class Soul:
 
     def serialize(self) -> SoulConfig:
         """Serialize to a SoulConfig for storage/export."""
+        # The default bond lives on Identity.bond (set during __init__ from
+        # the same source). Per-user bonds get serialised into
+        # SoulConfig.bonds_per_user so they survive round-trips.
+        self._identity.bond = self._bonds.default
         return SoulConfig(
             version="1.0.0",
             identity=self._identity,
@@ -1663,4 +2252,5 @@ class Soul:
             skills=[s.model_dump(mode="json") for s in self._skills.skills],
             evaluation_history=[r.model_dump(mode="json") for r in self._evaluator._history],
             interaction_count=self._interaction_count,
+            bonds_per_user=self._bonds.all_bonds(),
         )

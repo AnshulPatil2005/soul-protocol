@@ -1,4 +1,26 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-04-29 (#42) — Trust chain commands: ``soul verify`` checks
+#   integrity of a soul's signed action history. ``soul audit`` prints a
+#   human-readable timeline; supports --filter <prefix> and --limit; --json
+#   for machine output.
+# Updated: 2026-04-29 (#46) — Multi-user soul support. ``soul observe`` and
+#   ``soul recall`` accept ``--user <id>``; the user_id pipes through to
+#   Soul.observe() / Soul.recall() so memory writes get attributed and
+#   recall results filter by user. ``soul status`` renders per-user bond
+#   strengths when more than one user is bonded; falls back to the legacy
+#   single-bond view otherwise. The `--user` flag also includes legacy
+#   (user_id=None) entries — orphan memories stay visible to every user.
+# Updated: 2026-04-27 — Memory update primitives + forget display fix.
+#   - `soul forget --id <id>` for surgical single-memory deletion (audited).
+#   - `soul supersede <path> <new_content> --old-id <id> [--reason ...]` writes
+#     a new memory and links the old one's `superseded_by`. Old is preserved
+#     for provenance, recall surfaces the new one because superseded entries
+#     are filtered out of search.
+#   - Fixed forget result display: `manager.forget*()` returns `{"total": N}`
+#     and per-tier list keys, but the CLI was reading `total_deleted` and
+#     `tiers` (which never existed) so preview always showed 0 and apply
+#     mode silently deleted while reporting 0. Now reads the real keys and
+#     reconstructs per-tier counts from the list lengths.
 # Updated: 2026-04-14 — v0.3.1: `soul org init / status / destroy` and `soul template`
 #   land. Org init creates an org dir, root soul, Ed25519 key, journal, and
 #   genesis events. Destroy archives to ~/.soul-archives/ before wiping.
@@ -212,7 +234,7 @@ def birth(
                 )
 
         out = output or f"./{_safe_name(soul.name)}.soul"
-        await soul.export(out)
+        await soul.export(out, include_keys=True)
         console.print(f"[dim]Saved to {out}[/dim]")
 
     asyncio.run(_birth())
@@ -412,6 +434,7 @@ def inspect(path):
         )
 
         # ── State panel ──
+        soul.recompute_focus()
         mood = soul.state.mood.value
         energy = soul.state.energy
         social = soul.state.social_battery
@@ -501,12 +524,18 @@ def inspect(path):
 @cli.command()
 @click.argument("path", type=click.Path(exists=True))
 def status(path):
-    """Show a Soul's current status (quick view)."""
+    """Show a Soul's current status (quick view).
+
+    Shows per-user bond strengths when more than one user is bonded
+    (multi-user souls, #46). Falls back to the default single-bond view
+    for legacy souls.
+    """
 
     async def _status():
         from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
+        soul.recompute_focus()
         mood = soul.state.mood.value
         energy = soul.state.energy
         social = soul.state.social_battery
@@ -523,6 +552,26 @@ def status(path):
             f"  Focus           {soul.state.focus}",
             f"  Memories        {soul.memory_count}",
         ]
+
+        # Multi-user bond display when more than one user has a bond.
+        bonded_users = soul.bonded_users
+        if bonded_users:
+            lines.append("")
+            lines.append("  [dim]Per-user bonds:[/dim]")
+            # Show default bond first if it has a bonded_to identifier
+            default_label = soul.bond.default.bonded_to or "[dim]default[/dim]"
+            lines.append(
+                f"    {default_label:24}  "
+                f"strength={soul.bond.default.bond_strength:5.1f}, "
+                f"interactions={soul.bond.default.interaction_count}"
+            )
+            for uid in bonded_users:
+                b = soul.bond_for(uid)
+                lines.append(
+                    f"    {uid:24}  "
+                    f"strength={b.bond_strength:5.1f}, "
+                    f"interactions={b.interaction_count}"
+                )
 
         console.print(
             Panel(
@@ -558,7 +607,7 @@ def export_cmd(source, output, fmt):
         out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
-            await soul.export(out)
+            await soul.export(out, include_keys=True)
         elif fmt == "json":
             Path(out).write_text(soul.serialize().model_dump_json(indent=2))
         elif fmt == "yaml":
@@ -616,7 +665,7 @@ def migrate(source, output):
 
         content = Path(source).read_text()
         soul = await Soul.from_markdown(content)
-        await soul.export(output)
+        await soul.export(output, include_keys=True)
         console.print(f"[green]Migrated[/green] {soul.name} from SOUL.md to {output}")
 
     asyncio.run(_migrate())
@@ -996,11 +1045,20 @@ def eternal_status(path):
     "--type",
     "-t",
     "memory_type",
-    type=click.Choice(["episodic", "semantic", "procedural"], case_sensitive=False),
+    type=click.Choice(["episodic", "semantic", "procedural", "social"], case_sensitive=False),
     default="semantic",
-    help="Memory tier (default: semantic). Use episodic for events, procedural for skills.",
+    help="Memory tier (default: semantic). Use episodic for events, procedural for skills, "
+    "social for relationship context.",
 )
-def remember_cmd(path, text, importance, emotion, memory_type):
+@click.option(
+    "--domain",
+    "-d",
+    type=str,
+    default="default",
+    help="Domain sub-namespace inside the layer (e.g. finance, legal). "
+    "Defaults to 'default' (#41).",
+)
+def remember_cmd(path, text, importance, emotion, memory_type, domain):
     """Store a memory in a Soul.
 
     \b
@@ -1008,6 +1066,7 @@ def remember_cmd(path, text, importance, emotion, memory_type):
       episodic   — events that happened (what, when, where)
       semantic   — facts the soul knows (default)
       procedural — skills and how-to knowledge
+      social     — relationship memories (#41)
 
     \b
     Examples:
@@ -1015,6 +1074,7 @@ def remember_cmd(path, text, importance, emotion, memory_type):
       soul remember aria.soul "Likes Python" --importance 7
       soul remember aria.soul "Had a great day" --emotion happy
       soul remember aria.soul "Shipped v0.3" --type episodic --importance 8
+      soul remember aria.soul "Q3 revenue up 12%" --domain finance --importance 8
     """
     from soul_protocol.runtime.types import MemoryType
 
@@ -1029,17 +1089,19 @@ def remember_cmd(path, text, importance, emotion, memory_type):
             type=tier,
             importance=importance,
             emotion=emotion,
+            domain=domain,
         )
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         console.print(
             Panel(
                 f"[bold]{soul.name}[/bold] will remember:\n\n"
                 f"  [cyan]{text}[/cyan]\n\n"
                 f"  Tier        [magenta]{tier.value}[/magenta]\n"
+                f"  Domain      [magenta]{domain}[/magenta]\n"
                 f"  Importance  [yellow]{importance}/10[/yellow]\n"
                 f"  Emotion     {emotion or '[dim]none[/dim]'}\n"
                 f"  ID          [dim]{memory_id}[/dim]",
@@ -1088,7 +1150,28 @@ def remember_cmd(path, text, importance, emotion, memory_type):
     default=False,
     help="Output results as a JSON array (machine-readable)",
 )
-def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
+@click.option(
+    "--user",
+    "user_id",
+    default=None,
+    help="Filter memories to a specific user_id (multi-user souls, #46). "
+    "Legacy entries with no user_id are also returned.",
+)
+@click.option(
+    "--layer",
+    "layer",
+    default=None,
+    help="Filter recall to a specific memory layer (episodic, semantic, procedural, social, "
+    "or any custom layer name) (#41).",
+)
+@click.option(
+    "--domain",
+    "-d",
+    "domain",
+    default=None,
+    help="Filter recall to a specific domain sub-namespace, e.g. 'finance' (#41).",
+)
+def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_id, layer, domain):
     """Query a Soul's memories.
 
     \b
@@ -1098,6 +1181,9 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
       soul recall aria.soul "python" --min-importance 5
       soul recall aria.soul "python" --full
       soul recall aria.soul --recent 5 --json
+      soul recall aria.soul "preferences" --user alice
+      soul recall aria.soul "revenue" --layer semantic --domain finance
+      soul recall aria.soul "alice" --layer social
     """
 
     async def _recall():
@@ -1106,12 +1192,27 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
         soul = await Soul.awaken(path)
 
         if recent is not None:
-            # Show N most recent memories across all stores
-            all_memories = (
-                soul._memory._episodic.entries()
-                + soul._memory._semantic.facts()
-                + soul._memory._procedural.entries()
-            )
+            # Show N most recent memories across all stores. Apply --user
+            # filter post-hoc so the legacy --recent path keeps its
+            # cross-tier ordering.
+            if layer is not None:
+                all_memories = soul._memory.layer(layer).entries(domain=domain)
+            else:
+                all_memories = (
+                    soul._memory._episodic.entries()
+                    + soul._memory._semantic.facts()
+                    + soul._memory._procedural.entries()
+                    + soul._memory._social.entries()
+                )
+                # Include custom layers in --recent across-the-board view
+                for store in soul._memory._custom_layers.values():
+                    all_memories.extend(store.values())
+                if domain is not None:
+                    all_memories = [m for m in all_memories if m.domain == domain]
+            if user_id is not None:
+                all_memories = [
+                    m for m in all_memories if m.user_id == user_id or m.user_id is None
+                ]
             all_memories.sort(
                 key=lambda m: m.created_at or "",
                 reverse=True,
@@ -1123,6 +1224,9 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
                 query,
                 limit=limit,
                 min_importance=min_importance,
+                user_id=user_id,
+                layer=layer,
+                domain=domain,
             )
             title = f'Recall — {soul.name} — "{query}"'
         else:
@@ -1141,10 +1245,13 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
             items = [
                 {
                     "type": entry.type.value,
+                    "layer": entry.layer or entry.type.value,
+                    "domain": entry.domain or "default",
                     "content": entry.content,
                     "importance": entry.importance,
                     "emotion": entry.emotion,
                     "created": entry.created_at.isoformat(),
+                    "user_id": entry.user_id,
                 }
                 for entry in entries
             ]
@@ -1190,6 +1297,70 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
         console.print(f"[dim]{len(entries)} memor{'y' if len(entries) == 1 else 'ies'} found[/dim]")
 
     asyncio.run(_recall())
+
+
+@cli.command("layers")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output as a JSON object (machine-readable).",
+)
+def layers_cmd(path, as_json):
+    """List the memory layers in a Soul, with per-layer + per-domain counts.
+
+    Useful for inspecting how a soul has organised its memories — built-in
+    layers (episodic / semantic / procedural / social) plus any custom
+    user-defined layer names. Per-domain counts surface domain isolation
+    inside each layer (e.g. ``finance: 12, legal: 5, default: 3``).
+
+    \b
+    Examples:
+      soul layers aria.soul
+      soul layers .soul/ --json
+    """
+
+    async def _layers():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        layer_names = soul._memory.known_layers()
+        layout: dict[str, dict[str, int]] = {}
+        for layer_name in layer_names:
+            layout[layer_name] = soul._memory.domains_in_layer(layer_name)
+
+        if as_json:
+            click.echo(json.dumps({"soul": soul.name, "layers": layout}, indent=2))
+            return
+
+        if not layout:
+            console.print(f"[dim]{soul.name} has no stored memories yet.[/dim]")
+            return
+
+        table = Table(
+            title=f"Layers — {soul.name}",
+            border_style="blue",
+            show_lines=True,
+        )
+        table.add_column("Layer", style="cyan")
+        table.add_column("Domains", style="magenta")
+        table.add_column("Total", justify="right", style="yellow")
+
+        for layer_name, domain_counts in layout.items():
+            total = sum(domain_counts.values())
+            domain_text = ", ".join(
+                f"{d}: {c}"
+                for d, c in sorted(domain_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            )
+            table.add_row(layer_name, domain_text or "[dim]none[/dim]", str(total))
+
+        console.print(table)
+        grand_total = sum(sum(c.values()) for c in layout.values())
+        console.print(f"[dim]{grand_total} total memories across {len(layout)} layers[/dim]")
+
+    asyncio.run(_layers())
 
 
 @cli.command("inject")
@@ -1296,7 +1467,7 @@ def import_soulspec_cmd(source, output):
 
         soul = await SoulSpecImporter.from_directory(source)
         out = output or f"{_safe_name(soul.name)}.soul"
-        await soul.export(out)
+        await soul.export(out, include_keys=True)
         console.print(
             f"[green]Imported[/green] SoulSpec [bold]{soul.name}[/bold] from {source} -> {out}"
         )
@@ -1360,7 +1531,7 @@ def import_tavernai_cmd(source, output):
             soul = await TavernAIImporter.from_json(data)
 
         out = output or f"{_safe_name(soul.name)}.soul"
-        await soul.export(out)
+        await soul.export(out, include_keys=True)
         console.print(
             f"[green]Imported[/green] TavernAI card [bold]{soul.name}[/bold] from {source} -> {out}"
         )
@@ -1457,7 +1628,7 @@ def import_a2a_cmd(file, output):
         card_data = json.loads(Path(file).read_text())
         soul = A2AAgentCardBridge.agent_card_to_soul(card_data)
         out = output or f"{_safe_name(soul.name)}.soul"
-        await soul.export(out)
+        await soul.export(out, include_keys=True)
         console.print(
             f"[green]Imported[/green] soul [bold]{soul.name}[/bold] from Agent Card → {out}"
         )
@@ -1475,7 +1646,7 @@ def _save_soul(soul, path):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
     asyncio.run(_do_save())
 
@@ -1485,7 +1656,14 @@ def _save_soul(soul, path):
 @click.option("--user-input", "user_input", required=True, help="User's message")
 @click.option("--agent-output", "agent_output", required=True, help="Agent's response")
 @click.option("--channel", default="cli", help="Channel name (default: cli)")
-def observe_cmd(path, user_input, agent_output, channel):
+@click.option(
+    "--user",
+    "user_id",
+    default=None,
+    help="Attribute the observed memory to this user_id (multi-user souls, #46). "
+    "Per-user bond is strengthened instead of the default bond.",
+)
+def observe_cmd(path, user_input, agent_output, channel, user_id):
     """Process an interaction through the full cognitive pipeline.
 
     Runs sentiment detection, significance gating, memory storage,
@@ -1495,6 +1673,7 @@ def observe_cmd(path, user_input, agent_output, channel):
     Examples:
       soul observe .soul/ --user-input "Hello" --agent-output "Hi there!"
       soul observe aria.soul --user-input "Tell me a joke" --agent-output "Why did..." --channel discord
+      soul observe aria.soul --user-input "Hi" --agent-output "Hello!" --user alice
     """
 
     async def _observe():
@@ -1507,13 +1686,13 @@ def observe_cmd(path, user_input, agent_output, channel):
             agent_output=agent_output,
             channel=channel,
         )
-        await soul.observe(interaction)
+        await soul.observe(interaction, user_id=user_id)
 
         # Save
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         mood = soul.state.mood.value
         energy = soul.state.energy
@@ -1562,7 +1741,7 @@ def reflect_cmd(path, no_apply):
             if Path(path).is_dir():
                 await soul.save_local(path)
             else:
-                await soul.export(path)
+                await soul.export(path, include_keys=True)
 
         lines = []
         if result.themes:
@@ -1648,7 +1827,7 @@ def dream_cmd(path, since, no_archive, no_synthesize, dry_run, as_json):
             if Path(path).is_dir():
                 await soul.save_local(path)
             else:
-                await soul.export(path)
+                await soul.export(path, include_keys=True)
 
         if as_json:
             import dataclasses
@@ -1757,7 +1936,13 @@ def dream_cmd(path, since, no_archive, no_synthesize, dry_run, as_json):
 @click.option(
     "--energy", type=float, default=None, help="Adjust energy (can be negative, e.g. -10)"
 )
-def feel_cmd(path, mood, energy):
+@click.option(
+    "--focus",
+    type=str,
+    default=None,
+    help="Lock focus to a level (low, medium, high, max) or 'auto' to clear and re-enable density-driven focus",
+)
+def feel_cmd(path, mood, energy, focus):
     """Update a soul's emotional state.
 
     \b
@@ -1765,11 +1950,13 @@ def feel_cmd(path, mood, energy):
       soul feel .soul/ --mood excited
       soul feel aria.soul --energy -10
       soul feel .soul/ --mood focused --energy 5
+      soul feel .soul/ --focus max
+      soul feel .soul/ --focus auto
     """
 
     async def _feel():
         from soul_protocol.runtime.soul import Soul
-        from soul_protocol.runtime.types import Mood
+        from soul_protocol.runtime.types import FOCUS_LEVELS, Mood
 
         soul = await Soul.awaken(path)
 
@@ -1783,24 +1970,35 @@ def feel_cmd(path, mood, energy):
                 raise SystemExit(1)
         if energy is not None:
             kwargs["energy"] = energy
+        if focus is not None:
+            if focus != "auto" and focus not in FOCUS_LEVELS:
+                valid = ", ".join(FOCUS_LEVELS) + ", auto"
+                console.print(f"[red]Invalid focus:[/red] '{focus}'. Valid: {valid}")
+                raise SystemExit(1)
+            kwargs["focus"] = focus
 
         if not kwargs:
-            console.print("[red]Provide at least --mood or --energy[/red]")
+            console.print("[red]Provide at least --mood, --energy, or --focus[/red]")
             raise SystemExit(1)
 
         soul.feel(**kwargs)
+        soul.recompute_focus()
 
         # Save
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         state = soul.state
+        focus_label = state.focus
+        if state.focus_override is None:
+            focus_label = f"{state.focus} (auto)"
         console.print(
             f"[green]Updated[/green] [bold]{soul.name}[/bold]\n"
             f"  Mood:   [cyan]{state.mood.value}[/cyan]\n"
-            f"  Energy: {state.energy:.0f}%"
+            f"  Energy: {state.energy:.0f}%\n"
+            f"  Focus:  {focus_label}"
         )
 
     asyncio.run(_feel())
@@ -1833,6 +2031,9 @@ def prompt_cmd(path):
 @cli.command("forget")
 @click.argument("path", type=click.Path(exists=True))
 @click.argument("query", required=False, default=None)
+@click.option(
+    "--id", "memory_id", type=str, default=None, help="Delete a single memory by exact ID"
+)
 @click.option("--entity", type=str, default=None, help="Delete by entity name instead of query")
 @click.option("--before", type=str, default=None, help="Delete before ISO timestamp")
 @click.option(
@@ -1848,8 +2049,8 @@ def prompt_cmd(path):
     default=False,
     help="Skip confirmation prompt (requires --apply)",
 )
-def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
-    """Delete memories by query, entity, or timestamp (GDPR-compliant).
+def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confirm):
+    """Delete memories by ID, query, entity, or timestamp (GDPR-compliant).
 
     Dry-run by default — shows what would be deleted without touching the
     soul. Pass --apply to actually execute. A .soul.bak backup is written
@@ -1857,9 +2058,10 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
 
     \b
     Examples:
-      soul forget .soul/ "credit card"                      # preview
+      soul forget .soul/ "credit card"                      # preview by query
       soul forget .soul/ "credit card" --apply              # prompt + delete
       soul forget aria.soul --entity "John Doe" --apply --confirm
+      soul forget .soul/ --id bf0ee3453983 --apply          # surgical single-id
     """
 
     async def _forget():
@@ -1868,7 +2070,15 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
         soul = await Soul.awaken(path)
         timestamp = None
 
-        if entity:
+        # Mutually-exclusive selector check — pick exactly one.
+        selectors = [bool(memory_id), bool(entity), bool(before), bool(query)]
+        if sum(selectors) != 1:
+            console.print("[red]Provide exactly one of: QUERY, --id, --entity, --before[/red]")
+            raise SystemExit(1)
+
+        if memory_id:
+            description = f"id '{memory_id}'"
+        elif entity:
             description = f"entity '{entity}'"
         elif before:
             from datetime import datetime as dt
@@ -1879,33 +2089,41 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
                 console.print(f"[red]Invalid ISO timestamp:[/red] '{before}'")
                 raise SystemExit(1)
             description = f"memories before {before}"
-        elif query:
-            description = f"query '{query}'"
         else:
-            console.print("[red]Provide a QUERY, --entity, or --before[/red]")
-            raise SystemExit(1)
+            description = f"query '{query}'"
 
         async def _execute_forget() -> dict:
+            if memory_id:
+                return await soul.forget_one(memory_id)
             if entity:
                 return await soul.forget_entity(entity)
             if timestamp is not None:
                 return await soul.forget_before(timestamp)
             return await soul.forget(query)
 
+        def _tier_counts(res: dict) -> dict[str, int]:
+            counts = {
+                "episodic": len(res.get("episodic", [])),
+                "semantic": len(res.get("semantic", [])),
+                "procedural": len(res.get("procedural", [])),
+            }
+            if "edges_removed" in res:
+                counts["graph_edges"] = res["edges_removed"]
+            return counts
+
         if not apply_changes:
             # Preview mode — run forget against an in-memory soul and report
             # what would have been deleted without saving.
             result = await _execute_forget()
-            total = result.get("total_deleted", 0)
+            total = result["total"]
             console.print(
                 f"[dim]Preview:[/dim] would forget "
                 f"{total} memor{'y' if total == 1 else 'ies'} "
                 f"from [bold]{soul.name}[/bold] ({description})"
             )
-            if result.get("tiers"):
-                for tier, count in result["tiers"].items():
-                    if count > 0:
-                        console.print(f"  {tier}: {count}")
+            for tier, count in _tier_counts(result).items():
+                if count > 0:
+                    console.print(f"  {tier}: {count}")
             console.print(
                 "\n[dim]Pass --apply to execute "
                 "(a .soul.bak backup is written before any changes).[/]"
@@ -1917,7 +2135,7 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
             return
 
         result = await _execute_forget()
-        total = result.get("total_deleted", 0)
+        total = result["total"]
 
         # Back up before the destructive save.
         from soul_protocol.runtime.backup import backup_soul_file
@@ -1928,7 +2146,7 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         msg = (
             f"[yellow]Forgot[/yellow] {total} memor{'y' if total == 1 else 'ies'} "
@@ -1937,12 +2155,108 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
         if bak is not None:
             msg += f" [dim](backup: {bak.name})[/dim]"
         console.print(msg)
-        if result.get("tiers"):
-            for tier, count in result["tiers"].items():
-                if count > 0:
-                    console.print(f"  {tier}: {count}")
+        for tier, count in _tier_counts(result).items():
+            if count > 0:
+                console.print(f"  {tier}: {count}")
 
     asyncio.run(_forget())
+
+
+@cli.command("supersede")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("new_content")
+@click.option(
+    "--old-id",
+    "old_id",
+    type=str,
+    required=True,
+    help="ID of the memory being superseded",
+)
+@click.option(
+    "--reason",
+    type=str,
+    default=None,
+    help="Why the old memory is wrong or out-of-date (recorded in the supersede audit)",
+)
+@click.option(
+    "--importance",
+    "-i",
+    type=click.IntRange(1, 10),
+    default=5,
+    help="Importance score for the new memory (1-10, default: 5)",
+)
+@click.option(
+    "--emotion",
+    "-e",
+    type=str,
+    default=None,
+    help="Emotion tag for the new memory",
+)
+@click.option(
+    "--type",
+    "-t",
+    "memory_type",
+    type=click.Choice(["episodic", "semantic", "procedural"], case_sensitive=False),
+    default=None,
+    help="Tier for the new memory (default: same tier as the old one).",
+)
+def supersede_cmd(path, new_content, old_id, reason, importance, emotion, memory_type):
+    """Mark a memory as superseded by a new one. Old persists for provenance.
+
+    Writes a new memory chunk, sets ``old.superseded_by = new.id``, damps the
+    old chunk so recall surfaces the new one, and records a supersede audit
+    entry. The old memory is not deleted — use ``soul forget --id`` for that.
+
+    \b
+    Examples:
+      soul supersede .soul/ "X actually shipped on 2026-04-21" \\
+          --old-id bf0ee345 --reason "verified against current code"
+      soul supersede aria.soul "User now prefers light mode" \\
+          --old-id 4c19e2 --type semantic -i 7
+    """
+    from soul_protocol.runtime.types import MemoryType
+
+    tier_override = MemoryType(memory_type.lower()) if memory_type else None
+
+    async def _supersede():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        result = await soul.supersede(
+            old_id,
+            new_content,
+            reason=reason,
+            importance=importance,
+            emotion=emotion,
+            memory_type=tier_override,
+        )
+
+        if not result["found"]:
+            console.print(
+                f"[red]No memory with id[/red] [bold]{old_id}[/bold] "
+                f"found in [bold]{soul.name}[/bold]. Nothing changed."
+            )
+            raise SystemExit(1)
+
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] superseded:\n\n"
+                f"  Old ID      [dim]{result['old_id']}[/dim]\n"
+                f"  New ID      [dim]{result['new_id']}[/dim]\n"
+                f"  Tier        [magenta]{result['tier']}[/magenta]\n"
+                f"  Reason      {reason or '[dim]none[/dim]'}\n\n"
+                f"  [cyan]{new_content}[/cyan]",
+                title="Memory Superseded",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_supersede())
 
 
 @cli.command("edit-core")
@@ -1974,7 +2288,7 @@ def edit_core_cmd(path, persona, human):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         core = soul.get_core_memory()
         console.print(
@@ -2032,7 +2346,7 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
             if Path(path).is_dir():
                 await soul.save_local(path)
             else:
-                await soul.export(path)
+                await soul.export(path, include_keys=True)
             console.print(
                 f"[green]Proposed[/green] mutation [bold]{mutation.id}[/bold]\n"
                 f"  Trait:  {mutation.trait}\n"
@@ -2046,7 +2360,7 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
                 if Path(path).is_dir():
                     await soul.save_local(path)
                 else:
-                    await soul.export(path)
+                    await soul.export(path, include_keys=True)
                 console.print(f"[green]Approved[/green] mutation {approve_id}")
             else:
                 console.print(f"[red]Could not approve[/red] mutation {approve_id}")
@@ -2056,7 +2370,7 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
                 if Path(path).is_dir():
                     await soul.save_local(path)
                 else:
-                    await soul.export(path)
+                    await soul.export(path, include_keys=True)
                 console.print(f"[yellow]Rejected[/yellow] mutation {reject_id}")
             else:
                 console.print(f"[red]Could not reject[/red] mutation {reject_id}")
@@ -2136,7 +2450,7 @@ def evaluate_cmd(path, user_input, agent_output, domain):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         # Display results
         lines = [
@@ -2198,7 +2512,7 @@ def learn_cmd(path, user_input, agent_output, domain):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         if event is None:
             console.print("[dim]No notable learning from this interaction.[/dim]")
@@ -2288,7 +2602,7 @@ def bond_cmd(path, strengthen):
             if Path(path).is_dir():
                 await soul.save_local(path)
             else:
-                await soul.export(path)
+                await soul.export(path, include_keys=True)
             console.print(f"[green]Strengthened[/green] bond for [bold]{soul.name}[/bold]")
 
         strength = bond.bond_strength
@@ -2710,7 +3024,7 @@ def cleanup_cmd(
         from soul_protocol.runtime.backup import backup_soul_file
 
         bak = backup_soul_file(path)
-        await soul.export(path)
+        await soul.export(path, include_keys=True)
         msg = f"\n[green]✓ Cleaned {removed} items. Soul saved.[/]"
         if bak is not None:
             msg += f" [dim](backup: {bak.name})[/dim]"
@@ -2796,7 +3110,7 @@ def repair_cmd(
             return
 
         # Save
-        await soul.export(path)
+        await soul.export(path, include_keys=True)
 
         lines = [f"[bold]{soul.name}[/bold] — Repairs Applied", ""]
         for change in changes:
@@ -2806,6 +3120,140 @@ def repair_cmd(
         console.print(Panel("\n".join(lines), title="Soul Repair", border_style="green"))
 
     asyncio.run(_repair())
+
+
+# ============================================================================
+# Trust chain (#42) — verify + audit commands
+# ============================================================================
+
+
+@cli.command("verify")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit machine-readable JSON.")
+def verify_cmd(path, as_json):
+    """Verify the trust chain of a .soul file or directory.
+
+    \b
+    Examples:
+      soul verify .soul/
+      soul verify aria.soul
+      soul verify aria.soul --json
+
+    Exits 0 on a valid chain, 1 on any verification failure.
+    """
+
+    async def _verify():
+        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.spec.trust import chain_integrity_check
+
+        soul = await Soul.awaken(path)
+        summary = chain_integrity_check(soul.trust_chain)
+
+        # Compute time span (first → last entry)
+        entries = soul.trust_chain.entries
+        time_span = None
+        if entries:
+            first = entries[0].timestamp
+            last = entries[-1].timestamp
+            time_span = (last - first).total_seconds()
+
+        if as_json:
+            payload = {
+                "soul": soul.name,
+                "did": soul.did,
+                "valid": summary["valid"],
+                "length": summary["length"],
+                "signers": builtins.list(summary["signers"]),
+                "first_failure": summary["first_failure"],
+                "time_span_seconds": time_span,
+            }
+            console.print_json(data=payload)
+            sys.exit(0 if summary["valid"] else 1)
+
+        if summary["valid"]:
+            console.print(f"[green]✓[/green] Chain verified for [bold]{soul.name}[/bold]")
+            console.print(f"  Entries: [cyan]{summary['length']}[/cyan]")
+            console.print(f"  Signers: [cyan]{len(summary['signers'])}[/cyan]")
+            if time_span is not None:
+                # Pretty time span
+                if time_span < 60:
+                    span_text = f"{time_span:.1f}s"
+                elif time_span < 3600:
+                    span_text = f"{time_span / 60:.1f}m"
+                elif time_span < 86400:
+                    span_text = f"{time_span / 3600:.1f}h"
+                else:
+                    span_text = f"{time_span / 86400:.1f}d"
+                console.print(f"  Time span: [cyan]{span_text}[/cyan]")
+            sys.exit(0)
+        else:
+            failure = summary["first_failure"] or {}
+            seq = failure.get("seq")
+            reason = failure.get("reason", "unknown")
+            console.print(f"[red]✗[/red] Chain verification failed for [bold]{soul.name}[/bold]")
+            console.print(f"  First failure at seq [red]{seq}[/red]: {reason}")
+            sys.exit(1)
+
+    asyncio.run(_verify())
+
+
+@cli.command("audit")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--filter",
+    "action_prefix",
+    default=None,
+    help="Filter actions by prefix (e.g. 'memory.').",
+)
+@click.option("--limit", type=int, default=None, help="Show only the most recent N entries.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit machine-readable JSON.")
+def audit_cmd(path, action_prefix, limit, as_json):
+    """Print a human-readable timeline of signed actions.
+
+    \b
+    Examples:
+      soul audit .soul/
+      soul audit .soul/ --filter memory.
+      soul audit aria.soul --limit 20
+      soul audit aria.soul --json
+    """
+
+    async def _audit():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        log = soul.audit_log(action_prefix=action_prefix, limit=limit)
+
+        if as_json:
+            console.print_json(data={"soul": soul.name, "did": soul.did, "entries": log})
+            return
+
+        if not log:
+            scope = f" (filter: {action_prefix})" if action_prefix else ""
+            console.print(f"[yellow]No audit entries{scope} for {soul.name}.[/yellow]")
+            return
+
+        table = Table(title=f"{soul.name} — Trust Chain Audit", show_lines=False)
+        table.add_column("Seq", style="cyan", justify="right")
+        table.add_column("Timestamp", style="dim")
+        table.add_column("Action", style="bold")
+        table.add_column("Actor", style="green")
+        table.add_column("Payload Hash", style="dim")
+        for row in log:
+            ts = row["timestamp"]
+            # Trim microseconds for display
+            if "." in ts:
+                ts = ts.split(".", 1)[0] + ts[ts.index("+") :] if "+" in ts else ts.split(".", 1)[0]
+            table.add_row(
+                str(row["seq"]),
+                ts,
+                row["action"],
+                row["actor_did"],
+                row["payload_hash"][:12] + "…",
+            )
+        console.print(table)
+
+    asyncio.run(_audit())
 
 
 if __name__ == "__main__":

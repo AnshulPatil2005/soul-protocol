@@ -9,6 +9,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.4.0] -- 2026-04-29
+
+The **identity bundle** release. Major bump because the schema grows and the API surface gains new top-level concepts: users, memory layers + domains, and signed action history. One coherent migration; not three rounds.
+
+### Identity bundle
+
+- **Multi-user soul support (#46)** — a single soul can now serve multiple humans without bleeding context. `soul.observe()` and `soul.recall()` accept a `user_id` parameter; memory retrieval filters by user context; the bond system tracks per-user relationship strength. The `.soul` file already supported multiple bond entries — this wires runtime context-switching on top.
+- **User-defined memory layers + domain isolation (#41)** — at the spec layer, `MemoryEntry.layer` is a free-form string. `LAYER_CORE`, `LAYER_EPISODIC`, `LAYER_SEMANTIC`, `LAYER_PROCEDURAL`, `LAYER_SOCIAL` ship as well-known constants (and the runtime `MemoryType` StrEnum keeps the same values for back-compat — `MemoryType.SEMANTIC == "semantic"`). `MemoryEntry` gains an optional `domain` field (e.g. `"finance"`, `"legal"`, `"personal"`) defaulting to `"default"`. `MemoryStore` queries can scope to layer + domain. New `social` layer for relationship memory powered by `SocialStore`. `MemoryManager.layer(name)` returns a `LayerView` that works for built-in and user-defined layer names alike. `Soul.remember(domain=...)`, `Soul.observe(domain=...)`, and `Soul.recall(layer=..., domain=...)` accept the new filters. `DomainIsolationMiddleware` enforces that callers only read their authorized domains and raises `DomainAccessError` on writes outside the allow-list. Existing `.soul` files load with `layer` derived from `type` and `domain="default"`; the on-disk layout switches to a nested `memory/<layer>/<domain>/entries.json` form only when custom domains or layers are present. New CLI: `soul layers <path>` lists per-layer + per-domain counts.
+- **Trust chain — verifiable action history (#42)** — every learning event, memory mutation, and evolution step is signed and traceable. New spec primitives in `soul_protocol.spec.trust`: `TrustEntry`, `TrustChain`, `SignatureProvider` protocol, plus `verify_chain`, `verify_entry`, `chain_integrity_check`, `compute_payload_hash`, `compute_entry_hash`, `GENESIS_PREV_HASH`. Default `Ed25519SignatureProvider` ships with the runtime. Append-only Merkle-style chain per soul: `trust_chain/chain.json` is the canonical store, `trust_chain/entry_NNN.json` adds per-entry copies for human inspection. Signing keys live under `keys/public.key` and `keys/private.key`; `Soul.export(include_keys=False)` (default) drops the private key for safe sharing while keeping the chain verifiable. Soul-level helpers: `soul.trust_chain`, `soul.trust_chain_manager`, `soul.verify_chain()`, `soul.audit_log()`. Memory writes (observe), supersedes, forgets, evolution proposed/applied, learning events, and bond strengthen/weaken all auto-append signed entries. New CLIs: `soul verify <path>` checks integrity (exit 1 on tampering); `soul audit <path>` prints a Rich timeline with `--filter <prefix>`, `--limit N`, and `--json`. New MCP tools: `soul_verify`, `soul_audit`. Full doc at `docs/trust-chain.md` covers the threat model, key management, and how to share souls without leaking the signing key. Foundation for reputation systems and provenance proofs.
+
+### Rolled-in polish
+
+- **Density-driven focus (#194)** — `SoulState.focus` is now computed from a sliding window of recent interactions instead of being a static default. Bands: 0 in window → `low`, 1-2 → `medium`, 3-9 → `high`, 10+ → `max`. Manual lock via `soul.feel(focus="<level>")`; `feel(focus="auto")` clears the lock. New `Soul.recompute_focus(now)` for read-time freshness. CLI status + MCP `soul_state` refresh focus before display.
+- **Memory update primitives (#193)** — `Soul.supersede(old_id, new_content, *, reason, ...)` writes a new memory and links the old one's `superseded_by` for provenance. `Soul.forget_one(memory_id) -> dict` for audited single-id deletion. New CLIs: `soul supersede` and `soul forget --id`. Fixes a long-standing bug where `soul forget` reported `0 memories` even on successful deletion (was reading the wrong dict key).
+- **Wiki rebuild (#186)** — fresh wiki regeneration covering 328 articles after the 0.3.3/0.3.4 surface changes.
+
+### Schema migrations
+
+Existing `.soul` files load cleanly. The migration tool (`soul migrate <path>`) upgrades older souls in place:
+
+- `MemoryEntry` gains optional `user_id` (None for legacy entries — they belong to the soul's default bond) and `domain` (defaults to `"default"`).
+- Memory directory layout migrates from `memory/{episodic,semantic,procedural}.json` to `memory/{layer}/{domain}/entries.json` on first save. The legacy flat layout is read transparently for back-compat.
+- `trust_chain/` directory is created on first signed action; older souls have an empty chain until they perform a signed action.
+
+### Breaking changes
+
+- At the spec layer, `MemoryEntry.layer` is now a plain `str` rather than an enum. `LAYER_CORE`, `LAYER_EPISODIC`, `LAYER_SEMANTIC`, `LAYER_PROCEDURAL`, `LAYER_SOCIAL` are exported from `soul_protocol.spec.memory` for code that wants well-known names. The runtime `MemoryType` StrEnum is unchanged (still importable from `soul_protocol.runtime.types`); members compare equal to the new layer strings (`MemoryType.SEMANTIC == "semantic"`). Downstream code that pattern-matched against the spec-layer enum values needs to compare strings instead.
+- `Soul.observe(user_id=None, ...)` adds a keyword-only parameter ahead of the existing args. Positional callers should switch to keyword form (the existing tests already do).
+- `Soul.recall(query, *, user_id=None, layer=None, domain=None, ...)` similarly adds keyword-only filters. Default behavior is unchanged when these are omitted.
+
+### Notes
+
+- This release rolls in three polish PRs (#194, #193, #186) that were in flight on `dev` between 0.3.4 and 0.4.0. Their commits are preserved in the release branch as separate logical units.
+- Closes issues #46, #41, #42 (the identity bundle umbrella tracker #183 stays open as the parent and gets closed when this release tags).
+
+---
+
 ## [0.3.4] -- 2026-04-24
 
 Hotfix release. The 0.3.3 wheel failed to upload to PyPI because `pyproject.toml` had a redundant `[tool.hatch.build.targets.wheel.force-include]` block that double-included the bundled template YAMLs (`analyst.yaml`, `arrow.yaml`, `cyborg.yaml`, `flash.yaml`). PyPI rejected the wheel with HTTP 400 ("Duplicate filename in local headers"). The 0.3.3 source distribution did upload, so `pip install soul-protocol==0.3.3` still works via the sdist — but a clean wheel install requires 0.3.4.

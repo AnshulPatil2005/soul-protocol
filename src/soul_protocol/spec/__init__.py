@@ -22,6 +22,11 @@
 #   ProjectionAdapter) are application-layer and now live in pocketpaw.
 #   DataRef is re-exported as RetrievalDataRef to distinguish it from the
 #   journal-layer DataRef in spec.journal.
+# Updated: 2026-04-29 (#42) — Exported trust chain primitives from spec.trust:
+#   TrustEntry, TrustChain, SignatureProvider, verify_chain, verify_entry,
+#   chain_integrity_check, compute_payload_hash, compute_entry_hash,
+#   GENESIS_PREV_HASH, DEFAULT_ALGORITHM. These are pure spec — concrete
+#   Ed25519 implementation lives under runtime/crypto/.
 
 from __future__ import annotations
 
@@ -60,6 +65,12 @@ from .journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .learning import LearningEvent
 from .manifest import Manifest
 from .memory import (
+    DEFAULT_DOMAIN,
+    LAYER_CORE,
+    LAYER_EPISODIC,
+    LAYER_PROCEDURAL,
+    LAYER_SEMANTIC,
+    LAYER_SOCIAL,
     DictMemoryStore,
     Interaction,
     MemoryEntry,
@@ -90,6 +101,18 @@ from .scope import match_scope, normalise_scopes
 from .soul_file import pack_soul, unpack_soul, unpack_to_container
 from .template import SoulTemplate
 from .trace import RetrievalTrace, TraceCandidate
+from .trust import (
+    DEFAULT_ALGORITHM,
+    GENESIS_PREV_HASH,
+    SignatureProvider,
+    TrustChain,
+    TrustEntry,
+    chain_integrity_check,
+    compute_entry_hash,
+    compute_payload_hash,
+    verify_chain,
+    verify_entry,
+)
 
 __all__ = [
     # A2A Agent Card
@@ -132,6 +155,13 @@ __all__ = [
     "MemoryStore",
     "MemoryVisibility",
     "DictMemoryStore",
+    # Layer constants (#41) — conventions, not constraints
+    "LAYER_CORE",
+    "LAYER_EPISODIC",
+    "LAYER_SEMANTIC",
+    "LAYER_PROCEDURAL",
+    "LAYER_SOCIAL",
+    "DEFAULT_DOMAIN",
     # Scope
     "match_scope",
     "normalise_scopes",
@@ -175,4 +205,15 @@ __all__ = [
     "cosine_similarity",
     "euclidean_distance",
     "dot_product",
+    # Trust chain (#42) — verifiable action history
+    "DEFAULT_ALGORITHM",
+    "GENESIS_PREV_HASH",
+    "SignatureProvider",
+    "TrustChain",
+    "TrustEntry",
+    "chain_integrity_check",
+    "compute_entry_hash",
+    "compute_payload_hash",
+    "verify_chain",
+    "verify_entry",
 ]

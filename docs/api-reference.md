@@ -1,6 +1,10 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-04-30 — v0.5.0 #201/#202: TrustEntry gains a non-cryptographic
+       `summary` field. TrustChainManager.append accepts an optional `summary=` parameter
+       that defaults to an action-keyed formatter registry. Soul.audit_log() rows now
+       include a `summary` key.
      Updated: 2026-04-29 — v0.5.0 (#160): Added Evaluation section documenting the
        soul_protocol.eval module — EvalSpec, EvalCase, EvalResult, CaseResult, the five
        scoring kinds (keyword/regex/semantic/judge/structural), and run_eval /
@@ -1196,12 +1200,29 @@ Read-only `TrustChain` view. The chain is mutated by Soul's lifecycle hooks; for
 
 ### `soul.trust_chain_manager`
 
+<a id="trustchainmanager-summary"></a>
+
 ```python
 @property
 def trust_chain_manager(self) -> TrustChainManager
 ```
 
-The `TrustChainManager` instance. Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover.
+The `TrustChainManager` instance. Public methods of interest:
+
+```python
+def append(
+    self,
+    action: str,
+    payload: dict,
+    actor_did: str | None = None,
+    timestamp: datetime | None = None,
+    summary: str | None = None,        # #201 — non-cryptographic per-action description
+) -> TrustEntry
+```
+
+Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover. Pass `summary=` to attach a human-readable description; when omitted, an action-keyed default formatter from `_SUMMARY_FORMATTERS` runs against the payload. The summary is stored on the resulting `TrustEntry.summary` field and surfaces in `audit_log()` rows. It is excluded from the canonical bytes used for hashing and signing — chain integrity does not depend on it.
+
+Default formatters ship for the actions Soul emits (`memory.write`, `memory.forget`, `memory.supersede`, `bond.strengthen`, `bond.weaken`, `evolution.proposed`, `evolution.applied`, `learning.event`); custom actions without a registered formatter get `summary=""` unless one is passed explicitly.
 
 ### `soul.verify_chain()`
 
@@ -1222,7 +1243,7 @@ def audit_log(
 ) -> list[dict]
 ```
 
-Returns a list of `{seq, timestamp, action, actor_did, payload_hash}` dicts. Filter by dot-namespaced action prefix (e.g. `"memory."`) and/or take only the most recent N rows.
+Returns a list of `{seq, timestamp, action, actor_did, payload_hash, summary}` dicts. Filter by dot-namespaced action prefix (e.g. `"memory."`) and/or take only the most recent N rows. The `summary` field (added in #201) is a short human-readable description set at append time — see [`TrustChainManager.append`](#trustchainmanager-summary). Pre-#201 entries return `summary=""`.
 
 ### `Soul.export(include_keys=...)`
 
@@ -1252,10 +1273,13 @@ class TrustEntry(BaseModel):
     action: str                             # dot-namespaced (memory.write, …)
     payload_hash: str                       # SHA-256 hex of canonical payload JSON
     prev_hash: str                          # hash of previous entry (or GENESIS_PREV_HASH)
-    signature: str                          # base64 Ed25519 signature
+    signature: str                          # base64 Ed25519 signature (excluded from canonical bytes)
     algorithm: str = "ed25519"
     public_key: str                         # base64 raw 32-byte public key
+    summary: str = ""                       # non-cryptographic per-action prose (excluded from canonical bytes, #201)
 ```
+
+`summary` is a short human-readable description set at append time. It is excluded from `compute_entry_hash` and `_signing_message` so callers can edit, localise, or rewrite the summary without breaking `verify_chain()`. Pre-#201 entries that have no `summary` field on disk load with the empty default.
 
 ### `TrustChain`
 

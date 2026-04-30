@@ -1343,6 +1343,75 @@ from soul_protocol.spec.trust import (
 
 ---
 
+## Soul Diff (#191)
+
+Structured comparison between two souls. Lives in `soul_protocol.runtime.diff` with re-exports at the package level.
+
+```python
+from soul_protocol.runtime import Soul, SoulDiff, diff_souls, SchemaMismatchError
+
+left = await Soul.awaken("aria.soul")
+right = await Soul.awaken("aria-after-week.soul")
+diff: SoulDiff = diff_souls(left, right, include_superseded=False)
+```
+
+### `diff_souls(left, right, *, include_superseded=False) -> SoulDiff`
+
+Top-level entry point. Compares two `Soul` instances and returns a fully-populated `SoulDiff`. Sections are populated even when empty — consumers read `section.empty` to decide rendering.
+
+Raises `SchemaMismatchError` when the two souls have different `_config.version` strings; run `soul migrate <path>` on the older soul first.
+
+When `include_superseded=False` (default), memories whose `superseded_by` flipped between the two souls are filtered from the modified list; the supersession chain stays in the file but isn't surfaced. Pass `True` to populate `memory.superseded` and add the `superseded_by` field change explicitly.
+
+### `SoulDiff`
+
+Top-level Pydantic model. Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `left_name` / `right_name` | `str` | Soul names from each side. |
+| `left_did` / `right_did` | `str` | DIDs from each side. |
+| `identity` | `IdentityDiff` | Field changes (DID, name, archetype, born, bonded_to, role, core_values). |
+| `ocean` | `OceanDiff` | OCEAN trait deltas + communication / biorhythm changes. |
+| `state` | `StateDiff` | Mood, energy, social_battery, focus changes. |
+| `core_memory` | `CoreMemoryDiff` | Persona / human content changes. |
+| `memory` | `MemoryDiff` | Per-layer + per-domain counts; added / removed / modified entries. |
+| `bond` | `BondDiff` | Default + per-user bond strength changes; added/removed users. |
+| `skills` | `SkillDiff` | Skill registry — added / removed / level + XP changes. |
+| `trust_chain` | `TrustChainDiff` | Length delta + new actions + new-entries sample. |
+| `self_model` | `SelfModelDiff` | Domain confidence shifts. |
+| `evolution` | `EvolutionDiff` | New mutations applied since the left's snapshot. |
+
+Methods:
+
+- `summary() -> dict[str, int]` — per-section change counts.
+- `empty` (property) — `True` when no section detected any change.
+- `model_dump(mode="json")` — full JSON-serializable dict (standard Pydantic).
+
+### Section models
+
+`IdentityDiff`, `StateDiff` carry `changes: list[FieldChange]`. Each `FieldChange` is `{field, before, after}`.
+
+`OceanDiff` exposes `trait_deltas: dict[str, float]` (only non-zero deltas), plus `communication_changes` and `biorhythm_changes` lists of `FieldChange`.
+
+`MemoryDiff` carries `layer_counts: list[LayerCounts]` (per-domain breakdown), plus `added`, `removed` (lists of `MemoryEntryAbstract` with truncated content), `modified` (list of `MemoryEntryChange` with content_before/content_after + field_changes), and `superseded` (only populated with `include_superseded=True`).
+
+`BondDiff` carries `changes: list[BondChange]` (per-user strength + interaction count deltas), plus `added_users` / `removed_users` lists.
+
+`SkillDiff` carries `added` / `removed` / `changed` lists of `SkillChange`.
+
+`TrustChainDiff` carries `length_before` / `length_after`, `new_actions` (distinct action names past the left's head), and `new_entries_sample` (up to 5 newest entries as `{seq, timestamp, action, actor_did}`).
+
+`SelfModelDiff` carries `added_domains` / `removed_domains` plus `changed: list[SelfModelChange]` with confidence + evidence deltas.
+
+`EvolutionDiff` carries `new_mutations: list[dict]` with the right-side mutation history past the left's mutation ids.
+
+### `SchemaMismatchError`
+
+Subclass of `ValueError`. Raised by `diff_souls` when versions differ.
+
+---
+
 ## Evaluation
 
 The `soul_protocol.eval` module ships YAML-driven soul-aware evals (#160). Evals seed a soul with explicit state (memories, OCEAN, bonds, mood, energy) and then run cases against that state, so behaviour can be measured against a known starting point. See [eval-format.md](eval-format.md) for the full schema and [cli-reference.md](cli-reference.md#soul-eval) for the `soul eval` command.

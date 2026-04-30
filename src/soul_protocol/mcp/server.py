@@ -1,5 +1,14 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 28 tools (23 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 30 tools (25 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-04-29 (#42) — Trust chain tools: ``soul_verify`` returns chain
+#   integrity status; ``soul_audit`` returns the human-readable timeline of
+#   signed actions, with optional action_prefix and limit. JSON-only output —
+#   designed for agent consumption.
+# Updated: 2026-04-29 (#46) — Multi-user soul support. ``soul_observe`` and
+#   ``soul_recall`` accept an optional ``user_id`` parameter that pipes
+#   through to the runtime so memories get attributed and recall results
+#   filter by user. The recall payload now carries ``user_id`` per entry
+#   so consumers can render multi-user views.
 # Updated: 2026-04-06 — Added soul_dream tool for offline batch memory consolidation.
 #   Detects topic clusters, recurring procedures, behavioral trends, consolidates
 #   graph, and proposes personality evolution.
@@ -549,6 +558,7 @@ async def soul_observe(
     agent_output: str,
     channel: str = "mcp",
     soul: str | None = None,
+    user_id: str | None = None,
     ctx: Context | None = None,
 ) -> str:
     """Process an interaction through the psychology pipeline.
@@ -561,6 +571,9 @@ async def soul_observe(
         agent_output: What the agent responded
         channel: Source channel identifier
         soul: Target soul name (uses active soul if omitted)
+        user_id: When set, attribute the observed memory to this user_id
+            (multi-user souls, #46). Per-user bond is strengthened instead
+            of the default bond.
     """
     if ctx is not None:
         _get_or_create_engine(ctx)
@@ -570,7 +583,8 @@ async def soul_observe(
             user_input=user_input,
             agent_output=agent_output,
             channel=channel,
-        )
+        ),
+        user_id=user_id,
     )
     _registry.mark_modified(soul)
     state = s.state
@@ -580,6 +594,7 @@ async def soul_observe(
             "soul": s.name,
             "mood": state.mood.value,
             "energy": round(state.energy, 1),
+            "user_id": user_id,
         }
     )
 
@@ -591,15 +606,18 @@ async def soul_remember(
     memory_type: str = "semantic",
     emotion: str | None = None,
     soul: str | None = None,
+    domain: str = "default",
 ) -> str:
     """Store a memory directly.
 
     Args:
         content: The memory content
         importance: 1-10 scale
-        memory_type: One of: episodic, semantic, procedural
+        memory_type: One of: episodic, semantic, procedural, social
         emotion: Optional emotion label
         soul: Target soul name (uses active soul if omitted)
+        domain: Sub-namespace inside the layer (#41). Defaults to "default".
+            Use values like "finance" or "legal" to scope memories.
     """
     s = await _resolve_soul(soul)
     mt = _validate_memory_type(memory_type)
@@ -609,6 +627,7 @@ async def soul_remember(
         type=mt,
         importance=importance,
         emotion=emotion,
+        domain=domain,
     )
     _registry.mark_modified(soul)
     return json.dumps(
@@ -616,6 +635,7 @@ async def soul_remember(
             "memory_id": memory_id,
             "soul": s.name,
             "type": memory_type,
+            "domain": domain,
             "importance": importance,
         }
     )
@@ -626,6 +646,9 @@ async def soul_recall(
     query: str,
     limit: int = 5,
     soul: str | None = None,
+    user_id: str | None = None,
+    layer: str | None = None,
+    domain: str | None = None,
 ) -> str:
     """Search the soul's memories by natural language query.
 
@@ -633,16 +656,27 @@ async def soul_recall(
         query: Search query
         limit: Maximum results to return
         soul: Target soul name (uses active soul if omitted)
+        user_id: When set, restrict results to memories attributed to this
+            user_id, plus legacy entries with no user_id (multi-user souls,
+            #46). When unset, returns all memories regardless of attribution.
+        layer: When set, restrict recall to a single layer (#41). Accepts
+            built-in names (episodic, semantic, procedural, social) or any
+            custom layer name.
+        domain: When set, restrict recall to a single domain sub-namespace
+            (#41), e.g. "finance" or "legal".
     """
     s = await _resolve_soul(soul)
-    results = await s.recall(query, limit=limit)
+    results = await s.recall(query, limit=limit, user_id=user_id, layer=layer, domain=domain)
     memories = [
         {
             "id": r.id,
             "type": r.type.value,
+            "layer": r.layer or r.type.value,
+            "domain": r.domain or "default",
             "content": r.content,
             "importance": r.importance,
             "emotion": r.emotion,
+            "user_id": r.user_id,
         }
         for r in results
     ]
@@ -730,6 +764,7 @@ async def soul_state(soul: str | None = None) -> str:
         soul: Target soul name (uses active soul if omitted)
     """
     s = await _resolve_soul(soul)
+    s.recompute_focus()
     st = s.state
     return json.dumps(
         {
@@ -747,6 +782,7 @@ async def soul_state(soul: str | None = None) -> str:
 async def soul_feel(
     mood: str | None = None,
     energy: float | None = None,
+    focus: str | None = None,
     soul: str | None = None,
 ) -> str:
     """Update the soul's emotional state.
@@ -756,8 +792,12 @@ async def soul_feel(
               contemplative, satisfied, concerned
         energy: Energy delta (-100 to 100). Positive increases,
                 negative decreases. Clamped to 0-100.
+        focus: Lock focus to one of low/medium/high/max, or 'auto'
+                to clear the lock and re-enable density-driven focus.
         soul: Target soul name (uses active soul if omitted)
     """
+    from soul_protocol.runtime.types import FOCUS_LEVELS
+
     s = await _resolve_soul(soul)
     kwargs: dict[str, Any] = {}
     if mood is not None:
@@ -765,7 +805,13 @@ async def soul_feel(
     if energy is not None:
         energy = max(-100.0, min(100.0, energy))
         kwargs["energy"] = energy
+    if focus is not None:
+        if focus != "auto" and focus not in FOCUS_LEVELS:
+            valid = ", ".join(FOCUS_LEVELS) + ", auto"
+            raise ValueError(f"Invalid focus '{focus}'. Valid: {valid}")
+        kwargs["focus"] = focus
     s.feel(**kwargs)
+    s.recompute_focus()
     _registry.mark_modified(soul)
     st = s.state
     return json.dumps(
@@ -773,6 +819,8 @@ async def soul_feel(
             "soul": s.name,
             "mood": st.mood.value,
             "energy": round(st.energy, 1),
+            "focus": st.focus,
+            "focus_override": st.focus_override,
         }
     )
 
@@ -1573,6 +1621,62 @@ async def soul_context_describe(
     )
 
 
+# --- Trust chain tools (#42, 2 tools) ---
+
+
+@mcp.tool
+async def soul_verify(
+    soul: str | None = None,
+) -> str:
+    """Verify the trust chain integrity for a soul.
+
+    Returns JSON ``{soul, did, valid, length, signers, first_failure}``.
+    The chain is the soul's append-only signed history of all
+    audit-worthy actions (memory writes, supersedes, evolution events,
+    learning events, bond changes). A chain that fails verification has
+    been tampered with — never trust the soul's claimed history.
+
+    Args:
+        soul: Target soul name (uses active soul if omitted).
+    """
+    from soul_protocol.spec.trust import chain_integrity_check
+
+    s = await _resolve_soul(soul)
+    summary = chain_integrity_check(s.trust_chain)
+    return json.dumps(
+        {
+            "soul": s.name,
+            "did": s.did,
+            "valid": summary["valid"],
+            "length": summary["length"],
+            "signers": list(summary["signers"]),
+            "first_failure": summary["first_failure"],
+        }
+    )
+
+
+@mcp.tool
+async def soul_audit(
+    action_prefix: str | None = None,
+    limit: int | None = None,
+    soul: str | None = None,
+) -> str:
+    """Return a human-readable timeline of signed actions on the soul's chain.
+
+    Each row carries ``{seq, timestamp, action, actor_did, payload_hash}``.
+    Use ``action_prefix`` (e.g. ``"memory."``) to scope to one category.
+    Use ``limit`` to take only the most recent N rows (tail behaviour).
+
+    Args:
+        action_prefix: Optional dot-namespaced prefix filter.
+        limit: Optional cap on number of rows (most-recent-N).
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    log = s.audit_log(action_prefix=action_prefix, limit=limit)
+    return json.dumps({"soul": s.name, "did": s.did, "entries": log})
+
+
 # --- Resources (3) ---
 
 
@@ -1611,6 +1715,7 @@ async def soul_core_memory_resource() -> str:
 async def soul_state_resource() -> str:
     """Current soul state: mood, energy, focus, social battery."""
     s = await _resolve_soul()
+    s.recompute_focus()
     st = s.state
     return json.dumps(
         {

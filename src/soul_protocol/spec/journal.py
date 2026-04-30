@@ -1,9 +1,8 @@
 # journal.py — Org Journal primitives (Actor, DataRef, EventEntry).
-# Updated: feat/journal-spec — tighten DataRef.point_in_time to UTC-only
-# (non-UTC tz-aware datetimes now raise instead of being silently accepted),
-# add a __dataref__ marker so the `DataRef | dict` payload union on
-# EventEntry round-trips without silent misdeserialization, and drop the
-# fabric.* namespaces from ACTION_NAMESPACES (runtime-specific, not protocol).
+# Updated: feat/0.3.2-spike — add EventEntry.seq (backend-assigned, None until
+# committed). Journal.append now returns the committed EventEntry so callers
+# can thread seq through idempotency/pagination without racing MAX(seq) or
+# reaching into backend.append() directly.
 # The journal is the append-only, UTC-stamped, scope-tagged source of truth
 # for an org instance. This module ships the spec models only — the SQLite WAL
 # engine and the `soul org init` CLI land in follow-up PRs.
@@ -195,8 +194,7 @@ class DataRef(BaseModel):
             raise ValueError("DataRef.point_in_time must be timezone-aware (UTC)")
         if offset != timedelta(0):
             raise ValueError(
-                "DataRef.point_in_time must be UTC — got offset "
-                f"{offset}. Normalize at the source."
+                f"DataRef.point_in_time must be UTC — got offset {offset}. Normalize at the source."
             )
         return v
 
@@ -239,6 +237,14 @@ class EventEntry(BaseModel):
     payload: dict | DataRef = Field(default_factory=dict)
     prev_hash: JournalBytes = None
     sig: JournalBytes = None
+    seq: int | None = None
+    """Monotonic sequence assigned by the backend at commit.
+
+    ``None`` on entries that have not been committed yet. Populated on the
+    EventEntry returned by ``Journal.append()``. Future backend-assigned
+    fields (resolved hash, signature) follow the same pattern — mutable
+    on the spec, set by the engine on commit.
+    """
 
     @field_validator("payload", mode="before")
     @classmethod

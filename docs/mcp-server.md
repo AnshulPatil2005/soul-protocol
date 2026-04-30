@@ -1,6 +1,8 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 24 tools
-     (14 soul/memory + 5 context + 5 psychology), 3 resources, 2 prompts, auto-detect,
-     MCP Sampling Engine, programmatic usage, and design notes.
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 26 tools
+     (14 soul/memory + 5 context + 5 psychology + 2 trust chain), 3 resources, 2 prompts,
+     auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-04-29 — v0.4.0 (#42): Added soul_verify and soul_audit MCP tools for
+     trust-chain integrity checks and signed-action timelines. Tool count: 24 → 26.
      Updated: 2026-04-06 — Added soul_dream tool for offline batch memory consolidation.
      Updated: 2026-03-27 — v0.2.8: Fixed section header "Tools (18)" → "Tools (23)".
      Updated: 2026-03-26 — v0.2.7: Added 5 psychology pipeline tools (soul_skills,
@@ -86,7 +88,7 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (24)
+## Tools (26)
 
 All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 24 tools break down as: 9 soul management, 5 memory, 5 context (LCM), and 5 psychology pipeline (v0.2.7).
 
@@ -117,8 +119,10 @@ Process an interaction through the full psychology pipeline. Extracts facts, det
 | `user_input` | `str` | required | What the user said |
 | `agent_output` | `str` | required | What the agent responded |
 | `channel` | `str` | `"mcp"` | Source channel identifier |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+| `user_id` | `str \| None` | `None` | Multi-user attribution (#46). When set, every memory written during this call is stamped with the user_id, and the per-user bond is strengthened instead of the default bond. |
 
-**Returns:** JSON with `status`, `mood`, and `energy`.
+**Returns:** JSON with `status`, `soul`, `mood`, `energy`, and `user_id` (echoed back).
 
 ---
 
@@ -130,10 +134,11 @@ Store a memory directly, bypassing the observe pipeline.
 |-----------|------|---------|-------------|
 | `content` | `str` | required | The memory content |
 | `importance` | `int` | `5` | Importance on a 1-10 scale |
-| `memory_type` | `str` | `"semantic"` | One of: `episodic`, `semantic`, `procedural`. The `core` type is rejected — use `soul://memory/core` resource to read core memory. |
+| `memory_type` | `str` | `"semantic"` | One of: `episodic`, `semantic`, `procedural`, `social`. The `core` type is rejected — use `soul://memory/core` resource to read core memory. The `social` value (#41) targets the relationship layer. |
 | `emotion` | `str` | `None` | Optional emotion label (e.g. "joy", "frustration") |
+| `domain` | `str` | `"default"` | Domain sub-namespace inside the layer (#41), e.g. `"finance"` or `"legal"`. |
 
-**Returns:** JSON with `memory_id`, `type`, and `importance`.
+**Returns:** JSON with `memory_id`, `type`, `domain`, and `importance`.
 
 ---
 
@@ -145,8 +150,12 @@ Search the soul's memories by natural language query. Results are ranked by ACT-
 |-----------|------|---------|-------------|
 | `query` | `str` | required | Search query |
 | `limit` | `int` | `5` | Maximum number of results |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+| `user_id` | `str \| None` | `None` | Multi-user filter (#46). When set, restrict results to memories attributed to this `user_id`, plus any legacy entries with no `user_id`. When unset, returns all memories regardless of attribution. |
+| `layer` | `str \| None` | `None` | Restrict recall to one layer (#41). Accepts built-in names (`episodic`, `semantic`, `procedural`, `social`) or any custom layer name. |
+| `domain` | `str \| None` | `None` | Restrict recall to one domain sub-namespace (#41), e.g. `"finance"`. |
 
-**Returns:** JSON with `count` and `memories` array. Each memory includes `id`, `type`, `content`, `importance`, and `emotion`.
+**Returns:** JSON with `count`, `soul`, and `memories` array. Each memory includes `id`, `type`, `layer`, `domain`, `content`, `importance`, `emotion`, and `user_id`.
 
 ---
 
@@ -185,6 +194,8 @@ Get the soul's current mood, energy, focus, social battery, and lifecycle stage.
 
 **Returns:** JSON with `mood`, `energy`, `focus`, `social_battery`, and `lifecycle`.
 
+`focus` is recomputed from interaction density at call time (unless a manual override is in place — see `soul_feel` below). Bands with default thresholds: `low` (no interactions in the last hour), `medium` (1-2), `high` (3-9), `max` (10+).
+
 ---
 
 ### `soul_feel`
@@ -195,10 +206,11 @@ Update the soul's emotional state directly.
 |-----------|------|---------|-------------|
 | `mood` | `str` | `None` | One of: `neutral`, `curious`, `focused`, `tired`, `excited`, `contemplative`, `satisfied`, `concerned` |
 | `energy` | `float` | `None` | Energy **delta** (-100 to 100). Positive increases, negative decreases. Clamped to 0-100 after application. |
+| `focus` | `str` | `None` | Lock focus to `low`, `medium`, `high`, or `max`. Pass `auto` to clear the lock and re-enable density-driven focus. |
 
-**Returns:** JSON with updated `mood` and `energy`.
+**Returns:** JSON with updated `mood`, `energy`, `focus`, and `focus_override`.
 
-Note: `energy` is a delta, not an absolute value. Passing `energy: -10` drains 10 points from the current level.
+Note: `energy` is a delta, not an absolute value. Passing `energy: -10` drains 10 points from the current level. `focus` is an absolute level, not a delta.
 
 ---
 
@@ -410,6 +422,36 @@ Get a metadata snapshot of the soul's context store. Returns message count, toke
 | `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
 
 **Returns:** JSON with `soul`, `total_messages`, `total_nodes`, `total_tokens`, `compaction_stats`, and `date_range`.
+
+---
+
+### `soul_verify`
+
+Verify the trust chain integrity for a soul (#42). The trust chain is the soul's append-only signed history of audit-worthy actions (memory writes, supersedes, evolution events, learning events, bond changes). A chain that fails verification has been tampered with.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{soul, did, valid, length, signers, first_failure}`.
+
+`first_failure` is `null` on a valid chain, or `{seq, reason}` on a tampered chain.
+
+---
+
+### `soul_audit`
+
+Return a human-readable timeline of signed actions on the soul's trust chain (#42). Each row carries `{seq, timestamp, action, actor_did, payload_hash}`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `action_prefix` | `str` | `None` | Filter to actions starting with this prefix (e.g. `memory.`) |
+| `limit` | `int` | `None` | Show only the most recent N entries |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{soul, did, entries: [...]}`.
+
+Payloads themselves are not on chain — only their hashes — so this tool surfaces *what changed when*, not *what was written*.
 
 ---
 

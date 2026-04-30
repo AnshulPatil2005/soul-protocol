@@ -1,6 +1,11 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-04-27 — Documented user-driven memory update primitives: Soul.forget_one
+       (audited single-id delete), Soul.supersede (write new memory + link old.superseded_by),
+       Soul.supersede_audit property. Rewrote stale soul.forget() entry to match the real
+       signature (forget(query) → dict, not forget(memory_id) → bool). Added forget_entity /
+       forget_before / forget_by_id signatures alongside.
      Updated: 2026-04-06 — Added soul.dream() method and DreamReport type. -->
 
 # API Reference
@@ -203,11 +208,18 @@ Store a new memory. Returns the generated memory ID.
 | `importance` | `int` | `5` | 1-10 scale |
 | `emotion` | `str \| None` | `None` | Emotional tag |
 | `entities` | `list[str] \| None` | `None` | Referenced entities |
+| `domain` | `str` | `"default"` | Sub-namespace inside the layer (#41), e.g. `"finance"` or `"legal"` |
+| `user_id` | `str \| None` | `None` | Multi-user attribution (#46) |
 
 **Returns:** `str` -- memory ID
 
 ```python
 mid = await soul.remember("User prefers dark mode", importance=7)
+
+# Domain-scoped memory (#41)
+mid = await soul.remember(
+    "Q3 revenue up 12 percent", domain="finance", importance=8
+)
 ```
 
 #### `soul.recall()`
@@ -220,6 +232,9 @@ async def recall(
     limit: int = 10,
     types: list[MemoryType] | None = None,
     min_importance: int = 0,
+    user_id: str | None = None,
+    layer: str | None = None,
+    domain: str | None = None,
 ) -> list[MemoryEntry]
 ```
 
@@ -231,17 +246,35 @@ Search memories ranked by ACT-R activation (recency, frequency, relevance). Rele
 | `limit` | `int` | `10` | Max results |
 | `types` | `list[MemoryType] \| None` | `None` | Filter by memory type(s). `None` = all types. |
 | `min_importance` | `int` | `0` | Minimum importance threshold |
+| `user_id` | `str \| None` | `None` | Multi-user filter (#46). When set, results restrict to memories whose `user_id` matches OR is `None` (legacy/orphan entries are visible to every user). When unset, returns all memories regardless of attribution. |
+| `layer` | `str \| None` | `None` | Restrict recall to one layer (#41). Accepts built-in names (`"episodic"`, `"semantic"`, `"procedural"`, `"social"`) or any custom layer name. |
+| `domain` | `str \| None` | `None` | Restrict recall to one domain sub-namespace (#41), e.g. `"finance"`. |
 
 **Returns:** `list[MemoryEntry]`
 
 ```python
+# Legacy (single-user) recall
 memories = await soul.recall("dark mode preference", limit=5)
+
+# Multi-user soul: scope to alice
+alice_memories = await soul.recall("preferences", user_id="alice", limit=5)
+
+# Domain-scoped recall (#41)
+finance_only = await soul.recall("revenue", domain="finance")
+all_semantic = await soul.recall("python", layer="semantic")
+combo = await soul.recall("revenue", layer="semantic", domain="finance")
 ```
 
 #### `soul.observe()`
 
 ```python
-async def observe(self, interaction: Interaction) -> None
+async def observe(
+    self,
+    interaction: Interaction,
+    *,
+    user_id: str | None = None,
+    domain: str = "default",
+) -> None
 ```
 
 The primary learning hook. Call after every user-agent exchange. Runs the full psychology pipeline:
@@ -259,20 +292,179 @@ The primary learning hook. Call after every user-agent exchange. Runs the full p
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `interaction` | `Interaction` | required | The user-agent exchange |
+| `user_id` | `str \| None` | `None` | Multi-user attribution (#46). When set, every memory written during this call is stamped with the user_id, and the per-user bond is strengthened instead of the default bond. When unset, behaviour is unchanged: orphan entries with `user_id=None`. |
+| `domain` | `str` | `"default"` | Domain stamp for memories written by this call (#41). Pass e.g. `"finance"` to scope all derived memories to that domain. |
 
 ```python
+# Legacy (single-user) observe
 await soul.observe(Interaction(user_input="Hi!", agent_output="Hello there!"))
+
+# Multi-user soul: attribute to alice
+await soul.observe(
+    Interaction(user_input="My favorite color is blue", agent_output="Got it!"),
+    user_id="alice",
+)
+
+# Domain-scoped observe (#41)
+await soul.observe(
+    Interaction(user_input="Q3 revenue up 12 percent", agent_output="Noted."),
+    domain="finance",
+)
 ```
+
+#### `soul._memory.layer(name)` — LayerView accessor (#41)
+
+```python
+view = soul._memory.layer("social")
+sid = await view.store(MemoryEntry(
+    type=MemoryType.SEMANTIC,
+    content="Alice prefers async messages",
+    importance=7,
+))
+results = await view.query("alice", domain="finance")
+recent = view.entries(domain="legal")
+n = view.count()
+```
+
+`MemoryManager.layer(name)` returns a `LayerView` with a uniform API (`store`, `query`, `get`, `delete`, `entries`, `count`) that works for built-in layers (`episodic`, `semantic`, `procedural`, `social`) and any user-defined layer name. Custom layers are created lazily on first `store()`.
+
+#### `DomainIsolationMiddleware` (#41)
+
+```python
+from soul_protocol.runtime.middleware import DomainIsolationMiddleware
+
+finance_only = DomainIsolationMiddleware(
+    soul, allowed_domains=["finance", "default"]
+)
+await finance_only.remember("New OPEX line", importance=7)  # stamped "finance"
+results = await finance_only.recall("revenue", limit=5)
+await finance_only.remember("NDA fact", domain="legal")  # raises DomainAccessError
+```
+
+Wraps a `Soul` and enforces a domain allow-list. Reads silently filter to the allowed list. Writes to a disallowed domain raise `DomainAccessError`. When no domain is given on `remember`/`observe`, the middleware defaults to `allowed_domains[0]`.
+
+#### `soul.bond_for()`
+
+```python
+def bond_for(self, user_id: str) -> Bond
+```
+
+Return the per-user `Bond` for a given `user_id` (multi-user souls, #46). Lazily creates the bond on first access (strength=50, count=0). Bonds survive export/awaken. Use this to inspect or mutate a single user's relationship without touching the default bond.
+
+```python
+alice_bond = soul.bond_for("alice")
+alice_bond.strengthen(2.0)  # only alice's bond moves
+
+# bond.strengthen() also accepts a user_id keyword for routing
+soul.bond.strengthen(2.0, user_id="alice")  # same as above
+soul.bond.strengthen(2.0)  # default bond (legacy)
+```
+
+`soul.bonded_users` returns the list of `user_id`s with their own per-user bonds (excludes the default bond's `bonded_to`).
 
 #### `soul.forget()`
 
 ```python
-async def forget(self, memory_id: str) -> bool
+async def forget(self, query: str) -> dict
 ```
 
-Remove a specific memory by ID.
+Bulk-delete memories matching `query` across episodic, semantic, and procedural tiers. Records a deletion audit entry. Token-overlap match.
 
-**Returns:** `True` if the memory was found and removed, `False` otherwise.
+**Returns:** dict with keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `episodic` | `list[str]` | IDs of deleted episodic memories. |
+| `semantic` | `list[str]` | IDs of deleted semantic facts. |
+| `procedural` | `list[str]` | IDs of deleted procedural memories. |
+| `total` | `int` | Total deleted across tiers. |
+
+#### `soul.forget_entity()`
+
+```python
+async def forget_entity(self, entity: str) -> dict
+```
+
+Bulk-delete by entity. Removes the entity from the knowledge graph and any memories mentioning it. Returns the same dict shape as `forget()` plus `edges_removed: int`.
+
+#### `soul.forget_before()`
+
+```python
+async def forget_before(self, timestamp: datetime) -> dict
+```
+
+Bulk-delete memories created before `timestamp`. Returns the same dict shape as `forget()`.
+
+#### `soul.forget_by_id()`
+
+```python
+async def forget_by_id(self, memory_id: str) -> bool
+```
+
+Legacy single-id deletion. Returns `True` on hit. Kept for backward compatibility — for an audited single-id deletion that returns the full result dict (used by `soul forget --id`), prefer `forget_one()`.
+
+#### `soul.forget_one()`
+
+```python
+async def forget_one(self, memory_id: str) -> dict
+```
+
+Audited single-id deletion. Records a deletion audit entry when the entry exists. Returns:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `episodic` / `semantic` / `procedural` | `list[str]` | The deleted ID (length 0 or 1) by tier. |
+| `total` | `int` | 0 if not found, 1 if deleted. |
+| `found` | `bool` | Whether `memory_id` resolved. |
+| `tier` | `str \| None` | Tier the entry lived in, or `None`. |
+
+#### `soul.supersede()`
+
+```python
+async def supersede(
+    self,
+    old_id: str,
+    new_content: str,
+    *,
+    reason: str | None = None,
+    importance: int = 5,
+    memory_type: MemoryType | None = None,
+    emotion: str | None = None,
+    entities: list[str] | None = None,
+) -> dict
+```
+
+Mark `old_id` as superseded by a newly-written memory. The old entry is preserved with `superseded_by = new_id`; search filters out superseded entries by default, so recall surfaces the new one. `memory_type` defaults to the old entry's tier. Records a supersede audit entry.
+
+**Returns:** dict with `found` / `old_id` / `new_id` / `tier` / `reason`. If `old_id` does not resolve, `found` is False and no new memory is written.
+
+```python
+result = await soul.supersede(
+    old_fact_id,
+    "User now prefers light mode",
+    reason="changed during onboarding redesign",
+    importance=7,
+)
+print(result["new_id"])
+```
+
+#### `soul.deletion_audit`
+
+```python
+@property
+def deletion_audit(self) -> list[dict]
+```
+
+Read-only copy of the deletion audit trail. Each entry: `deleted_at` (ISO timestamp), `count`, `reason`, `tiers` (per-tier breakdown). The audit does not contain deleted content (GDPR).
+
+#### `soul.supersede_audit`
+
+```python
+@property
+def supersede_audit(self) -> list[dict]
+```
+
+Read-only copy of the user-driven supersede audit trail. Each entry: `superseded_at` (ISO timestamp), `old_id`, `new_id`, `tier`, `reason`. Internal supersession (dream-cycle dedup, contradiction resolution during `learn`) does not append here — only explicit `supersede()` calls.
 
 #### `soul.get_core_memory()`
 
@@ -362,12 +554,21 @@ def feel(self, **kwargs) -> None
 
 Update the soul's emotional state. Not async.
 
-For `energy` and `social_battery`, values are **deltas** (added to current value, clamped 0-100). All other fields (`mood`, `focus`, `last_interaction`) are **set directly**.
+For `energy` and `social_battery`, values are **deltas** (added to current value, clamped 0-100). `mood` and `last_interaction` are set directly. `focus` accepts a level (`"low"`, `"medium"`, `"high"`, `"max"`) which sets `focus_override` and locks focus to that value, or `"auto"` / `None` to clear the lock and re-enable density-driven focus.
 
 ```python
 soul.feel(energy=-10, mood=Mood.TIRED)
-soul.feel(social_battery=15, focus="high")
+soul.feel(social_battery=15, focus="high")  # locked
+soul.feel(focus="auto")                     # density-driven again
 ```
+
+#### `soul.recompute_focus()`
+
+```python
+def recompute_focus(self, now: datetime | None = None) -> str
+```
+
+Recompute density-driven focus at the given time and return the resulting level. Call before reading `soul.state.focus` if you need a value that reflects current interaction density rather than the last interaction tick. No-op when `focus_override` is set or `Biorhythms.focus_window_seconds` is 0.
 
 #### `soul.to_system_prompt()`
 
@@ -543,6 +744,9 @@ Simulated vitality and energy patterns.
 | `chronotype` | `str` | `"neutral"` | |
 | `social_battery` | `float` | `100.0` | `ge=0.0, le=100.0` |
 | `energy_regen_rate` | `float` | `5.0` | |
+| `focus_window_seconds` | `float` | `3600.0` | `ge=0.0` (set to 0 to disable density-driven focus) |
+| `focus_high_threshold` | `int` | `3` | `ge=1` (interactions in window at or above which focus rises to `high`) |
+| `focus_max_threshold` | `int` | `10` | `ge=1` (interactions in window at or above which focus rises to `max`) |
 
 #### `DNA`
 
@@ -645,6 +849,9 @@ A single memory with metadata, emotional context, and psychology-informed fields
 | `significance` | `float` | `0.0` | | LIDA significance score |
 | `general_event_id` | `str \| None` | `None` | | Conway hierarchy link |
 | `superseded_by` | `str \| None` | `None` | | ID of newer conflicting fact (v0.2.2) |
+| `user_id` | `str \| None` | `None` | | Multi-user attribution (#46) |
+| `layer` | `str` | `""` | | Free-form layer namespace (#41). Empty string is coerced to `type.value`. |
+| `domain` | `str` | `"default"` | | Sub-namespace inside the layer (#41), e.g. `"finance"` |
 
 #### `CoreMemory`
 
@@ -690,9 +897,11 @@ The soul's current emotional and energy state.
 |-------|------|---------|-------------|
 | `mood` | `Mood` | `Mood.NEUTRAL` | |
 | `energy` | `float` | `100.0` | `ge=0.0, le=100.0` |
-| `focus` | `str` | `"medium"` | |
+| `focus` | `str` | `"medium"` | Effective level (one of `low`, `medium`, `high`, `max`). Computed from interaction density unless `focus_override` is set. |
+| `focus_override` | `str \| None` | `None` | When set, freezes `focus` to that level. Cleared via `feel(focus="auto")`. |
 | `social_battery` | `float` | `100.0` | `ge=0.0, le=100.0` |
 | `last_interaction` | `datetime \| None` | `None` | |
+| `recent_interactions` | `list[datetime]` | `[]` | Sliding-window timestamps for density-driven focus calc. |
 
 ### Evolution Types
 
@@ -965,3 +1174,129 @@ from soul_protocol import EvolutionMode
 | `EvolutionMode.DISABLED` | `"disabled"` | No mutations allowed |
 | `EvolutionMode.SUPERVISED` | `"supervised"` | Mutations require explicit approval |
 | `EvolutionMode.AUTONOMOUS` | `"autonomous"` | Mutations auto-approved on proposal |
+
+---
+
+## Trust Chain (#42)
+
+Verifiable signed history of every audit-worthy soul action. See [trust-chain.md](trust-chain.md) for the threat model and detailed treatment.
+
+### `soul.trust_chain`
+
+```python
+@property
+def trust_chain(self) -> TrustChain
+```
+
+Read-only `TrustChain` view. The chain is mutated by Soul's lifecycle hooks; for direct mutation use `soul.trust_chain_manager`.
+
+### `soul.trust_chain_manager`
+
+```python
+@property
+def trust_chain_manager(self) -> TrustChainManager
+```
+
+The `TrustChainManager` instance. Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover.
+
+### `soul.verify_chain()`
+
+```python
+def verify_chain(self) -> tuple[bool, str | None]
+```
+
+Returns `(True, None)` on a fully valid chain, or `(False, "reason at seq N")` on the first failure.
+
+### `soul.audit_log()`
+
+```python
+def audit_log(
+    self,
+    *,
+    action_prefix: str | None = None,
+    limit: int | None = None,
+) -> list[dict]
+```
+
+Returns a list of `{seq, timestamp, action, actor_did, payload_hash}` dicts. Filter by dot-namespaced action prefix (e.g. `"memory."`) and/or take only the most recent N rows.
+
+### `Soul.export(include_keys=...)`
+
+```python
+async def export(
+    self,
+    path: str | Path,
+    *,
+    password: str | None = None,
+    archive: bool = False,
+    archive_tiers: list[str] | None = None,
+    include_keys: bool = False,
+) -> None
+```
+
+When `include_keys=False` (default for `export`), the soul's private signing key is dropped from the archive. The recipient can verify the chain but cannot append. Set `include_keys=True` only when migrating to a trusted destination.
+
+`Soul.save()` and `Soul.save_local()` default `include_keys=True` because they're meant for the owner's own machine.
+
+### `TrustEntry`
+
+```python
+class TrustEntry(BaseModel):
+    seq: int                                # 0-indexed monotonic
+    timestamp: datetime                     # UTC, validator-normalized
+    actor_did: str                          # signer DID
+    action: str                             # dot-namespaced (memory.write, …)
+    payload_hash: str                       # SHA-256 hex of canonical payload JSON
+    prev_hash: str                          # hash of previous entry (or GENESIS_PREV_HASH)
+    signature: str                          # base64 Ed25519 signature
+    algorithm: str = "ed25519"
+    public_key: str                         # base64 raw 32-byte public key
+```
+
+### `TrustChain`
+
+```python
+class TrustChain(BaseModel):
+    did: str
+    entries: list[TrustEntry]
+
+    @property
+    def length(self) -> int
+    def head(self) -> TrustEntry | None
+    def genesis_entry(self) -> TrustEntry | None
+```
+
+### `SignatureProvider` Protocol
+
+```python
+@runtime_checkable
+class SignatureProvider(Protocol):
+    @property
+    def algorithm(self) -> str: ...
+    @property
+    def public_key(self) -> str: ...
+    def sign(self, message: bytes) -> str: ...
+    def verify(self, message: bytes, signature: str, public_key: str) -> bool: ...
+```
+
+The default implementation is `Ed25519SignatureProvider` from `soul_protocol.runtime.crypto`.
+
+### Verification functions
+
+```python
+from soul_protocol.spec.trust import (
+    verify_entry,
+    verify_chain,
+    chain_integrity_check,
+    compute_payload_hash,
+    compute_entry_hash,
+    GENESIS_PREV_HASH,
+)
+```
+
+- `verify_entry(entry, prev_entry, provider=None) -> bool` — single-entry verification (signature + chain link)
+- `verify_chain(chain) -> tuple[bool, str | None]` — full chain, returns first failure reason
+- `chain_integrity_check(chain) -> dict` — `{valid, length, first_failure, signers}` summary
+- `compute_payload_hash(payload) -> str` — canonical-JSON SHA-256 hex of an arbitrary payload
+- `compute_entry_hash(entry) -> str` — canonical-JSON SHA-256 hex of the entry minus its signature
+- `GENESIS_PREV_HASH` — the constant `"0" * 64` used as the prev_hash of seq=0

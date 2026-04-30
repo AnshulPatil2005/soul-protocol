@@ -25,10 +25,14 @@ def _invoke_init(runner: CliRunner, data_dir: Path, *extra: str) -> object:
     return runner.invoke(
         cli,
         [
-            "org", "init",
-            "--org-name", "Acme Ventures",
-            "--purpose", "A software company",
-            "--data-dir", str(data_dir),
+            "org",
+            "init",
+            "--org-name",
+            "Acme Ventures",
+            "--purpose",
+            "A software company",
+            "--data-dir",
+            str(data_dir),
             "--non-interactive",
             *extra,
         ],
@@ -84,7 +88,9 @@ def test_rerun_without_force_refuses(tmp_path: Path) -> None:
     second = _invoke_init(runner, data_dir)
 
     assert second.exit_code != 0
-    assert "already exists" in (second.output + (second.stderr if hasattr(second, "stderr") else ""))
+    assert "already exists" in (
+        second.output + (second.stderr if hasattr(second, "stderr") else "")
+    )
 
 
 def test_rerun_with_force_overwrites(tmp_path: Path) -> None:

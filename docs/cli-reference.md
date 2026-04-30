@@ -1,4 +1,12 @@
-<!-- Covers: CLI installation, all 44 commands with usage examples, options tables, and output descriptions.
+<!-- Covers: CLI installation, all 47 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-04-29 — v0.4.0 (#42): Added `soul verify` and `soul audit` for trust-chain
+       integrity checks and signed-action timelines. Both support --json. `soul verify` exits
+       1 on a tampered chain. Count: 45 → 47.
+     Updated: 2026-04-27 — Added `soul supersede` for user-driven memory updates (writes a new
+       memory and links the old one's `superseded_by`, preserving provenance). Added `--id`
+       option to `soul forget` for surgical single-id deletion (audited). Updated `soul forget`
+       to document the `--apply` dry-run gate that landed in 0.3.2 + the per-tier preview
+       breakdown. Count: 44 → 45.
      Updated: 2026-04-14 — v0.3.1: Added `soul org` (init/status/destroy), `soul template` (list/show),
        `soul user invite`, and `soul create --template` command sections. New "Environment Variables"
        section documents SOUL_DATA_DIR, SOUL_USERS_DIR, SOUL_ARCHIVES_DIR resolution order. Count: 38 → 44.
@@ -518,8 +526,15 @@ soul remember aria.soul "Shipped v0.3 today" --type episodic --importance 8
 # Procedural — how to do things
 soul remember aria.soul "To deploy: run make deploy" --type procedural
 
+# Social — relationship memories (#41)
+soul remember aria.soul "Alice prefers async messages" --type social
+
 # With emotion tagging
 soul remember aria.soul "Had a productive session" --emotion happy
+
+# Domain-scoped memory (#41)
+soul remember aria.soul "Q3 revenue up 12 percent" --domain finance --importance 8
+soul remember aria.soul "NDA expires in March" --domain legal --importance 7
 ```
 
 **Arguments:**
@@ -535,17 +550,19 @@ soul remember aria.soul "Had a productive session" --emotion happy
 |--------|---------|-------------|
 | `--importance, -i INT` | `5` | Importance score 1-10. |
 | `--emotion, -e TEXT` | | Emotion tag (e.g. `happy`, `sad`, `excited`). |
-| `--type, -t [episodic\|semantic\|procedural]` | `semantic` | Memory tier (v0.2.9+). |
+| `--type, -t [episodic\|semantic\|procedural\|social]` | `semantic` | Memory tier. `social` added in v0.4.0 (#41). |
+| `--domain, -d TEXT` | `default` | Domain sub-namespace inside the layer (#41), e.g. `finance` or `legal`. |
 
 **Memory tiers:**
 
 - **episodic** — what happened. Events, sessions, shipped work, decisions. Use when the memory answers *"when did that happen?"*
 - **semantic** — what the soul knows. Facts, preferences, project knowledge. Use when the memory answers *"what do I know about X?"*
 - **procedural** — how to do things. Commands, recipes, debugging tips. Use when the memory answers *"how do I...?"*
+- **social** — relationship memories (#41). Communication preferences, trust signals, per-user context.
 
 Core memory (persona and human knowledge) is not writable through `remember`. Use `soul edit-core` instead.
 
-**Output:** A confirmation panel showing the stored text, tier, importance, emotion, and memory ID. The soul is saved automatically.
+**Output:** A confirmation panel showing the stored text, tier, domain, importance, emotion, and memory ID. The soul is saved automatically.
 
 ---
 
@@ -565,6 +582,15 @@ soul recall aria.soul --recent 10
 soul recall aria.soul "python" --full            # Untruncated content
 soul recall aria.soul "python" --json            # Machine-readable JSON
 soul recall aria.soul --recent 5 --json          # Recent memories as JSON
+
+# Multi-user (#46) — scope recall to one user
+soul recall aria.soul "preferences" --user alice
+soul recall aria.soul --recent 10 --user alice
+
+# Layer + domain filters (#41)
+soul recall aria.soul "revenue" --layer semantic --domain finance
+soul recall aria.soul "alice" --layer social
+soul recall aria.soul --recent 5 --domain legal
 ```
 
 **Arguments:**
@@ -583,8 +609,36 @@ soul recall aria.soul --recent 5 --json          # Recent memories as JSON
 | `--recent, -r INT` | | Show N most recent memories instead of searching. |
 | `--full` | off | Return untruncated content (for LLM consumption). |
 | `--json` | off | Return results as JSON (for scripting). |
+| `--user TEXT` | | Filter results to memories attributed to this `user_id` (#46). Legacy entries with no `user_id` are also returned. |
+| `--layer TEXT` | | Filter to one layer (`episodic`, `semantic`, `procedural`, `social`, or any custom layer name) (#41). |
+| `--domain, -d TEXT` | | Filter to one domain sub-namespace, e.g. `finance` (#41). |
 
-**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output.
+**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output. The JSON payload includes `user_id`, `layer`, and `domain` fields per entry.
+
+---
+
+### `soul layers`
+
+Inspect a soul's memory layers (#41). Lists every populated layer with per-domain entry counts. Useful for verifying that domain isolation worked as expected and for spotting unexpected custom layers.
+
+```bash
+soul layers aria.soul
+soul layers .soul/ --json
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output as a JSON object with shape `{"soul": "<name>", "layers": {"<layer>": {"<domain>": count}}}`. |
+
+**Output:** A table of layer / per-domain counts. Built-in layers (`episodic`, `semantic`, `procedural`, `social`) appear first, then any user-defined layers in alphabetical order.
 
 ---
 
@@ -595,6 +649,9 @@ Process an interaction through the full cognitive pipeline. Runs sentiment detec
 ```bash
 soul observe .soul/ --user-input "Hello" --agent-output "Hi there!"
 soul observe aria.soul --user-input "Tell me a joke" --agent-output "Why did..." --channel discord
+
+# Multi-user (#46) — attribute the memory to one user
+soul observe aria.soul --user-input "Hi" --agent-output "Hello!" --user alice
 ```
 
 **Arguments:**
@@ -610,6 +667,7 @@ soul observe aria.soul --user-input "Tell me a joke" --agent-output "Why did..."
 | `--user-input TEXT` | User's message. **Required.** |
 | `--agent-output TEXT` | Agent's response. **Required.** |
 | `--channel TEXT` | Channel name. Defaults to `cli`. |
+| `--user TEXT` | Attribute observed memories to this `user_id` (#46). The per-user bond is strengthened instead of the default bond. |
 
 **Output:** Prints the soul's mood and energy after processing the interaction. Saves the soul automatically.
 
@@ -688,6 +746,8 @@ Update a soul's emotional state directly.
 soul feel .soul/ --mood excited
 soul feel aria.soul --energy -10
 soul feel .soul/ --mood focused --energy 5
+soul feel .soul/ --focus max
+soul feel .soul/ --focus auto
 ```
 
 **Arguments:**
@@ -702,8 +762,13 @@ soul feel .soul/ --mood focused --energy 5
 |--------|-------------|
 | `--mood TEXT` | Set mood. One of: `neutral`, `curious`, `focused`, `tired`, `excited`, `contemplative`, `satisfied`, `concerned`. |
 | `--energy FLOAT` | Adjust energy (can be negative, e.g. `-10`). Applied as a delta. |
+| `--focus TEXT` | Lock focus to one of `low`, `medium`, `high`, `max`. Pass `auto` to clear the lock and re-enable density-driven focus (default behavior). |
 
-At least one of `--mood` or `--energy` is required.
+At least one of `--mood`, `--energy`, or `--focus` is required.
+
+**Focus modes:**
+
+By default, focus is computed from a sliding window of recent interactions (1 hour, configurable via `Biorhythms.focus_window_seconds`). Bands are: `low` (no interactions in window), `medium` (1-2), `high` (3-9), `max` (10+). Setting `--focus <level>` pins the value until you pass `--focus auto`.
 
 **Output:** Prints the updated mood and energy. Saves the soul automatically.
 
@@ -731,12 +796,16 @@ soul prompt .soul/ | pbcopy
 
 ### `soul forget`
 
-Delete memories by query, entity, or timestamp (GDPR-compliant). Searches and deletes matching memories across all tiers. Records a deletion audit entry without storing deleted content.
+Delete memories by ID, query, entity, or timestamp (GDPR-compliant). Searches and deletes matching memories across all tiers. Records a deletion audit entry without storing deleted content.
+
+Dry-run by default — preview shows what would be deleted without touching the soul. Pass `--apply` to actually execute. A `.soul.bak` backup is written before any destructive save (when the soul is a single-file `.soul` archive).
 
 ```bash
-soul forget .soul/ "credit card"
-soul forget aria.soul --entity "John Doe"
-soul forget .soul/ --before 2026-01-01T00:00:00 --confirm
+soul forget .soul/ "credit card"                         # preview by query
+soul forget .soul/ "credit card" --apply                  # prompt + delete
+soul forget aria.soul --entity "John Doe" --apply --confirm
+soul forget .soul/ --before 2026-01-01T00:00:00 --apply
+soul forget .soul/ --id bf0ee3453983 --apply              # surgical single-id
 ```
 
 **Arguments:**
@@ -750,11 +819,50 @@ soul forget .soul/ --before 2026-01-01T00:00:00 --confirm
 
 | Option | Description |
 |--------|-------------|
+| `--id TEXT` | Delete a single memory by exact ID. Mutually exclusive with `QUERY`, `--entity`, `--before`. |
 | `--entity TEXT` | Delete by entity name instead of query. |
 | `--before TEXT` | Delete memories before an ISO timestamp. |
-| `--confirm` | Skip the confirmation prompt. |
+| `--apply` | Actually execute the deletion. Without this flag, `forget` is a preview only. |
+| `--confirm` | Skip the confirmation prompt (requires `--apply`). |
 
-At least one of `QUERY`, `--entity`, or `--before` is required. Prompts for confirmation unless `--confirm` is set.
+Exactly one of `QUERY`, `--id`, `--entity`, or `--before` is required. Without `--apply` you get a count + per-tier breakdown without changes. With `--apply`, the runtime confirms (unless `--confirm`), writes a `.soul.bak`, deletes, saves, and reports.
+
+**Output:** A preview line (or post-action line) of the form `would forget N memories from <name>` (or `Forgot N memories ...`), followed by per-tier counts. Per-tier display reads from the result dict's `episodic` / `semantic` / `procedural` lists; if you script the runtime API directly the same shape is returned.
+
+---
+
+### `soul supersede`
+
+Mark a memory as superseded by a new one. The old entry is preserved in storage so provenance is not lost — search filters out superseded entries by default, so recall surfaces the new memory.
+
+```bash
+soul supersede .soul/ "X actually shipped on 2026-04-21" \
+    --old-id bf0ee345 --reason "verified against current code"
+
+soul supersede aria.soul "User now prefers light mode" \
+    --old-id 4c19e2 --type semantic -i 7
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `NEW_CONTENT` | Yes | The corrected memory text. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--old-id TEXT` | ID of the memory being superseded. **Required.** |
+| `--reason TEXT` | Why the old memory is wrong or out-of-date (recorded in the supersede audit). |
+| `--importance / -i INT` | Importance score for the new memory (1-10, default: 5). |
+| `--emotion / -e TEXT` | Emotion tag for the new memory. |
+| `--type / -t {episodic,semantic,procedural}` | Tier for the new memory. Defaults to the old entry's tier. |
+
+**Output:** A panel showing the old ID, new ID, tier, reason, and the new content. Saves the soul automatically. Exits non-zero if `--old-id` does not resolve.
+
+**Audit:** Every successful supersede writes an entry to the supersede audit trail, exposed via `Soul.supersede_audit`. Internal supersession (dream-cycle dedup, contradiction resolution during `learn`) does not write to this trail — it is for explicit user intent only.
 
 ---
 
@@ -1257,12 +1365,78 @@ soul eternal-status .soul/
 
 ---
 
+## Trust chain (#42)
+
+### `soul verify`
+
+Verify the trust chain integrity of a soul. Exits 0 on a valid chain, 1 on tampering.
+
+```bash
+soul verify <path>
+soul verify <path> --json
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--json` | flag | false | Emit machine-readable JSON. |
+
+**Examples:**
+
+```bash
+soul verify .soul/
+soul verify aria.soul
+soul verify aria.soul --json | jq .valid
+```
+
+**Human output:** soul name, chain length, signer count, and time span between first/last entry.
+
+**JSON output:** `{soul, did, valid, length, signers, first_failure, time_span_seconds}`.
+
+---
+
+### `soul audit`
+
+Print a human-readable timeline of every signed action on the soul's trust chain.
+
+```bash
+soul audit <path>
+soul audit <path> --filter memory.
+soul audit <path> --limit 20
+soul audit <path> --json
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--filter <prefix>` | str | none | Filter to actions starting with `<prefix>` (e.g. `memory.`). |
+| `--limit <N>` | int | none | Show only the most recent N entries. |
+| `--json` | flag | false | Emit machine-readable JSON. |
+
+The default output is a Rich table (Seq, Timestamp, Action, Actor, Payload Hash). Payloads are stored as hashes only — the table shows *what changed when*, not *what was written*.
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Error (missing file, invalid format, user cancelled) |
+| 1 | Error (missing file, invalid format, user cancelled, chain verification failed) |
 
 ## File Format Support
 

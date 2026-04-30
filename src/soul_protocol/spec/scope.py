@@ -61,9 +61,7 @@ def match_scope(entity_scopes: list[str] | None, allowed_scopes: list[str] | Non
     )
 
 
-def match_scope_strict(
-    entity_scopes: list[str] | None, allowed_scopes: list[str] | None
-) -> bool:
+def match_scope_strict(entity_scopes: list[str] | None, allowed_scopes: list[str] | None) -> bool:
     """One-directional variant: the caller's ``allowed_scopes`` must
     grant at least one ``entity_scope``.
 
@@ -77,11 +75,7 @@ def match_scope_strict(
         return True
     if not allowed_scopes:
         return True
-    return any(
-        _contains(allowed, entity)
-        for entity in entity_scopes
-        for allowed in allowed_scopes
-    )
+    return any(_contains(allowed, entity) for entity in entity_scopes for allowed in allowed_scopes)
 
 
 def _contains(outer: str, inner: str) -> bool:

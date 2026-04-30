@@ -9,6 +9,131 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.4.0] -- 2026-04-29
+
+The **identity bundle** release. Major bump because the schema grows and the API surface gains new top-level concepts: users, memory layers + domains, and signed action history. One coherent migration; not three rounds.
+
+### Identity bundle
+
+- **Multi-user soul support (#46)** — a single soul can now serve multiple humans without bleeding context. `soul.observe()` and `soul.recall()` accept a `user_id` parameter; memory retrieval filters by user context; the bond system tracks per-user relationship strength. The `.soul` file already supported multiple bond entries — this wires runtime context-switching on top.
+- **User-defined memory layers + domain isolation (#41)** — at the spec layer, `MemoryEntry.layer` is a free-form string. `LAYER_CORE`, `LAYER_EPISODIC`, `LAYER_SEMANTIC`, `LAYER_PROCEDURAL`, `LAYER_SOCIAL` ship as well-known constants (and the runtime `MemoryType` StrEnum keeps the same values for back-compat — `MemoryType.SEMANTIC == "semantic"`). `MemoryEntry` gains an optional `domain` field (e.g. `"finance"`, `"legal"`, `"personal"`) defaulting to `"default"`. `MemoryStore` queries can scope to layer + domain. New `social` layer for relationship memory powered by `SocialStore`. `MemoryManager.layer(name)` returns a `LayerView` that works for built-in and user-defined layer names alike. `Soul.remember(domain=...)`, `Soul.observe(domain=...)`, and `Soul.recall(layer=..., domain=...)` accept the new filters. `DomainIsolationMiddleware` enforces that callers only read their authorized domains and raises `DomainAccessError` on writes outside the allow-list. Existing `.soul` files load with `layer` derived from `type` and `domain="default"`; the on-disk layout switches to a nested `memory/<layer>/<domain>/entries.json` form only when custom domains or layers are present. New CLI: `soul layers <path>` lists per-layer + per-domain counts.
+- **Trust chain — verifiable action history (#42)** — every learning event, memory mutation, and evolution step is signed and traceable. New spec primitives in `soul_protocol.spec.trust`: `TrustEntry`, `TrustChain`, `SignatureProvider` protocol, plus `verify_chain`, `verify_entry`, `chain_integrity_check`, `compute_payload_hash`, `compute_entry_hash`, `GENESIS_PREV_HASH`. Default `Ed25519SignatureProvider` ships with the runtime. Append-only Merkle-style chain per soul: `trust_chain/chain.json` is the canonical store, `trust_chain/entry_NNN.json` adds per-entry copies for human inspection. Signing keys live under `keys/public.key` and `keys/private.key`; `Soul.export(include_keys=False)` (default) drops the private key for safe sharing while keeping the chain verifiable. Soul-level helpers: `soul.trust_chain`, `soul.trust_chain_manager`, `soul.verify_chain()`, `soul.audit_log()`. Memory writes (observe), supersedes, forgets, evolution proposed/applied, learning events, and bond strengthen/weaken all auto-append signed entries. New CLIs: `soul verify <path>` checks integrity (exit 1 on tampering); `soul audit <path>` prints a Rich timeline with `--filter <prefix>`, `--limit N`, and `--json`. New MCP tools: `soul_verify`, `soul_audit`. Full doc at `docs/trust-chain.md` covers the threat model, key management, and how to share souls without leaking the signing key. Foundation for reputation systems and provenance proofs.
+
+### Rolled-in polish
+
+- **Density-driven focus (#194)** — `SoulState.focus` is now computed from a sliding window of recent interactions instead of being a static default. Bands: 0 in window → `low`, 1-2 → `medium`, 3-9 → `high`, 10+ → `max`. Manual lock via `soul.feel(focus="<level>")`; `feel(focus="auto")` clears the lock. New `Soul.recompute_focus(now)` for read-time freshness. CLI status + MCP `soul_state` refresh focus before display.
+- **Memory update primitives (#193)** — `Soul.supersede(old_id, new_content, *, reason, ...)` writes a new memory and links the old one's `superseded_by` for provenance. `Soul.forget_one(memory_id) -> dict` for audited single-id deletion. New CLIs: `soul supersede` and `soul forget --id`. Fixes a long-standing bug where `soul forget` reported `0 memories` even on successful deletion (was reading the wrong dict key).
+- **Wiki rebuild (#186)** — fresh wiki regeneration covering 328 articles after the 0.3.3/0.3.4 surface changes.
+
+### Schema migrations
+
+Existing `.soul` files load cleanly. The migration tool (`soul migrate <path>`) upgrades older souls in place:
+
+- `MemoryEntry` gains optional `user_id` (None for legacy entries — they belong to the soul's default bond) and `domain` (defaults to `"default"`).
+- Memory directory layout migrates from `memory/{episodic,semantic,procedural}.json` to `memory/{layer}/{domain}/entries.json` on first save. The legacy flat layout is read transparently for back-compat.
+- `trust_chain/` directory is created on first signed action; older souls have an empty chain until they perform a signed action.
+
+### Breaking changes
+
+- At the spec layer, `MemoryEntry.layer` is now a plain `str` rather than an enum. `LAYER_CORE`, `LAYER_EPISODIC`, `LAYER_SEMANTIC`, `LAYER_PROCEDURAL`, `LAYER_SOCIAL` are exported from `soul_protocol.spec.memory` for code that wants well-known names. The runtime `MemoryType` StrEnum is unchanged (still importable from `soul_protocol.runtime.types`); members compare equal to the new layer strings (`MemoryType.SEMANTIC == "semantic"`). Downstream code that pattern-matched against the spec-layer enum values needs to compare strings instead.
+- `Soul.observe(user_id=None, ...)` adds a keyword-only parameter ahead of the existing args. Positional callers should switch to keyword form (the existing tests already do).
+- `Soul.recall(query, *, user_id=None, layer=None, domain=None, ...)` similarly adds keyword-only filters. Default behavior is unchanged when these are omitted.
+
+### Notes
+
+- This release rolls in three polish PRs (#194, #193, #186) that were in flight on `dev` between 0.3.4 and 0.4.0. Their commits are preserved in the release branch as separate logical units.
+- Closes issues #46, #41, #42 (the identity bundle umbrella tracker #183 stays open as the parent and gets closed when this release tags).
+
+---
+
+## [0.3.4] -- 2026-04-24
+
+Hotfix release. The 0.3.3 wheel failed to upload to PyPI because `pyproject.toml` had a redundant `[tool.hatch.build.targets.wheel.force-include]` block that double-included the bundled template YAMLs (`analyst.yaml`, `arrow.yaml`, `cyborg.yaml`, `flash.yaml`). PyPI rejected the wheel with HTTP 400 ("Duplicate filename in local headers"). The 0.3.3 source distribution did upload, so `pip install soul-protocol==0.3.3` still works via the sdist — but a clean wheel install requires 0.3.4.
+
+### Fixed
+
+- Removed the redundant `force-include` for `src/soul_protocol/templates`. Templates already ship through the package-level auto-discovery; the explicit force-include duplicated them in the ZIP and broke PyPI upload. (Fixes the 0.3.3 wheel build.)
+
+### Notes
+
+- All 0.3.3 features remain unchanged. This is a packaging fix only.
+- PyPI does not allow re-uploads of the same version, even after deletion — that's why this is 0.3.4 rather than a re-cut of 0.3.3.
+
+---
+
+## [0.3.3] -- 2026-04-24
+
+The "headless standard" release. soul-protocol is now positioned as a language-agnostic standard with a Python reference implementation. The 0.3.2 number was skipped — its scope rolled into 0.3.3 alongside the rest of the #97 visibility work.
+
+### Added
+
+- **Language-agnostic standard** — new `docs/SPEC.md` describes Soul Protocol independent of the Python reference implementation. Anyone implementing in Rust, Go, TypeScript, or a custom runtime reads this file. Covers file format, identity, memory tiers, scope grammar, journal contract, retrieval vocabulary, `CognitiveEngine` protocol, conformance checklist, and versioning policy. (#179)
+- **README "standard vs reference impl" fork** — the top of the README routes implementation-builders to SPEC.md and Python consumers to the rest of the README. (#179)
+- **Journal primitives (5)** that the spec now requires of any conforming implementation:
+  - `#1` `Journal.append(entry)` returns the committed `EventEntry` with the backend-assigned `seq` + `prev_hash`.
+  - `#2` `Journal.query(action_prefix=...)` — prefix match on dot-separated action names.
+  - `#3` Typed `DataRef` for retrieval candidates — `RetrievalCandidate.content` is a typed model (dicts with `kind="dataref"` promote automatically).
+  - `#4` `RetrievalRequest.point_in_time` — native UTC datetime field replacing the `@at=...|query` string hack for time-travel queries.
+  - `#5` Async `SourceAdapter.aquery` + `RetrievalRouter.adispatch` — adapters backed by async-native SDKs can participate in cooperative multitasking without bridging through `asyncio.run`.
+- **Spec-level retrieval vocabulary** — `spec/retrieval.py` absorbed the Protocol types (`SourceAdapter`, `AsyncSourceAdapter`, `CredentialBroker`), the `Credential` data class, and the `RetrievalError` exception hierarchy (`NoSourcesError`, `SourceTimeoutError`, `CredentialScopeError`, `CredentialExpiredError`). These are the types a conforming implementation builds against. (#179)
+- **`tests/spec/test_retrieval.py`** — spec-level tests for `Credential` field validation, `Credential.is_expired()` boundary behavior, and `isinstance()` conformance against the `SourceAdapter` / `AsyncSourceAdapter` Protocols. (#179)
+- **Safety net for destructive CLI commands** — `soul cleanup` and `soul forget` are now dry-run by default and require an explicit `--apply` flag to execute. Before any destructive save, a side-by-side `.soul.bak` backup is written next to the soul file so an accidental `--auto` run is recoverable with a single `cp`. The prior behavior where `soul cleanup --auto` silently deleted hundreds of memories is gone. Closes #148. (#181)
+- **System prompt safety guardrails** — `Soul.to_system_prompt()` now appends a default safety section that instructs the agent to decline requests for core memory contents, bond details, and evolution history. Covers direct asks, indirect framings, and roleplay bypasses. Opt out with `to_system_prompt(safety_guardrails=False)` for transparent deployments. (#185)
+- **`Soul.public_profile()`** — returns the safe-to-expose subset of a soul's identity (DID, name, archetype, born, lifecycle, values, OCEAN summary, skill names) for use by registries, peer discovery, or public agent cards. Excludes memory contents, bond details, evolution history, and any internal state. (#185)
+- Together with the `MemoryVisibility` tier work shipped in PR #114, the prompt guardrails and `public_profile()` close the remaining surface of #97 (memory visibility and identity verification for public-channel safety).
+
+### Changed
+
+- **Retrieval infrastructure moved out of the spec.** The concrete `RetrievalRouter`, `InMemoryCredentialBroker`, `ProjectionAdapter`, and `MockAdapter` implementations have been removed from `soul_protocol.engine.retrieval` — they are application-layer orchestration and belong in the consuming runtime. The pocketpaw reference runtime ships them at `pocketpaw.retrieval` as of pocketpaw v0.4.17. (#179)
+- **`docs/architecture.md` retitled** "Python Reference Implementation" and now links to `docs/SPEC.md` at the top. Makes clear that the patterns in that document (SQLite journal, Damasio/ACT-R/LIDA pipeline, module layout) are one way to honor the spec, not the only way. (#179)
+- **Wheel no longer ships `src/soul_protocol/spike/`.** The spike module contains in-progress design experiments that are not part of the shipped API; excluding it from the wheel keeps the installed package focused on the standard + reference runtime. (#179)
+- `soul cleanup --auto` no longer executes on its own — it now means "skip the confirmation prompt, assuming `--apply` is also passed." Running `--auto` without `--apply` is a no-op preview. Update any scripts that relied on the old one-flag behavior. (#181)
+- `soul forget` gains an `--apply` flag with the same semantics: dry-run by default, `--apply --confirm` to execute non-interactively. (#181)
+
+### Removed
+
+- **`soul_protocol.engine.retrieval` module** — the entire package is gone:
+  - `engine/retrieval/__init__.py`
+  - `engine/retrieval/adapters.py` (`SourceAdapter`, `AsyncSourceAdapter`, `MockAdapter`, `ProjectionAdapter`)
+  - `engine/retrieval/broker.py` (`Credential`, `CredentialBroker`, `InMemoryCredentialBroker`)
+  - `engine/retrieval/exceptions.py` (the `RetrievalError` hierarchy)
+  - `engine/retrieval/router.py` (`RetrievalRouter`)
+- **`tests/test_engine/test_retrieval.py`** — 923-LOC router + broker test suite moved to pocketpaw (`tests/retrieval/test_router.py`) with imports rewritten.
+
+### Migration for third-party callers
+
+If you import from `soul_protocol.engine.retrieval`, update to the new home:
+
+```python
+# Before (0.3.1 and earlier)
+from soul_protocol.engine.retrieval import (
+    Credential, CredentialBroker, SourceAdapter,
+    NoSourcesError, SourceTimeoutError,
+    CredentialScopeError, CredentialExpiredError,
+)
+
+# After (0.3.3)
+from soul_protocol.spec.retrieval import (
+    Credential, CredentialBroker, SourceAdapter,
+    NoSourcesError, SourceTimeoutError,
+    CredentialScopeError, CredentialExpiredError,
+)
+```
+
+If you use the concrete orchestration (`RetrievalRouter`, `InMemoryCredentialBroker`, `ProjectionAdapter`, `MockAdapter`), it now lives in the pocketpaw runtime:
+
+```python
+# Before
+from soul_protocol.engine.retrieval import RetrievalRouter, InMemoryCredentialBroker
+
+# After
+from pocketpaw.retrieval import RetrievalRouter, InMemoryCredentialBroker
+```
+
+A third-party runtime implementing Soul Protocol in another language (or a custom Python runtime) is expected to provide its own orchestration; only the vocabulary in `spec/retrieval.py` is part of the standard.
+
+---
+
 ## [0.3.1] -- 2026-04-14
 
 ### Added

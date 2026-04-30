@@ -14,7 +14,6 @@ from pydantic import ValidationError
 
 from soul_protocol.spec import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 
-
 # ----- Actor ---------------------------------------------------------------
 
 

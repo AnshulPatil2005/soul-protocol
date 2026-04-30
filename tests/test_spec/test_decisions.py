@@ -29,7 +29,6 @@ from soul_protocol.spec import (
     trace_decision_chain,
 )
 
-
 # ---------- fixtures -------------------------------------------------------
 
 

@@ -73,6 +73,7 @@ class EventEntry(BaseModel):
     payload: dict | DataRef       # inline data or external reference
     prev_hash: bytes | None       # optional hash-chain link
     sig: bytes | None             # optional signature over (id, ts, actor, action, prev_hash)
+    seq: int | None               # monotonic sequence, assigned by the backend on commit
 ```
 
 ### Invariants (enforced at `Journal.append()`)
@@ -83,6 +84,8 @@ class EventEntry(BaseModel):
 4. **Scoped by default.** `scope` is required and non-empty. No anonymous writes either — `actor` must be set.
 5. **Hash-chainable.** `prev_hash` is optional in v1, mandatory in v2 once signing ships.
 6. **Actor-attributed.** `system:*` actors are reserved for subsystem-triggered events (not human-runnable).
+7. **Commit returns committed row.** `Journal.append(entry)` returns an `EventEntry` with `seq` populated by the backend. The caller's input entry is not mutated. (Added in 0.3.2.)
+8. **Query by action prefix.** `Journal.query(action_prefix="fabric.object")` matches the exact string or anything below it in the dotted namespace (e.g. `fabric.object.created`). Mutually exclusive with `action=`. Pushes family filters into SQL so projections don't loop-and-filter in Python. (Added in 0.3.2.)
 
 ### What the journal is not
 
@@ -218,6 +221,7 @@ result = router.dispatch(RetrievalRequest(
     scopes=["org:sales:*"],
     strategy="parallel",
     timeout_s=10.0,
+    point_in_time=datetime(2026, 4, 1, 12, 0, tzinfo=UTC),  # optional, 0.3.2+
 ))
 ```
 
@@ -225,7 +229,9 @@ Strategies: `first` (stop at first non-empty), `parallel` (thread-pool, merge by
 
 **Scope enforcement:** sources whose registered `scopes` don't overlap the request `scopes` are filtered out before dispatch. Scope match is bidirectional.
 
-**Journal emission:** if a journal is passed to the router, each dispatch emits a `retrieval.query` event. Payload is either inline (projection source) or `DataRef` (federated source). This is the audit trail for every retrieval.
+**Journal emission:** if a journal is passed to the router, each dispatch emits a `retrieval.query` event. Payload is either inline (projection source) or `DataRef` (federated source). This is the audit trail for every retrieval. When `point_in_time` is set, the event payload records it so downstream consumers can replay the time-travel intent.
+
+**Async dispatch (0.3.2+):** `router.adispatch(request)` is the async counterpart to `dispatch`. It prefers each adapter's optional `aquery` coroutine when present (detected via `inspect.iscoroutinefunction`), and threads sync-only adapters via `asyncio.to_thread`. Adapters backed by async-native SDKs should implement `aquery` to avoid bridging through `asyncio.run`. See :class:`AsyncSourceAdapter` for the structural tag Protocol. For `point_in_time`, adapters that can't honor a historical snapshot raise `PointInTimeNotSupported`; the router records the source in `sources_failed` and continues with other sources.
 
 ### CredentialBroker
 

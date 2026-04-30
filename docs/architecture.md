@@ -1,9 +1,11 @@
-# Soul Protocol -- Architecture
+# Soul Protocol — Architecture (Python Reference Implementation)
 
 > Current implementation architecture, module dependencies, memory layers, and data flow.
 
-**Date:** 2026-04-13
-**Version:** 0.3.0 (draft — org-layer additions pending merge)
+**Date:** 2026-04-30
+**Version:** 0.4.0
+
+> ⚠️  **This document describes our Python reference implementation.** If you are implementing Soul Protocol in another language, read [SPEC.md](./SPEC.md) instead — it is the language-agnostic contract. The patterns below (SQLite-backed journal, Damasio/ACT-R/LIDA pipeline, this specific module layout) are one way to honor the spec, not the only way.
 
 ---
 
@@ -11,7 +13,11 @@
 
 This doc covers the per-soul implementation — how a single `.soul` file works, its module layout, data flow, and storage format. Sections 1–6 are authoritative for soul internals.
 
-**v0.3 adds an org layer** (multi-soul + event journal + retrieval router + decision traces) on top of the per-soul model. The org layer is specified separately in `org-journal-spec.md` as a framework-agnostic protocol. Section 7 of this doc summarizes how *this codebase* implements that spec; for the spec itself, see the dedicated doc.
+**v0.3 adds an org layer** (multi-soul + event journal + decision traces) on top of the per-soul model. The org layer is specified separately in `org-journal-spec.md` as a framework-agnostic protocol. Section 7 of this doc summarizes how *this codebase* implements that spec; for the spec itself, see the dedicated doc.
+
+**v0.3.2 retrieval pruning note:** `engine/retrieval/` has been removed from soul-protocol. The concrete `RetrievalRouter`, `InMemoryCredentialBroker`, and `ProjectionAdapter` implementations now live in pocketpaw (the reference agent runtime). The spec-level vocabulary (`SourceAdapter` / `AsyncSourceAdapter` / `CredentialBroker` protocols, `Credential`, `RetrievalRequest`, `RetrievalCandidate`, `DataRef`, and the `RetrievalError` hierarchy) lives in `soul_protocol.spec.retrieval`. This enforces the rule that anything application-layer (orchestration, credential brokering, adapter registration) is a consumer of the spec, not part of it.
+
+**v0.4.0 identity bundle note:** three new top-level subsystems landed. `MemoryEntry` gained `user_id` and `domain` fields plus an open-string `layer` model — `runtime/memory/` exposes a generic `LayerView` accessor and a new `social.py` layer store. `runtime/middleware/domain_isolation.py` enforces domain allow-lists. The trust chain primitives live in `spec/trust.py` (TrustEntry, TrustChain, SignatureProvider, verification helpers); the runtime concrete signer is `runtime/crypto/ed25519.py` (Ed25519SignatureProvider) with `runtime/crypto/keystore.py` for I/O. `runtime/trust/manager.py` owns the chain. The Soul class wires append hooks into observe / supersede / forget_one / propose_evolution / approve_evolution / learn / bond mutations. `Soul.verify_chain()` binds verification to the loaded keystore's public key so a chain replacement attack on a shared soul (`include_keys=False`) is detectable.
 
 ---
 

@@ -1,6 +1,9 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-04-30 — v0.5.0 (#203): Added Biorhythms.trust_chain_max_entries (touch-time
+       chain pruning cap), TrustChainManager.prune(keep)/dry_run_prune(keep)/max_entries.
+       Auto-prune fires at append() when the cap is reached.
      Updated: 2026-04-30 — v0.5.0 #201/#202: TrustEntry gains a non-cryptographic
        `summary` field. TrustChainManager.append accepts an optional `summary=` parameter
        that defaults to an action-keyed formatter registry. Soul.audit_log() rows now
@@ -755,6 +758,7 @@ Simulated vitality and energy patterns.
 | `focus_window_seconds` | `float` | `3600.0` | `ge=0.0` (set to 0 to disable density-driven focus) |
 | `focus_high_threshold` | `int` | `3` | `ge=1` (interactions in window at or above which focus rises to `high`) |
 | `focus_max_threshold` | `int` | `10` | `ge=1` (interactions in window at or above which focus rises to `max`) |
+| `trust_chain_max_entries` | `int` | `0` | `ge=0` (cap for touch-time chain pruning; 0 = unbounded; positive = compress old history into a `chain.pruned` marker once the cap is reached). See [docs/trust-chain.md](trust-chain.md#chain-pruning). |
 
 #### `DNA`
 
@@ -1223,6 +1227,14 @@ def append(
 Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover. Pass `summary=` to attach a human-readable description; when omitted, an action-keyed default formatter from `_SUMMARY_FORMATTERS` runs against the payload. The summary is stored on the resulting `TrustEntry.summary` field and surfaces in `audit_log()` rows. It is excluded from the canonical bytes used for hashing and signing — chain integrity does not depend on it.
 
 Default formatters ship for the actions Soul emits (`memory.write`, `memory.forget`, `memory.supersede`, `bond.strengthen`, `bond.weaken`, `evolution.proposed`, `evolution.applied`, `learning.event`); custom actions without a registered formatter get `summary=""` unless one is passed explicitly.
+
+The manager also exposes `prune(keep)` and `dry_run_prune(keep)` for touch-time chain pruning (#203) — see [trust-chain.md](trust-chain.md#chain-pruning).
+
+`TrustChainManager.prune(keep=None, *, reason="touch-time") -> dict` compresses every non-genesis entry into a single signed `chain.pruned` marker when the chain has more than `keep` entries. `keep=None` falls back to the manager's `max_entries` (mirrored from `Biorhythms.trust_chain_max_entries`). Returns `{count, low_seq, high_seq, reason, marker_seq}` describing the prune; `count == 0` indicates a no-op.
+
+`TrustChainManager.dry_run_prune(keep=None) -> dict` returns the same shape without mutating the chain — used by the CLI and MCP preview paths.
+
+The cap is enforced automatically at `append()` time: when `max_entries > 0` and the chain has reached the cap, `append()` runs `prune(keep=1)` before adding the new entry, so the chain is bounded as a hard ceiling.
 
 ### `soul.verify_chain()`
 

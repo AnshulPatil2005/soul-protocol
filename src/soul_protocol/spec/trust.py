@@ -21,6 +21,12 @@
 # traceable, forming a Merkle-style hash chain. Pure spec layer: zero
 # imports from opinionated modules — runtime concrete classes
 # (Ed25519SignatureProvider, TrustChainManager) live under runtime/.
+# Updated: 2026-04-29 (#203) — Touch-time chain pruning. Adds the
+#   ``CHAIN_PRUNED_ACTION`` constant and a single verification carve-out:
+#   when an entry's action equals this constant, the verifier permits a seq
+#   gap from the previous entry (the prev_hash linkage and signature still
+#   apply). This is the only action allowed to break monotonicity, and it is
+#   the only signal a chain has been compressed.
 #
 # Semantics locked here:
 #   - Canonical JSON is sorted-keys, separators=(",", ":"), no whitespace,
@@ -40,6 +46,9 @@
 #     successive entry's timestamp must be at-or-after the previous entry's
 #     (within a 60s skew tolerance). Future timestamps beyond 60s of the
 #     verifier's clock are also rejected.
+#   - ``chain.pruned`` entries (action == ``CHAIN_PRUNED_ACTION``) MAY have a
+#     seq strictly greater than ``prev.seq + 1``. They still link via
+#     ``prev_hash`` and carry a valid signature. See ``verify_entry``.
 
 from __future__ import annotations
 
@@ -62,6 +71,16 @@ GENESIS_PREV_HASH: str = "0" * 64
 
 DEFAULT_ALGORITHM: str = "ed25519"
 """Default signing algorithm. Future algorithms (P-256, secp256k1) live alongside."""
+
+CHAIN_PRUNED_ACTION: str = "chain.pruned"
+"""Action name reserved for the touch-time pruning marker (#203).
+
+When a chain compresses old entries, a single signed entry with this action
+is appended. Its payload carries ``{count, low_seq, high_seq, reason}`` so an
+auditor can reconstruct what was dropped. The verifier permits a seq gap
+between this entry and its predecessor; all other actions remain strictly
+monotonic.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +346,14 @@ def verify_entry(
         if entry.prev_hash != GENESIS_PREV_HASH:
             return False
     else:
-        if entry.seq != prev_entry.seq + 1:
+        # Pruning carve-out (#203): a chain.pruned marker may have a seq
+        # strictly greater than prev.seq + 1 — that gap encodes the entries
+        # the marker compressed away. Every other entry stays strictly
+        # monotonic. The prev_hash linkage and signature still apply.
+        if entry.action == CHAIN_PRUNED_ACTION:
+            if entry.seq <= prev_entry.seq:
+                return False
+        elif entry.seq != prev_entry.seq + 1:
             return False
         if entry.prev_hash != compute_entry_hash(prev_entry):
             return False
@@ -425,7 +451,12 @@ def verify_chain(chain: TrustChain) -> tuple[bool, str | None]:
                 if entry.prev_hash != GENESIS_PREV_HASH:
                     return False, f"bad genesis prev_hash at seq {entry.seq}"
             else:
-                if entry.seq != prev.seq + 1:
+                # chain.pruned actions are allowed a seq gap; every other
+                # action must be strictly +1 from prev.
+                if entry.action == CHAIN_PRUNED_ACTION:
+                    if entry.seq <= prev.seq:
+                        return False, f"non-monotonic seq at seq {entry.seq}"
+                elif entry.seq != prev.seq + 1:
                     return False, f"non-monotonic seq at seq {entry.seq}"
                 if entry.prev_hash != compute_entry_hash(prev):
                     return False, f"broken hash chain at seq {entry.seq}"
@@ -469,6 +500,7 @@ def chain_integrity_check(chain: TrustChain) -> dict:
 __all__ = [
     "GENESIS_PREV_HASH",
     "DEFAULT_ALGORITHM",
+    "CHAIN_PRUNED_ACTION",
     "TrustEntry",
     "TrustChain",
     "SignatureProvider",

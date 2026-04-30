@@ -1,6 +1,8 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 27 tools
-     (14 soul/memory + 5 context + 5 psychology + 2 trust chain + 1 eval), 3 resources,
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 28 tools
+     (14 soul/memory + 5 context + 5 psychology + 3 trust chain + 1 eval), 3 resources,
      2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-04-30 — v0.5.0 (#203): Added soul_prune_chain MCP tool for touch-time
+     chain pruning. Dry-run by default; pass apply=true to mutate the chain. Tool count: 27 → 28.
      Updated: 2026-04-29 — v0.5.0 (#160): Added soul_eval MCP tool for running YAML eval
      specs against the active soul. Accepts yaml_path or yaml_string. Returns the EvalResult
      as JSON. Tool count: 26 → 27.
@@ -91,9 +93,9 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (27)
+## Tools (28)
 
-All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 27 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 2 trust chain (v0.4.0 #42), and 1 eval (v0.5.0 #160).
+All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 28 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 3 trust chain (`soul_verify`, `soul_audit`, `soul_prune_chain`), and 1 eval (v0.5.0 #160).
 
 **Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
@@ -455,6 +457,25 @@ Return a human-readable timeline of signed actions on the soul's trust chain (#4
 **Returns:** JSON `{soul, did, entries: [...]}`.
 
 Payloads themselves are not on chain — only their hashes — so this tool surfaces *what changed when*, not *what was written*.
+
+---
+
+### `soul_prune_chain`
+
+Compress old trust-chain history into a signed `chain.pruned` marker (#203). Touch-time stub for v0.5.0. Returns a dry-run preview by default; pass `apply=true` to actually mutate the chain. Genesis (seq=0) is always preserved.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `keep` | `int` | `None` | Length threshold. When the chain has more than `keep` entries, every non-genesis entry is compressed into a single signed marker. Defaults to `Biorhythms.trust_chain_max_entries`. |
+| `apply` | `bool` | `false` | When `false` (default), return a dry-run preview only. When `true`, mutate the chain. |
+| `reason` | `str` | `manual` | Free-form label written onto the marker payload. |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted). |
+
+**Returns:** JSON `{soul, did, applied, summary, chain_length, keep}`. `summary` carries `{count, low_seq, high_seq, reason, marker_seq}`.
+
+When the chain is already at or below `keep`, the tool reports `applied=false` with a zero-count summary even if `apply=true` was passed (no marker is written for a no-op). When neither `keep` nor a biorhythm cap is set, the tool returns `{applied: false, error: "..."}`.
+
+The mutation is staged into the active soul; the registry's auto-save persists it on shutdown. The full archival design (separate archive directory with checkpoint entries) is deferred to v0.5.x.
 
 ---
 

@@ -1,4 +1,8 @@
-<!-- Covers: CLI installation, all 49 commands with usage examples, options tables, and output descriptions.
+<!-- Covers: CLI installation, all 50 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-04-30 — v0.5.0 (#203): Added `soul prune-chain` for touch-time chain
+       pruning. Dry-run by default; --apply to mutate; --keep N for the threshold;
+       falls back to Biorhythms.trust_chain_max_entries when --keep is omitted.
+       Count: 49 → 50.
      Updated: 2026-04-30 — v0.5.0 (#201): `soul audit` adds a Summary column derived from
        per-action human-readable descriptions and a `--no-summary` flag for users who want
        the hash-only view from 0.4.0 back. JSON output always carries `summary`; pre-#201
@@ -1582,12 +1586,49 @@ soul eval my_eval.yaml --judge-engine my_module:make_engine
 
 ---
 
+### `soul prune-chain`
+
+Compress old trust-chain history into a signed `chain.pruned` marker (v0.5.0, issue #203). Dry-run by default — pass `--apply` to mutate the chain. Genesis (seq=0) is always preserved.
+
+```bash
+soul prune-chain <path>                       # preview, uses biorhythm cap
+soul prune-chain <path> --keep 100            # preview, custom threshold
+soul prune-chain <path> --keep 100 --apply    # execute the prune
+soul prune-chain <path> --json --apply        # machine-readable output
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--keep <N>` | int | from `Biorhythms.trust_chain_max_entries` | Length threshold. When the chain has more than `N` entries, every non-genesis entry is compressed into a single signed marker. |
+| `--apply` | flag | false | Actually run the prune. Without this flag, the command previews only. |
+| `--reason <str>` | str | `manual` | Free-form label written onto the marker payload. |
+| `--json` | flag | false | Emit machine-readable JSON. |
+
+When the chain is already at or below `--keep`, the command reports `applied=False` with a zero-count summary.
+
+**JSON output:** `{soul, did, applied, summary, chain_length, keep}`. `summary` carries `{count, low_seq, high_seq, reason, marker_seq}`.
+
+This is the touch-time stub. The full archival design (separate `trust_chain/archive/` directory with checkpoint entries) is deferred to v0.5.x. See [docs/trust-chain.md](trust-chain.md#chain-pruning).
+
+**Exit codes:** 0 on success (whether or not anything was pruned); 2 when no `--keep` is provided AND the soul has no biorhythm cap (auto-prune disabled).
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
 | 1 | Error (missing file, invalid format, user cancelled, chain verification failed) |
+| 2 | Configuration error (e.g. `soul prune-chain` invoked with no `--keep` and no biorhythm cap) |
 
 ## File Format Support
 

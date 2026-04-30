@@ -93,9 +93,9 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (28)
+## Tools (29)
 
-All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 28 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 3 trust chain (`soul_verify`, `soul_audit`, `soul_prune_chain`), and 1 eval (v0.5.0 #160).
+All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 29 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 3 trust chain (`soul_verify`, `soul_audit`, `soul_prune_chain`), 1 eval (v0.5.0 #160), and 1 graph (`soul_graph_query`, v0.5.0 #108/#190).
 
 **Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
@@ -457,6 +457,35 @@ Return a human-readable timeline of signed actions on the soul's trust chain (#4
 **Returns:** JSON `{soul, did, entries: [...]}`.
 
 Payloads themselves are not on chain — only their hashes — so this tool surfaces *what changed when*, not *what was written*.
+
+---
+
+### `soul_graph_query`
+
+Discriminated query tool for the soul's knowledge graph (#108, #190). The `kind` parameter selects the operation:
+
+| `kind` | Required params | Returns |
+|--------|----------------|---------|
+| `nodes` | none (filters: `type`, `name_match`, `limit`) | `{count, nodes: [...]}` |
+| `edges` | none (filters: `source`, `target`, `relation`) | `{count, edges: [...]}` |
+| `neighbors` | `node_id` (optional: `depth`, `types`) | `{start, depth, count, nodes: [...]}` |
+| `path` | `source_id`, `target_id` (optional: `max_depth`) | `{found, source, target, edges: [...]}` |
+| `subgraph` | `node_ids` | `{nodes: [...], edges: [...]}` |
+| `mermaid` | none | `{mermaid: "graph LR ..."}` |
+| `stats` | none | `{node_count, edge_count, types: {...}, relations: {...}}` |
+
+```json
+{
+  "kind": "neighbors",
+  "node_id": "Alice",
+  "depth": 2,
+  "types": ["person", "tool"]
+}
+```
+
+Unknown `kind` values return `{"error": "unknown kind: ..."}` with no exception. All responses are JSON.
+
+The graph is read-mostly: mutations land via `soul_observe` (which runs the typed-ontology extractor and emits `graph.entity_added` / `graph.relation_added` trust-chain entries). There is no MCP tool for direct graph mutation in 0.5.0 — keep edits flowing through observation so the audit trail stays complete.
 
 ---
 

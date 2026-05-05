@@ -1,4 +1,11 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-05-05 (#231) — Adds Soul.note() — a fact-shaped writer that
+#   routes through reconcile_fact() (Jaccard + containment dedup) before
+#   storing. Mirrors remember() but applies SKIP/MERGE/CREATE so callers
+#   (CLI, scripts, hooks) stop accumulating duplicates. Episodic memories
+#   bypass dedup (events are unique by time). Returns a dict with action,
+#   id, existing_id, similarity. Contradiction detection is plumbed but
+#   not yet wired (TODO in body).
 # Updated: 2026-04-29 (#192) — Brain-aligned memory update primitives. Adds
 #   six runtime verbs gated by a prediction-error score and a 1-hour
 #   reconsolidation window opened by recall:
@@ -201,6 +208,7 @@ from .evolution.manager import EvolutionManager
 from .export.pack import pack_soul
 from .export.unpack import unpack_soul
 from .identity.did import generate_did
+from .memory.dedup import _jaccard_similarity, reconcile_fact
 from .memory.manager import MemoryManager
 from .memory.strategy import SearchStrategy
 from .skills import Skill, SkillRegistry
@@ -1420,6 +1428,189 @@ class Soul:
                 user_id=user_id,
             )
         )
+
+    async def note(
+        self,
+        content: str,
+        *,
+        type: MemoryType = MemoryType.SEMANTIC,
+        importance: int = 5,
+        emotion: str | None = None,
+        entities: list[str] | None = None,
+        visibility: MemoryVisibility = MemoryVisibility.BONDED,
+        scope: list[str] | None = None,
+        domain: str = "default",
+        user_id: str | None = None,
+        dedup: bool = True,
+        detect_contradictions: bool | None = None,
+    ) -> dict:
+        """Note a fact, routing through the dedup pipeline before storing.
+
+        Unlike :meth:`remember` (a blunt append), ``note()`` runs the new
+        content through :func:`reconcile_fact` against existing entries in
+        the matching tier and applies the SKIP / MERGE / CREATE decision.
+        This mirrors the smart path used by
+        :meth:`MemoryManager.observe`, but takes a single fact-shaped
+        string rather than an :class:`Interaction` (no LLM-driven fact
+        extraction, no significance gating).
+
+        Episodic memories bypass dedup (events are unique by time).
+        Passing ``dedup=False`` falls through to :meth:`remember` so
+        callers can still force a blunt write.
+
+        ``detect_contradictions`` defaults to ``True`` for semantic and
+        ``False`` for the other tiers. The contradiction-detection wiring
+        is left for a follow-up (see issue #231).
+
+        Args:
+            content: Fact text to note.
+            type: Memory tier (default: semantic).
+            importance: Importance score 1-10.
+            emotion: Optional emotion tag.
+            entities: Optional entity list.
+            visibility: Visibility tier (default: bonded).
+            scope: Optional RBAC/ABAC scope tags.
+            domain: Sub-namespace inside the layer (default ``"default"``).
+                When non-default, dedup is restricted to entries with the
+                same domain.
+            user_id: Optional bonded user attribution.
+            dedup: When True (default), run reconcile_fact before storing.
+                When False, behave like remember() — write unconditionally.
+            detect_contradictions: When True, run contradiction detection
+                on stored facts (currently a TODO — see #231).
+                Defaults to True for semantic, False otherwise.
+
+        Returns:
+            ``{"action": str, "id": str | None, "existing_id": str | None,
+            "similarity": float | None}`` where ``action`` is one of
+            ``"CREATE"``, ``"SKIP"``, ``"MERGE"``. For SKIP, ``id`` is
+            ``None`` and ``existing_id`` points at the near-duplicate. For
+            MERGE, ``id`` is the new entry and ``existing_id`` is the
+            superseded one. For CREATE, ``existing_id`` and ``similarity``
+            are ``None``.
+
+        See: https://github.com/qbtrix/soul-protocol/issues/231
+        """
+        # Resolve detect_contradictions default per tier.
+        if detect_contradictions is None:
+            detect_contradictions = type == MemoryType.SEMANTIC
+        # TODO: wire ContradictionDetector — see issue #231 follow-up.
+        _ = detect_contradictions  # currently unused; reserved for follow-up.
+
+        # Episodic and dedup-off: blunt write via remember().
+        if type == MemoryType.EPISODIC or not dedup:
+            new_id = await self.remember(
+                content,
+                type=type,
+                importance=importance,
+                emotion=emotion,
+                entities=entities,
+                visibility=visibility,
+                scope=scope,
+                domain=domain,
+                user_id=user_id,
+            )
+            return {
+                "action": "CREATE",
+                "id": new_id,
+                "existing_id": None,
+                "similarity": None,
+            }
+
+        # Pull existing entries from the tier store that matches the type.
+        if type == MemoryType.SEMANTIC:
+            existing = self._memory._semantic.facts()
+        elif type == MemoryType.PROCEDURAL:
+            existing = self._memory._procedural.entries()
+        elif type == MemoryType.SOCIAL:
+            existing = self._memory._social.entries()
+        else:
+            # Defensive — fall through to a blunt write for unknown types
+            # rather than silently mis-deduping against the wrong store.
+            new_id = await self.remember(
+                content,
+                type=type,
+                importance=importance,
+                emotion=emotion,
+                entities=entities,
+                visibility=visibility,
+                scope=scope,
+                domain=domain,
+                user_id=user_id,
+            )
+            return {
+                "action": "CREATE",
+                "id": new_id,
+                "existing_id": None,
+                "similarity": None,
+            }
+
+        # Domain isolation: when the caller asks for a non-default domain,
+        # only dedup against entries in the same domain. Default domain
+        # dedups against the full store (matches MemoryManager.observe()).
+        if domain != "default":
+            existing = [e for e in existing if e.domain == domain]
+
+        action, target_id = reconcile_fact(content, existing)
+
+        if action == "SKIP":
+            similarity: float | None = None
+            if target_id is not None:
+                for e in existing:
+                    if e.id == target_id:
+                        similarity = _jaccard_similarity(content, e.content)
+                        break
+            return {
+                "action": "SKIP",
+                "id": None,
+                "existing_id": target_id,
+                "similarity": similarity,
+            }
+
+        if action == "MERGE":
+            new_id = await self.remember(
+                content,
+                type=type,
+                importance=importance,
+                emotion=emotion,
+                entities=entities,
+                visibility=visibility,
+                scope=scope,
+                domain=domain,
+                user_id=user_id,
+            )
+            similarity = None
+            if target_id is not None:
+                for e in existing:
+                    if e.id == target_id:
+                        e.superseded_by = new_id
+                        similarity = _jaccard_similarity(content, e.content)
+                        break
+            return {
+                "action": "MERGE",
+                "id": new_id,
+                "existing_id": target_id,
+                "similarity": similarity,
+            }
+
+        # CREATE
+        new_id = await self.remember(
+            content,
+            type=type,
+            importance=importance,
+            emotion=emotion,
+            entities=entities,
+            visibility=visibility,
+            scope=scope,
+            domain=domain,
+            user_id=user_id,
+        )
+        return {
+            "action": "CREATE",
+            "id": new_id,
+            "existing_id": None,
+            "similarity": None,
+        }
 
     async def recall(
         self,

@@ -585,6 +585,84 @@ Core memory (persona and human knowledge) is not writable through `remember`. Us
 
 ---
 
+### `soul note` (v0.5.0, #231)
+
+Note a fact in a soul, routing the new content through the dedup pipeline before it lands in the store. Use this when a script, hook, or human is writing a single fact-shaped string and you want the soul to skip near-duplicates and merge enriched supersets instead of accumulating duplicates.
+
+`soul note` differs from the other two memory writers as follows:
+
+- **vs `soul remember`** — `remember` is a blunt append. Every call adds a fresh `MemoryEntry`, even when the content is byte-identical to something already stored. `note` runs the new content through `reconcile_fact()` (Jaccard + containment over tokenized strings) and applies the resulting SKIP / MERGE / CREATE decision. Pass `--no-dedup` to opt out and get the legacy `remember` behaviour.
+- **vs `soul observe`** — `observe` is the cognitive interaction pipeline. It takes a `--user-input` + `--agent-output` pair and runs the full sentiment / significance / entity-extraction stack on top of the memory write. `note` takes a single fact-shaped string and skips fact extraction (the caller already provided the fact). Use `note` when you have a fact, `observe` when you have a conversation turn.
+
+```bash
+# Semantic by default — facts the soul should know
+soul note aria.soul "User prefers dark mode"
+soul note aria.soul "Likes Python" --importance 7
+
+# Procedural — how to do things
+soul note aria.soul "To deploy: run make deploy" --type procedural
+
+# Episodic — events that happened (dedup is bypassed for episodic)
+soul note aria.soul "Shipped v0.5 today" --type episodic --importance 8
+
+# Domain-scoped (#41) — dedup is restricted to the same domain when non-default
+soul note aria.soul "Q3 revenue up 12 percent" --domain finance --importance 8
+
+# Force a blunt write — bypass dedup
+soul note aria.soul "always store this raw" --no-dedup
+```
+
+**Dedup pipeline:**
+
+For each call against the matching tier store, `note` computes a Jaccard-with-containment similarity against the existing (non-superseded) entries and picks one of three actions:
+
+- **CREATE** (similarity below 0.6) — a genuinely new fact. Stored as a new `MemoryEntry`. Returned as `{"action": "CREATE", "id": "<new>", "existing_id": null, "similarity": null}`.
+- **SKIP** (similarity above 0.85) — the new text duplicates an existing entry. Nothing is written. Returned as `{"action": "SKIP", "id": null, "existing_id": "<existing>", "similarity": 0.92}`.
+- **MERGE** (similarity 0.6 to 0.85) — the new text enriches an existing entry. The new content is stored, the old entry's `superseded_by` field points at the new id, and only the new entry shows in default recalls. Returned as `{"action": "MERGE", "id": "<new>", "existing_id": "<old>", "similarity": 0.75}`.
+
+Episodic memories bypass dedup entirely (events are unique by time). The `--no-dedup` flag falls through to the blunt `remember` path for callers that want to force a write.
+
+**Examples by action:**
+
+```bash
+# CREATE — first time the fact is seen
+soul note aria.soul "user prefers dark mode in the editor"
+# panel: CREATED
+
+# SKIP — second call with identical text
+soul note aria.soul "user prefers dark mode in the editor"
+# panel: SKIPPED, existing id, similarity 1.00
+
+# MERGE — second call enriches the first
+soul note aria.soul "Aria likes Python"
+soul note aria.soul "Aria likes Python and async code"
+# panel on second call: MERGED, existing id, similarity 0.75
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `TEXT` | Yes | The fact text to note. |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--importance, -i INT` | `5` | Importance score 1-10. |
+| `--emotion, -e TEXT` | | Emotion tag (e.g. `happy`, `sad`). |
+| `--type, -t [episodic\|semantic\|procedural\|social]` | `semantic` | Memory tier. Episodic bypasses dedup. |
+| `--domain, -d TEXT` | `default` | Domain sub-namespace (#41). When non-default, dedup is restricted to entries with the same domain. |
+| `--no-dedup` | off | Bypass the dedup pipeline and write unconditionally. Restores the legacy `remember` behaviour. |
+| `--no-contradictions` | off | Skip contradiction detection on stored facts. (Wiring is plumbed but disabled by default — see #231.) |
+
+**Output:** A panel showing the action taken (`CREATED` / `SKIPPED` / `MERGED`), the relevant memory IDs, similarity score (when applicable), tier, domain, importance, and emotion. Border colour signals the action: green for CREATE, yellow for SKIP, cyan for MERGE.
+
+> **Naming note.** Issue #231 originally proposed `soul observe` for this command, but `soul observe` is already taken by the cognitive interaction pipeline. The command ships as `soul note` to match the runtime method (`Soul.note()`); a follow-up issue tracks the longer-term consolidation.
+
+---
+
 ### `soul recall`
 
 Query a soul's memories by text, or list the most recent memories. Returns ranked results using activation-based relevance (recency + importance + match strength).

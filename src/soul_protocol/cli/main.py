@@ -1,4 +1,18 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-05-05 (#231) — Adds `soul note <path> "<fact>"` — the dedup
+#   pipeline counterpart to `soul remember`. Routes through Soul.note() so
+#   repeated calls with similar content collapse into SKIP / MERGE rather
+#   than accumulating duplicate semantic facts. Flags: --no-dedup (force
+#   blunt write), --no-contradictions (skip contradiction detection,
+#   plumbed for follow-up). Output panel reports CREATED / SKIPPED /
+#   MERGED with the relevant memory IDs and similarity score.
+#
+#   Naming deviation from the brief: the brief named the new command
+#   `soul observe`, but a pre-existing `soul observe` (cognitive
+#   pipeline, --user-input + --agent-output) lives later in this file
+#   and would shadow the new handler at click dispatch time. Registered
+#   as `soul note` to match the runtime method (Soul.note()). The
+#   follow-up issue should rename / consolidate.
 # Updated: 2026-05-02 (#192) — Brain-aligned memory update primitive commands.
 #   - `soul confirm <path> <id>`     refresh activation on a verified memory.
 #   - `soul update <path> <id> --patch <text>`  in-place patch within the
@@ -1170,6 +1184,148 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
         )
 
     asyncio.run(_remember())
+
+
+@cli.command("note")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("text")
+@click.option(
+    "--importance",
+    "-i",
+    type=click.IntRange(1, 10),
+    default=5,
+    help="Importance score 1-10 (default: 5)",
+)
+@click.option("--emotion", "-e", type=str, default=None, help="Emotion tag (e.g. happy, sad)")
+@click.option(
+    "--type",
+    "-t",
+    "memory_type",
+    type=click.Choice(["episodic", "semantic", "procedural", "social"], case_sensitive=False),
+    default="semantic",
+    help="Memory tier (default: semantic). Use episodic for events, procedural for skills, "
+    "social for relationship context.",
+)
+@click.option(
+    "--domain",
+    "-d",
+    type=str,
+    default="default",
+    help="Domain sub-namespace inside the layer (e.g. finance, legal). "
+    "Defaults to 'default' (#41).",
+)
+@click.option(
+    "--no-dedup",
+    "no_dedup",
+    is_flag=True,
+    default=False,
+    help="Bypass dedup and write the memory unconditionally (legacy 'remember' behaviour).",
+)
+@click.option(
+    "--no-contradictions",
+    "no_contradictions",
+    is_flag=True,
+    default=False,
+    help="Skip contradiction detection on stored facts.",
+)
+def observe_cmd(
+    path, text, importance, emotion, memory_type, domain, no_dedup, no_contradictions
+):
+    """Note a fact in a Soul, with dedup against existing memories (#231).
+
+    The brief for #231 originally specified ``soul observe`` for this
+    command, but a pre-existing ``soul observe`` (cognitive pipeline,
+    --user-input + --agent-output) already owns that name. Registered
+    here as ``soul note`` to match the runtime method
+    (:meth:`Soul.note`). The follow-up should reconcile names.
+
+    Like ``soul remember``, but routes the new fact through the dedup
+    pipeline (Jaccard + containment) before writing. Repeated calls with
+    near-identical content collapse into SKIP or MERGE rather than
+    accumulating duplicate entries. Episodic memories bypass dedup
+    (events are unique by time).
+
+    \b
+    Memory tiers:
+      episodic   — events that happened (what, when, where)
+      semantic   — facts the soul knows (default)
+      procedural — skills and how-to knowledge
+      social     — relationship memories (#41)
+
+    \b
+    Examples:
+      soul note aria.soul "User prefers dark mode"
+      soul note aria.soul "Likes Python" --importance 7
+      soul note aria.soul "Had a great day" --type episodic --emotion happy
+      soul note aria.soul "Q3 revenue up 12%" --domain finance --importance 8
+      soul note aria.soul "Always store this raw" --no-dedup
+    """
+    from soul_protocol.runtime.types import MemoryType
+
+    tier = MemoryType(memory_type.lower())
+
+    async def _observe():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        result = await soul.note(
+            text,
+            type=tier,
+            importance=importance,
+            emotion=emotion,
+            domain=domain,
+            dedup=not no_dedup,
+            detect_contradictions=False if no_contradictions else None,
+        )
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+
+        action = result["action"]
+        new_id = result["id"]
+        existing_id = result["existing_id"]
+        similarity = result["similarity"]
+
+        # Action -> verb / colour for the panel.
+        if action == "CREATE":
+            verb = "CREATED"
+            border = "green"
+        elif action == "SKIP":
+            verb = "SKIPPED"
+            border = "yellow"
+        else:  # MERGE
+            verb = "MERGED"
+            border = "cyan"
+
+        sim_line = (
+            f"  Similarity  [yellow]{similarity:.2f}[/yellow]\n"
+            if similarity is not None
+            else ""
+        )
+        new_id_line = f"  New ID      [dim]{new_id}[/dim]\n" if new_id else ""
+        existing_line = (
+            f"  Existing ID [dim]{existing_id}[/dim]\n" if existing_id else ""
+        )
+
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] noted:\n\n"
+                f"  [cyan]{text}[/cyan]\n\n"
+                f"  Action      [magenta]{verb}[/magenta]\n"
+                f"  Tier        [magenta]{tier.value}[/magenta]\n"
+                f"  Domain      [magenta]{domain}[/magenta]\n"
+                f"  Importance  [yellow]{importance}/10[/yellow]\n"
+                f"  Emotion     {emotion or '[dim]none[/dim]'}\n"
+                f"{new_id_line}"
+                f"{existing_line}"
+                f"{sim_line}",
+                title=f"Memory {verb}",
+                border_style=border,
+            )
+        )
+
+    asyncio.run(_observe())
 
 
 @cli.command("recall")

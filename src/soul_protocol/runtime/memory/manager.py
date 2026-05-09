@@ -111,7 +111,7 @@ from soul_protocol.runtime.memory.attention import (
 )
 from soul_protocol.runtime.memory.contradiction import ContradictionDetector
 from soul_protocol.runtime.memory.core import CoreMemoryManager
-from soul_protocol.runtime.memory.dedup import reconcile_fact
+from soul_protocol.runtime.memory.dedup import _jaccard_similarity, reconcile_fact
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
 from soul_protocol.runtime.memory.procedural import ProceduralStore
@@ -889,6 +889,147 @@ class MemoryManager:
 
     async def add_episodic(self, interaction: Interaction) -> str:
         return await self._episodic.add(interaction)
+
+    def _entries_for_type(
+        self,
+        memory_type: MemoryType,
+        *,
+        domain: str | None = None,
+        include_superseded: bool = False,
+    ) -> list[MemoryEntry]:
+        """Return entries for one built-in memory tier."""
+        if memory_type == MemoryType.SEMANTIC:
+            entries = self._semantic.facts(include_superseded=include_superseded)
+        elif memory_type == MemoryType.PROCEDURAL:
+            entries = self._procedural.entries()
+        elif memory_type == MemoryType.SOCIAL:
+            entries = self._social.entries()
+        elif memory_type == MemoryType.EPISODIC:
+            entries = self._episodic.entries()
+        else:
+            entries = []
+        if domain is not None:
+            entries = [entry for entry in entries if entry.domain == domain]
+        return entries
+
+    async def observe_fact(
+        self,
+        content: str,
+        *,
+        memory_type: MemoryType = MemoryType.SEMANTIC,
+        importance: int = 5,
+        emotion: str | None = None,
+        domain: str = "default",
+        user_id: str | None = None,
+        dedup: bool | None = None,
+        detect_contradictions: bool | None = None,
+    ) -> dict:
+        """Store a fact-shaped input with optional dedup + contradiction checks.
+
+        This is a CLI-friendly path for direct memory writes that should still
+        pass through the semantic reconciliation pipeline.
+        """
+        if memory_type == MemoryType.CORE:
+            raise ValueError("observe_fact does not support core memories")
+
+        if dedup is None:
+            dedup = memory_type != MemoryType.EPISODIC
+        if detect_contradictions is None:
+            detect_contradictions = memory_type != MemoryType.EPISODIC
+
+        existing = self._entries_for_type(memory_type, domain=domain, include_superseded=False)
+
+        best_match: MemoryEntry | None = None
+        best_similarity = 0.0
+        for candidate in existing:
+            if candidate.superseded_by is not None:
+                continue
+            sim = _jaccard_similarity(content, candidate.content)
+            if sim > best_similarity:
+                best_similarity = sim
+                best_match = candidate
+
+        action = "CREATE"
+        created_id: str | None = None
+        if dedup:
+            if best_match is not None and best_similarity > 0.85:
+                action = "SKIP"
+            elif best_match is not None and best_similarity >= 0.6:
+                action = "MERGE"
+
+        if action in {"CREATE", "MERGE"}:
+            entry = MemoryEntry(
+                type=memory_type,
+                content=content,
+                importance=importance,
+                emotion=emotion,
+                domain=domain,
+                user_id=user_id,
+            )
+            created_id = await self.add(entry)
+            if action == "MERGE" and best_match is not None:
+                best_match.superseded_by = created_id
+
+        contradictions: list[dict] = []
+        contradiction_enabled = (
+            detect_contradictions and memory_type == MemoryType.SEMANTIC and created_id is not None
+        )
+        if contradiction_enabled:
+            all_semantic = self._semantic.facts(include_superseded=False)
+            for cr in await self._contradiction_detector.detect(content, all_semantic):
+                if not cr.is_contradiction or not cr.old_memory_id:
+                    continue
+                if cr.old_memory_id == created_id:
+                    continue
+                for existing_fact in all_semantic:
+                    if existing_fact.id == cr.old_memory_id:
+                        existing_fact.superseded = True
+                        existing_fact.superseded_by = created_id
+                        break
+                contradictions.append(
+                    {
+                        "old_id": cr.old_memory_id,
+                        "new_id": created_id,
+                        "reason": cr.reason,
+                        "confidence": cr.confidence,
+                    }
+                )
+
+            already_superseded = {c["old_id"] for c in contradictions}
+            for cr in await self._contradiction_detector.detect_heuristic(content, all_semantic):
+                if not cr.is_contradiction or not cr.old_memory_id:
+                    continue
+                if cr.old_memory_id == created_id or cr.old_memory_id in already_superseded:
+                    continue
+                for existing_fact in all_semantic:
+                    if existing_fact.id == cr.old_memory_id:
+                        existing_fact.superseded = True
+                        existing_fact.superseded_by = created_id
+                        break
+                already_superseded.add(cr.old_memory_id)
+                contradictions.append(
+                    {
+                        "old_id": cr.old_memory_id,
+                        "new_id": created_id,
+                        "reason": cr.reason,
+                        "confidence": cr.confidence,
+                    }
+                )
+
+        return {
+            "action": action,
+            "memory_type": memory_type.value,
+            "memory_id": created_id or (best_match.id if best_match is not None else None),
+            "new_id": created_id,
+            "match_id": best_match.id if best_match is not None else None,
+            "match_similarity": best_similarity if best_match is not None else 0.0,
+            "domain": domain,
+            "importance": importance,
+            "emotion": emotion,
+            "contradictions": contradictions,
+            "dedup_enabled": dedup,
+            "contradictions_enabled": contradiction_enabled,
+        }
 
     async def observe(
         self,

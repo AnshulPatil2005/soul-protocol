@@ -127,7 +127,14 @@ class TestHealthCommand:
         # Add an episodic memory via observe
         runner.invoke(
             cli,
-            ["observe", soul_path, "--user", "I love cats", "--agent", "Cats are great!"],
+            [
+                "observe",
+                soul_path,
+                "--user-input",
+                "I love cats",
+                "--agent-output",
+                "Cats are great!",
+            ],
         )
 
         result = runner.invoke(cli, ["health", soul_path])

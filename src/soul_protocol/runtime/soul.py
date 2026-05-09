@@ -1339,6 +1339,43 @@ class Soul:
             logger.debug("Recall returned no results: query_len=%d", len(query))
         return results
 
+    async def observe_fact(
+        self,
+        content: str,
+        *,
+        memory_type: MemoryType = MemoryType.SEMANTIC,
+        importance: int = 5,
+        emotion: str | None = None,
+        domain: str = "default",
+        user_id: str | None = None,
+        dedup: bool | None = None,
+        detect_contradictions: bool | None = None,
+    ) -> dict:
+        """Store fact-shaped input with optional dedup/contradiction checks."""
+        result = await self._memory.observe_fact(
+            content,
+            memory_type=memory_type,
+            importance=importance,
+            emotion=emotion,
+            domain=domain,
+            user_id=user_id,
+            dedup=dedup,
+            detect_contradictions=detect_contradictions,
+        )
+        if result.get("new_id"):
+            self._safe_append_chain(
+                "memory.write",
+                {
+                    "user_id": user_id,
+                    "domain": domain,
+                    "layer": memory_type.value,
+                    "count": 1,
+                    "ids": [result["new_id"]],
+                    "action": result.get("action"),
+                },
+            )
+        return result
+
     async def smart_recall(
         self,
         query: str,

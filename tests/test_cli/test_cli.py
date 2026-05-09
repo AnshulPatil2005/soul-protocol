@@ -79,6 +79,7 @@ def test_remember_command(tmp_path):
 
     assert result.exit_code == 0
     assert "Memory Stored" in result.output
+    assert "deprecated" in result.output.lower()
     assert "User prefers dark mode" in result.output
     assert "7/10" in result.output
 
@@ -184,6 +185,105 @@ def test_remember_rejects_invalid_type(tmp_path):
 
     # core is a valid MemoryType but not allowed via CLI (core is persona-level)
     assert result.exit_code != 0
+
+
+def test_observe_fact_mode_defaults_to_semantic(tmp_path):
+    """observe with a single text argument stores a semantic memory by default."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "observe-fact-default.soul")
+    runner.invoke(cli, ["birth", "ObsFactDefault", "-o", soul_path])
+
+    result = runner.invoke(cli, ["observe", soul_path, "User prefers matcha", "-i", "7"])
+    assert result.exit_code == 0, result.output
+    assert "Memory Stored" in result.output
+    assert "Action" in result.output
+
+    with zipfile.ZipFile(soul_path) as zf:
+        semantic = json.loads(zf.read("memory/semantic.json"))
+    assert len(semantic) == 1
+    assert semantic[0]["content"] == "User prefers matcha"
+
+
+def test_observe_fact_dedup_skip_and_merge(tmp_path):
+    """observe fact mode reports SKIP for exact dupes and MERGE for near dupes."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "observe-dedup.soul")
+    runner.invoke(cli, ["birth", "ObsDedup", "-o", soul_path])
+
+    created = runner.invoke(cli, ["observe", soul_path, "User prefers Python"])
+    assert created.exit_code == 0, created.output
+    assert "Action" in created.output
+    assert "CREATE" in created.output
+
+    skipped = runner.invoke(cli, ["observe", soul_path, "User prefers Python"])
+    assert skipped.exit_code == 0, skipped.output
+    assert "Memory Skipped" in skipped.output
+    assert "SKIP" in skipped.output
+
+    merged = runner.invoke(
+        cli,
+        ["observe", soul_path, "User prefers Python for backend development"],
+    )
+    assert merged.exit_code == 0, merged.output
+    assert "Memory Merged" in merged.output
+    assert "MERGE" in merged.output
+
+
+def test_observe_fact_no_dedup_allows_blunt_appends(tmp_path):
+    """--no-dedup bypasses reconciliation and appends duplicate facts."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "observe-no-dedup.soul")
+    runner.invoke(cli, ["birth", "ObsNoDedup", "-o", soul_path])
+
+    first = runner.invoke(cli, ["observe", soul_path, "User likes tea", "--no-dedup"])
+    second = runner.invoke(cli, ["observe", soul_path, "User likes tea", "--no-dedup"])
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+
+    with zipfile.ZipFile(soul_path) as zf:
+        semantic = json.loads(zf.read("memory/semantic.json"))
+    matches = [entry for entry in semantic if entry["content"] == "User likes tea"]
+    assert len(matches) == 2
+
+
+def test_observe_fact_contradiction_supersedes_old_fact(tmp_path):
+    """Contradicting semantic facts should supersede older entries."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "observe-contradiction.soul")
+    runner.invoke(cli, ["birth", "ObsContradiction", "-o", soul_path])
+
+    before = runner.invoke(cli, ["observe", soul_path, "User lives in NYC"])
+    assert before.exit_code == 0, before.output
+    after = runner.invoke(cli, ["observe", soul_path, "User moved to Amsterdam"])
+    assert after.exit_code == 0, after.output
+    assert "Contradictions" in after.output
+
+    with zipfile.ZipFile(soul_path) as zf:
+        semantic = json.loads(zf.read("memory/semantic.json"))
+    nyc = [entry for entry in semantic if "User lives in NYC" in entry["content"]]
+    assert nyc, semantic
+    assert nyc[0].get("superseded_by") is not None
+
+
+def test_observe_interaction_mode_still_works(tmp_path):
+    """Legacy interaction observe mode remains available."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "observe-interaction.soul")
+    runner.invoke(cli, ["birth", "ObsInteraction", "-o", soul_path])
+
+    result = runner.invoke(
+        cli,
+        [
+            "observe",
+            soul_path,
+            "--user-input",
+            "Hello",
+            "--agent-output",
+            "Hi there!",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Observed" in result.output
 
 
 def test_recall_with_query(tmp_path):

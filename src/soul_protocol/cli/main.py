@@ -62,6 +62,7 @@ import asyncio
 import builtins
 import json
 import sys
+import warnings
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -1076,6 +1077,17 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
       soul remember aria.soul "Shipped v0.3" --type episodic --importance 8
       soul remember aria.soul "Q3 revenue up 12%" --domain finance --importance 8
     """
+    warnings.warn(
+        "soul remember is deprecated; use 'soul observe <path> \"<fact>\"' instead. "
+        "Use '--no-dedup' on observe for raw append behavior.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    console.print(
+        "[yellow]DeprecationWarning:[/yellow] `soul remember` is deprecated. "
+        "Use `soul observe <path> \"<fact>\"` (or add `--no-dedup` for raw writes)."
+    )
+
     from soul_protocol.runtime.types import MemoryType
 
     tier = MemoryType(memory_type.lower())
@@ -1653,9 +1665,45 @@ def _save_soul(soul, path):
 
 @cli.command("observe")
 @click.argument("path", type=click.Path(exists=True))
-@click.option("--user-input", "user_input", required=True, help="User's message")
-@click.option("--agent-output", "agent_output", required=True, help="Agent's response")
+@click.argument("text", required=False)
+@click.option("--user-input", "user_input", default=None, help="User's message")
+@click.option("--agent-output", "agent_output", default=None, help="Agent's response")
 @click.option("--channel", default="cli", help="Channel name (default: cli)")
+@click.option(
+    "--importance",
+    "-i",
+    type=click.IntRange(1, 10),
+    default=5,
+    help="Importance score 1-10 (default: 5, fact mode only)",
+)
+@click.option("--emotion", "-e", type=str, default=None, help="Emotion tag (fact mode only)")
+@click.option(
+    "--type",
+    "-t",
+    "memory_type",
+    type=click.Choice(["episodic", "semantic", "procedural", "social"], case_sensitive=False),
+    default="semantic",
+    help="Memory tier for fact mode (default: semantic)",
+)
+@click.option(
+    "--domain",
+    "-d",
+    type=str,
+    default="default",
+    help="Domain sub-namespace inside the layer (default: default).",
+)
+@click.option(
+    "--no-dedup",
+    is_flag=True,
+    default=False,
+    help="Disable dedup for fact mode and always append a new memory.",
+)
+@click.option(
+    "--no-contradictions",
+    is_flag=True,
+    default=False,
+    help="Disable contradiction detection for fact mode.",
+)
 @click.option(
     "--user",
     "user_id",
@@ -1663,36 +1711,125 @@ def _save_soul(soul, path):
     help="Attribute the observed memory to this user_id (multi-user souls, #46). "
     "Per-user bond is strengthened instead of the default bond.",
 )
-def observe_cmd(path, user_input, agent_output, channel, user_id):
-    """Process an interaction through the full cognitive pipeline.
+def observe_cmd(
+    path,
+    text,
+    user_input,
+    agent_output,
+    channel,
+    importance,
+    emotion,
+    memory_type,
+    domain,
+    no_dedup,
+    no_contradictions,
+    user_id,
+):
+    """Observe either an interaction or a single fact-shaped memory.
 
-    Runs sentiment detection, significance gating, memory storage,
-    entity extraction, self-model updates, and evolution triggers.
+    Interaction mode (legacy): pass ``--user-input`` and ``--agent-output``.
+    Fact mode (new): pass ``TEXT`` and optional dedup/contradiction flags.
 
     \b
     Examples:
       soul observe .soul/ --user-input "Hello" --agent-output "Hi there!"
-      soul observe aria.soul --user-input "Tell me a joke" --agent-output "Why did..." --channel discord
-      soul observe aria.soul --user-input "Hi" --agent-output "Hello!" --user alice
+      soul observe aria.soul "User prefers Python over JavaScript"
+      soul observe aria.soul "User moved to Amsterdam" --type semantic --importance 8
+      soul observe aria.soul "Shipped v0.3 today" --type episodic --no-dedup
     """
+    from soul_protocol.runtime.types import MemoryType
+
+    has_interaction_flags = user_input is not None or agent_output is not None
+    has_fact_text = text is not None
+    if has_fact_text and has_interaction_flags:
+        console.print(
+            "[red]Use either fact mode (`soul observe <path> \"<text>\"`) "
+            "or interaction mode (`--user-input` + `--agent-output`), not both.[/red]"
+        )
+        raise SystemExit(1)
+    if not has_fact_text and not has_interaction_flags:
+        console.print(
+            "[red]Provide either a fact text argument or both "
+            "`--user-input` and `--agent-output`.[/red]"
+        )
+        raise SystemExit(1)
+    if has_interaction_flags and (user_input is None or agent_output is None):
+        console.print("[red]Interaction mode requires both --user-input and --agent-output.[/red]")
+        raise SystemExit(1)
 
     async def _observe():
         from soul_protocol.runtime.soul import Soul
         from soul_protocol.runtime.types import Interaction
 
         soul = await Soul.awaken(path)
-        interaction = Interaction(
-            user_input=user_input,
-            agent_output=agent_output,
-            channel=channel,
-        )
-        await soul.observe(interaction, user_id=user_id)
+        if has_fact_text:
+            tier = MemoryType(memory_type.lower())
+            result = await soul.observe_fact(
+                text,
+                memory_type=tier,
+                importance=importance,
+                emotion=emotion,
+                domain=domain,
+                user_id=user_id,
+                dedup=False if no_dedup else None,
+                detect_contradictions=False if no_contradictions else None,
+            )
+        else:
+            interaction = Interaction(
+                user_input=user_input,
+                agent_output=agent_output,
+                channel=channel,
+            )
+            await soul.observe(interaction, user_id=user_id, domain=domain)
+            result = None
 
         # Save
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
             await soul.export(path, include_keys=True)
+
+        if has_fact_text and result is not None:
+            action = result.get("action", "CREATE")
+            if action == "SKIP":
+                panel_title = "Memory Skipped"
+                summary = (
+                    f"  Action      [yellow]{action}[/yellow]\n"
+                    f"  Existing ID [dim]{result.get('match_id')}[/dim]\n"
+                    f"  Similarity  [magenta]{result.get('match_similarity', 0.0):.2f}[/magenta]"
+                )
+            elif action == "MERGE":
+                panel_title = "Memory Merged"
+                summary = (
+                    f"  Action      [yellow]{action}[/yellow]\n"
+                    f"  Old ID      [dim]{result.get('match_id')}[/dim]\n"
+                    f"  New ID      [dim]{result.get('new_id')}[/dim]\n"
+                    f"  Similarity  [magenta]{result.get('match_similarity', 0.0):.2f}[/magenta]"
+                )
+            else:
+                panel_title = "Memory Stored"
+                summary = (
+                    f"  Action      [green]{action}[/green]\n"
+                    f"  New ID      [dim]{result.get('new_id')}[/dim]"
+                )
+            contradictions = result.get("contradictions", [])
+            contradictions_line = (
+                f"\n  Contradictions [red]{len(contradictions)}[/red]" if contradictions else ""
+            )
+            console.print(
+                Panel(
+                    f"[bold]{soul.name}[/bold] observed fact:\n\n"
+                    f"  [cyan]{text}[/cyan]\n\n"
+                    f"  Tier        [magenta]{memory_type.lower()}[/magenta]\n"
+                    f"  Domain      [magenta]{domain}[/magenta]\n"
+                    f"  Importance  [yellow]{importance}/10[/yellow]\n"
+                    f"  Emotion     {emotion or '[dim]none[/dim]'}\n"
+                    f"{summary}{contradictions_line}",
+                    title=panel_title,
+                    border_style="green",
+                )
+            )
+            return
 
         mood = soul.state.mood.value
         energy = soul.state.energy

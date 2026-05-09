@@ -514,7 +514,7 @@ soul export-a2a aria.soul -o card.json --url https://aria.example.com
 
 ### `soul remember`
 
-Store a memory directly in a soul. Use this when you already know what tier the memory belongs in and don't need the cognitive pipeline to decide for you (see `soul observe` for the pipeline-driven alternative).
+Deprecated alias for direct memory writes. Prefer `soul observe <path> "<fact>"`, which supports dedup and contradiction checks for non-episodic tiers.
 
 ```bash
 # Semantic by default — facts the soul should know
@@ -563,6 +563,8 @@ soul remember aria.soul "NDA expires in March" --domain legal --importance 7
 Core memory (persona and human knowledge) is not writable through `remember`. Use `soul edit-core` instead.
 
 **Output:** A confirmation panel showing the stored text, tier, domain, importance, emotion, and memory ID. The soul is saved automatically.
+
+**Deprecation:** `soul remember` emits a deprecation warning and points to `soul observe`. Keep using it only when you explicitly want the legacy raw-append path.
 
 ---
 
@@ -644,14 +646,25 @@ soul layers .soul/ --json
 
 ### `soul observe`
 
-Process an interaction through the full cognitive pipeline. Runs sentiment detection, significance gating, memory storage, entity extraction, self-model updates, and evolution triggers.
+`soul observe` supports two modes:
+
+- Interaction mode (legacy): process a user/agent exchange through the full cognitive pipeline.
+- Fact mode (new): store one fact-shaped string with dedup (`CREATE`/`SKIP`/`MERGE`) and optional contradiction detection.
 
 ```bash
+# Interaction mode
 soul observe .soul/ --user-input "Hello" --agent-output "Hi there!"
 soul observe aria.soul --user-input "Tell me a joke" --agent-output "Why did..." --channel discord
 
 # Multi-user (#46) — attribute the memory to one user
 soul observe aria.soul --user-input "Hi" --agent-output "Hello!" --user alice
+
+# Fact mode (semantic default)
+soul observe aria.soul "User prefers Python over JavaScript" --importance 8
+
+# Tier/domain controls in fact mode
+soul observe aria.soul "Shipped v0.3 today" --type episodic --no-dedup
+soul observe aria.soul "Q3 revenue up 12 percent" --type semantic --domain finance
 ```
 
 **Arguments:**
@@ -659,17 +672,29 @@ soul observe aria.soul --user-input "Hi" --agent-output "Hello!" --user alice
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `TEXT` | No | Fact text for fact mode. Omit for interaction mode. |
 
 **Options:**
 
 | Option | Description |
 |--------|-------------|
-| `--user-input TEXT` | User's message. **Required.** |
-| `--agent-output TEXT` | Agent's response. **Required.** |
+| `--user-input TEXT` | User's message (interaction mode). |
+| `--agent-output TEXT` | Agent's response (interaction mode). |
 | `--channel TEXT` | Channel name. Defaults to `cli`. |
+| `--importance, -i INT` | Importance score (fact mode). Default `5`. |
+| `--emotion, -e TEXT` | Emotion tag (fact mode). |
+| `--type, -t [episodic\|semantic\|procedural\|social]` | Tier for fact mode. Default `semantic`. |
+| `--domain, -d TEXT` | Domain sub-namespace. Default `default`. |
+| `--no-dedup` | Disable fact-mode dedup and force raw append. |
+| `--no-contradictions` | Disable fact-mode contradiction detection. |
 | `--user TEXT` | Attribute observed memories to this `user_id` (#46). The per-user bond is strengthened instead of the default bond. |
 
-**Output:** Prints the soul's mood and energy after processing the interaction. Saves the soul automatically.
+**Output:**
+
+- Interaction mode prints mood + energy after processing.
+- Fact mode prints the dedup action, relevant IDs/similarity, and contradiction count.
+
+Use either `TEXT` (fact mode) or `--user-input` + `--agent-output` (interaction mode), not both.
 
 ---
 
@@ -1448,3 +1473,4 @@ The CLI reads and writes these formats:
 | `.yaml` / `.yml` | Yes | Yes | Human-editable config |
 | `.json` | Yes | Yes | Full SoulConfig serialization |
 | `.md` | Yes | Yes | Markdown (read: SOUL.md parser; write: DNA-only export) |
+

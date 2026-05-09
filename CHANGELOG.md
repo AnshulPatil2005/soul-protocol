@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+- CLI memory ingestion upgrade (issue #231):
+  - Added fact mode to `soul observe`: `soul observe <path> "<fact>"` with tier/domain controls, dedup actions (`CREATE`/`SKIP`/`MERGE`), `--no-dedup`, and `--no-contradictions`.
+  - Added `Soul.observe_fact()` / `MemoryManager.observe_fact()` runtime path for fact-shaped input with tier-aware dedup and semantic contradiction supersession.
+  - Deprecated `soul remember` (warning emitted, command remains available as alias behavior).
+  - Added CLI tests for observe fact-mode dedup, contradiction handling, and no-dedup opt-out.
+
 ---
 
 ## [0.4.0] -- 2026-04-29
